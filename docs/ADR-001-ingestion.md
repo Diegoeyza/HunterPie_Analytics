@@ -67,6 +67,16 @@ disk. WSL polls the folder (no watcher — `/mnt/c` doesn't fire inotify) and
 imports via the already-built Phase 1 `upsert_hunt` (dedup makes re-imports
 safe). Single write per hunt, no networking, no auth, no cloud.
 
+Implemented 2026-09-06 on branch `analytics-export` of
+`Diegoeyza/HunterPie` (from tag `v2.14.0.466`):
+`HunterPie/Features/Statistics/Services/HuntFileDumpService.cs` mirrors
+`QuestTrackerService` (same quest-type guards, same
+`HuntStatisticsService.Export()`), dumps `PoogieQuestStatisticsModel` as
+`HuntExports/<hash>_<ts>.json`, never requires login, never throws into the
+overlay. Registered in `StatisticsModule` + `ContextInitializers`. Also gates
+the Windows-only `PostBuild` step so Linux cross-builds pass. WSL Release
+build: zero errors.
+
 Why this over the alternatives:
 - Manual entry: no fork, but tedious per hunt and no time series (kills FR-3.3).
 - Cloud download: not offered (docs list Summaries + Dashboard only, no

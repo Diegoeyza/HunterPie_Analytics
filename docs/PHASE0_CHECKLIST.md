@@ -90,7 +90,10 @@ PS C:\Users\diego>
     (read-denied); `Game/Wilds/` holds static data only
     (MonsterData.xml/AbnormalityData.xml); `Address/` holds version maps.
 - [ ] "Hello world" plugin / DLL load / overhead: CANNOT PROCEED — nothing to
-  plug into. See ADR-001 for the revised options.
+  plug into. Superseded 2026-09-06 by the fork path (ADR-001): dump module
+  `HuntFileDumpService` built clean on branch `analytics-export` of
+  `Diegoeyza/HunterPie`. Remaining Windows-side work: deploy the fork build,
+  run one hunt, confirm `HuntExports/*.json` appears.
 - [x] WSL preconditions: .NET 10 SDK installed via dotnet-install
   (`~/.dotnet`, 10.0.400, no sudo needed — sidesteps the broken Docker apt
   source); cross-boundary read of the install dir confirmed.
@@ -124,5 +127,6 @@ PS C:\Users\diego>
   rejected (§2 evidence). Versions recorded.
 - [x] Fallback plan if HunterPie breaks after a game patch (staleness alert +
   manual re-import — see ADR-001).
-- [ ] Go / no-go signed off: ________ (PENDING — exit criteria need the §3
-  spike + one live hunt end-to-end with player/weapon/monster/damage/timestamp)
+- [ ] Go / no-go signed off: ________ (PENDING — exit criteria need one live
+  hunt on the fork build end-to-end: `HuntExports/*.json` → import →
+  player/weapon/monster/damage/timestamp in DB)
