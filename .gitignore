@@ -1,0 +1,27 @@
+# Python (FastAPI, tooling)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Node (Next.js dashboard)
+node_modules/
+.next/
+out/
+
+# .NET (HunterPie plugin)
+bin/
+obj/
+*.user
+
+# SQLite
+*.db
+*.db-journal
+*.sqlite3
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
