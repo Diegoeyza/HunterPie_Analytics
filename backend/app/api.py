@@ -72,6 +72,14 @@ def curve(hunt_id: int, max_points: int = 500, db: Session = Depends(get_db)):
         raise HTTPException(404, f"hunt {hunt_id} not found")
 
 
+@app.get("/api/hunts/{hunt_id}/abnormalities")
+def abnormalities(hunt_id: int, db: Session = Depends(get_db)):
+    try:
+        return queries.hunt_abnormalities(db, hunt_id)
+    except KeyError:
+        raise HTTPException(404, f"hunt {hunt_id} not found")
+
+
 @app.get("/api/synergy")
 def synergy(player_ids: str | None = None, monster_id: int | None = None,
             stars: int | None = None, db: Session = Depends(get_db)):

@@ -16,6 +16,7 @@ from .models import (
     MonsterEvent,
     MonsterHealthStep,
     Player,
+    PlayerAbnormality,
     PlayerPin,
     Weapon,
 )
@@ -294,6 +295,36 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500) -> dict:
         "events": [{"type": e.event_type, "start": e.start_offset_seconds,
                     "end": e.end_offset_seconds} for e in events],
         "hp_curve": [{"t": s.ts_offset_seconds, "hp": s.hp_fraction} for s in hp],
+    }
+
+
+def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
+    """Abnormality activations for a hunt, grouped by player."""
+    hunt = session.get(Hunt, hunt_id)
+    if hunt is None:
+        raise KeyError(hunt_id)
+    rows = session.execute(
+        select(PlayerAbnormality, Player.display_name)
+        .join(Player, Player.id == PlayerAbnormality.player_id)
+        .where(PlayerAbnormality.hunt_id == hunt_id)
+        .order_by(Player.display_name, PlayerAbnormality.abnormality_id,
+                  PlayerAbnormality.started_at_offset)
+    ).all()
+    players: dict[str, dict] = {}
+    for ab, pname in rows:
+        pa = players.setdefault(pname, {"player": pname, "abnormalities": []})
+        pa["abnormalities"].append({
+            "id": ab.abnormality_id,
+            "category": ab.category,
+            "start": ab.started_at_offset,
+            "end": ab.finished_at_offset,
+        })
+    return {
+        "hunt_id": hunt_id,
+        "monster": hunt.monster.name,
+        "started_at": hunt.started_at.isoformat(),
+        "clear_s": _hunt_duration_s(hunt),
+        "players": list(players.values()),
     }
 
 

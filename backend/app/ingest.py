@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .models import DpsSnapshot, Hunt, HuntPlayer, MonsterEvent, MonsterHealthStep, Player
+from .models import DpsSnapshot, Hunt, HuntPlayer, MonsterEvent, MonsterHealthStep, Player, PlayerAbnormality
 
 REQUIRED_HUNT_FIELDS = (
     "monster_id",
@@ -170,6 +170,19 @@ def upsert_hunt(session: Session, payload: dict) -> tuple[Hunt, bool, list[str]]
                     monster_id=hunt.monster_id,
                     ts_offset_seconds=h["ts_offset_seconds"],
                     hp_fraction=h["hp_fraction"],
+                )
+            )
+        for a in payload.get("abnormalities", []):
+            if a["display_name"] not in player_ids:
+                continue
+            session.add(
+                PlayerAbnormality(
+                    hunt_id=hunt.id,
+                    player_id=player_ids[a["display_name"]],
+                    abnormality_id=a["abnormality_id"],
+                    category=a["category"],
+                    started_at_offset=a["started_at_offset"],
+                    finished_at_offset=a.get("finished_at_offset"),
                 )
             )
         session.commit()

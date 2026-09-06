@@ -67,7 +67,8 @@ def test_payload_mapping():
     assert [s["cumulative_damage"] for s in payload["snapshots"]] == [57.0, 183.0]
     assert payload["snapshots"][-1]["ts_offset_seconds"] > 176  # past finished_at
     assert payload["events"][0]["event_type"] == "enrage"
-    assert any("abnormality" in w for w in warnings)
+    # abnormalities are now imported
+    assert len(payload["abnormalities"]) == 0  # sample doc has empty activations
 
 
 def test_end_to_end_import_and_redup():

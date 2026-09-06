@@ -7,6 +7,7 @@ import RecordsView from "../components/views/RecordsView";
 import CompareView from "../components/views/CompareView";
 import ActivityView from "../components/views/ActivityView";
 import SynergyView from "../components/views/SynergyView";
+import BuffsView from "../components/views/BuffsView";
 
 export interface ViewCtx {
   /** Hunter scope: player ids to focus on. Empty = all hunters. */
@@ -69,5 +70,11 @@ export const TABS: TabDef[] = [
     title: "Synergy",
     blurb: "FR-3.4 — clear time and damage share by teammate pairing (supporters excluded).",
     render: (ctx) => <SynergyView scope={ctx.scope} />,
+  },
+  {
+    id: "buffs",
+    title: "Buffs",
+    blurb: "Consumable, skill, song and debuff uptime per player per hunt. HunterPie user only.",
+    render: (ctx) => <BuffsView scope={ctx.scope} />,
   },
 ];

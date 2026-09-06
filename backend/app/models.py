@@ -141,3 +141,19 @@ class PlayerPin(Base):
                                            primary_key=True)
     pinned_at: Mapped[datetime] = mapped_column(DateTime, nullable=False,
                                                 default=datetime.utcnow)
+
+
+class PlayerAbnormality(Base):
+    __tablename__ = "player_abnormalities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    hunt_id: Mapped[int] = mapped_column(ForeignKey("hunts.id", ondelete="CASCADE"), nullable=False)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), nullable=False)
+    abnormality_id: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at_offset: Mapped[float] = mapped_column(Float, nullable=False)
+    finished_at_offset: Mapped[float | None] = mapped_column(Float)
+
+    __table_args__ = (
+        Index("idx_abnormalities_hunt_player", "hunt_id", "player_id"),
+    )

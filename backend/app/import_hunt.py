@@ -102,7 +102,7 @@ def poogie_to_payload(doc: dict, names: dict[int, str],
 
     players = []
     snapshots = []
-    abnormality_count = 0
+    abnormalities = []
     for p in doc.get("players", []):
         frames = sorted(p.get("damages", []), key=lambda f: f["dealt_at"])
         total = sum(f.get("damage", 0) for f in frames)
@@ -127,10 +127,18 @@ def poogie_to_payload(doc: dict, names: dict[int, str],
                 "instant_dps": f.get("damage", 0) / dt if dt > 0 else 0.0,
             })
             prev = ts
-        abnormality_count += len(p.get("abnormalities", []))
-    if abnormality_count:
-        warnings.append(f"{abnormality_count} player abnormality tracks not "
-                        f"imported (no table yet)")
+        for ab in p.get("abnormalities", []):
+            ab_id = ab["id"]
+            category = ab_id.split("_")[0] if "_" in ab_id else "Unknown"
+            for act in ab.get("activations", []):
+                abnormalities.append({
+                    "display_name": p["name"],
+                    "abnormality_id": ab_id,
+                    "category": category,
+                    "started_at_offset": (parse_ts(act["started_at"]) - started).total_seconds(),
+                    "finished_at_offset": (parse_ts(act["finished_at"]) - started).total_seconds()
+                    if act.get("finished_at") else None,
+                })
 
     events = []
     for a in (m.get("enrage") or {}).get("activations", []):
@@ -166,6 +174,7 @@ def poogie_to_payload(doc: dict, names: dict[int, str],
         "cleared": True,  # dump only written on QuestStatus.Success
         "players": players,
         "snapshots": snapshots,
+        "abnormalities": abnormalities,
         "events": events,
         "hp_steps": hp_steps,
         "hunterpie_version": hunterpie_version,
