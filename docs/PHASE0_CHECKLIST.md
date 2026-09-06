@@ -127,6 +127,7 @@ PS C:\Users\diego>
   rejected (§2 evidence). Versions recorded.
 - [x] Fallback plan if HunterPie breaks after a game patch (staleness alert +
   manual re-import — see ADR-001).
-- [ ] Go / no-go signed off: ________ (PENDING — exit criteria need one live
-  hunt on the fork build end-to-end: `HuntExports/*.json` → import →
-  player/weapon/monster/damage/timestamp in DB)
+- [x] Go / no-go signed off: **GO ✅ (2026-09-06)** — real Wilds hunt
+  end-to-end: `HuntExports/5B0389D5…_20260906_033602.json` → importer →
+  DB has player Isi / HuntingHorn / Xu Wu (id 31) / 16908 dmg over 193
+  snapshots / 1 enrage span. Re-import dedups. Phase 0 closed.

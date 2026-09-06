@@ -16,6 +16,18 @@ Phase 0 — Ingestion spike (go/no-go on HunterPie data source). Nothing else st
 
 ```sh
 python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
-.venv/bin/python -m pytest backend/tests -q          # 6 upsert/dedup tests
+.venv/bin/python -m pytest backend/tests -q          # 12 tests
 cd backend && ../.venv/bin/python -m app.seed --db hunts.db --hunts 50
 ```
+
+## Importing real hunts (fork HuntExports JSON)
+
+```sh
+cd backend && ../.venv/bin/python -m app.import_hunt --db hunts.db \
+  --file "/mnt/c/src/hunt-sample.json"   # or --dir "/mnt/c/.../HuntExports"
+```
+
+Maps the fork's quest-end dump (players, per-frame damage, enrage spans)
+into the schema; re-imports dedup safely. Monster names resolve from the
+Wilds section of HunterPie's `Languages/en-us.xml` (Rise/World share the
+numeric ids, so the section matters).
