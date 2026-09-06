@@ -22,11 +22,34 @@ interface CurveData {
   hp_curve: { t: number; hp: number }[];
 }
 
-/** Merge n players' cumulative series + monster HP onto one time grid.
- *  Everything is forward-filled per row so all lines share the same x
- *  positions (a <Line> with its own `data` would be plotted by INDEX,
- *  misaligning shorter series like the 19-point HP curve). */
-function mergeSeries(players: CurvePlayer[], hp: { t: number; hp: number }[]) {
+type Metric = "damage" | "dps";
+const SMOOTH_WINDOW = 5;
+
+/** Compute DPS from cumulative damage, starting from each player's first hit. */
+function computeDps(points: CurvePoint[]): { t: number; dps: number }[] {
+  if (points.length === 0) return [];
+  const firstHit = points[0].t;
+  return points.map((q) => ({
+    t: q.t,
+    dps: q.t > firstHit ? q.dmg / (q.t - firstHit) : 0,
+  }));
+}
+
+/** Rolling mean over a player's DPS series. */
+function smoothDps(dpsSeries: { t: number; dps: number }[]): { t: number; dps: number }[] {
+  return dpsSeries.map((q, i) => {
+    const seg = dpsSeries.slice(Math.max(0, i - SMOOTH_WINDOW + 1), i + 1);
+    return { t: q.t, dps: seg.reduce((a, b) => a + b.dps, 0) / seg.length };
+  });
+}
+
+/** Merge n players' series + monster HP onto one time grid.
+ *  Everything shares x positions so no line is misaligned. */
+function mergeSeries(players: CurvePlayer[], hp: { t: number; hp: number }[],
+                     metric: Metric) {
+  const smoothed = new Map(
+    players.map((p) => [p.player, smoothDps(computeDps(p.points))])
+  );
   const times = Array.from(
     new Set([
       ...players.flatMap((p) => p.points.map((q) => q.t)),
@@ -37,12 +60,17 @@ function mergeSeries(players: CurvePlayer[], hp: { t: number; hp: number }[]) {
   return times.map((t) => {
     const row: Record<string, number> = { t };
     for (const p of players) {
-      let v: number | null = null;
-      for (const q of p.points) {
-        if (q.t <= t + 1e-9) v = q.dmg;
-        else break;
+      if (metric === "damage") {
+        let v: number | null = null;
+        for (const q of p.points) {
+          if (q.t <= t + 1e-9) v = q.dmg;
+          else break;
+        }
+        if (v !== null) row[p.player] = Math.round(v);
+      } else {
+        const hit = (smoothed.get(p.player) ?? []).find((q) => Math.abs(q.t - t) < 1e-9);
+        if (hit) row[p.player] = Math.round(hit.dps * 10) / 10;
       }
-      if (v !== null) row[p.player] = Math.round(v);
     }
     let hv: number | null = null;
     for (const q of hpSorted) {
@@ -59,6 +87,7 @@ export default function CurveView({ scope }: { scope: number[] }) {
   const [huntId, setHuntId] = useState<number | null>(null);
   const [curve, setCurve] = useState<CurveData | null>(null);
   const [showHp, setShowHp] = useState(true);
+  const [metric, setMetric] = useState<Metric>("damage");
   const [nameToId, setNameToId] = useState<Map<string, number>>(new Map());
   const [error, setError] = useState<string | null>(null);
 
@@ -85,8 +114,8 @@ export default function CurveView({ scope }: { scope: number[] }) {
   }, [huntId]);
 
   const merged = useMemo(
-    () => (curve ? mergeSeries(curve.players, showHp ? curve.hp_curve : []) : []),
-    [curve, showHp]
+    () => (curve ? mergeSeries(curve.players, showHp ? curve.hp_curve : [], metric) : []),
+    [curve, showHp, metric]
   );
 
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
@@ -115,6 +144,12 @@ export default function CurveView({ scope }: { scope: number[] }) {
           <input type="checkbox" checked={showHp} onChange={(e) => setShowHp(e.target.checked)} />
           Monster HP
         </label>
+        <label>Metric
+          <select value={metric} onChange={(e) => setMetric(e.target.value as Metric)}>
+            <option value="damage">Cumulative damage</option>
+            <option value="dps">DPS (5s rolling avg)</option>
+          </select>
+        </label>
       </div>
       {curve && (
         <>
@@ -132,7 +167,10 @@ export default function CurveView({ scope }: { scope: number[] }) {
                 tickFormatter={(v: number) => `${Math.round(v)}s`}
                 label={{ value: "time since quest start", fill: "#9aa1b2", fontSize: 11, position: "insideBottom", offset: -2 }} />
               <YAxis tick={{ fill: "#9aa1b2", fontSize: 11 }}
-                label={{ value: "cumulative damage", fill: "#9aa1b2", fontSize: 11, angle: -90, position: "insideLeft" }} />
+                label={{
+                  value: metric === "damage" ? "cumulative damage" : "DPS (5s rolling avg)",
+                  fill: "#9aa1b2", fontSize: 11, angle: -90, position: "insideLeft",
+                }} />
               <YAxis yAxisId="hp" orientation="right" domain={[0, 1]}
                 tick={{ fill: "#e05c5c", fontSize: 11 }}
                 tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
@@ -140,18 +178,20 @@ export default function CurveView({ scope }: { scope: number[] }) {
                 hide={!showHp} />
               <Tooltip
                 contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }}
-                labelFormatter={(v: number) => `${typeof v === "number" ? v.toFixed(1) : v}s`}
-                formatter={(value, name) =>
-                  name === "monster HP"
-                    ? [`${((value as number) * 100).toFixed(1)}%`, name]
-                    : [typeof value === "number" ? Math.round(value).toLocaleString() : value, name]
-                }
+                labelFormatter={(v) => `${typeof v === "number" ? v.toFixed(1) : v}s`}
+                formatter={(value, name) => {
+                  if (name === "monster HP") return [`${((value as number) * 100).toFixed(1)}%`, name];
+                  if (typeof value !== "number") return [value, name];
+                  return metric === "damage"
+                    ? [Math.round(value).toLocaleString(), name]
+                    : [`${value.toFixed(1)} DPS`, name];
+                }}
               />
               <Legend />
               {curve.events.map((e, i) => (
                 <ReferenceArea key={i} x1={e.start} x2={e.end ?? undefined}
-                  fill="#e05c5c" fillOpacity={0.12}
-                  label={{ value: e.type, fill: "#e05c5c", fontSize: 11, position: "insideTopRight" }} />
+                  fill="#e05c5c" fillOpacity={0.18}
+                  stroke="#e05c5c" strokeOpacity={0.4} strokeDasharray="3 3" />
               ))}
               {curve.players.map((p, i) => {
                 const dimmed = scope.length > 0 &&

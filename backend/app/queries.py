@@ -221,7 +221,8 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500) -> dict:
         s = series.setdefault(snap.player_id,
                               {"player": name, "weapon": weapons.get(snap.player_id),
                                "points": []})
-        s["points"].append({"t": snap.ts_offset_seconds, "dmg": snap.cumulative_damage})
+        s["points"].append({"t": snap.ts_offset_seconds, "dmg": snap.cumulative_damage,
+                            "dps": snap.instant_dps})
     for s in series.values():
         pts = s["points"]
         if len(pts) > max_points:

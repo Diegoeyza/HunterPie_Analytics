@@ -113,6 +113,7 @@ def test_curve_and_404():
     hunt_id = client.get("/api/hunts").json()["hunts"][0]["id"]
     curve = client.get(f"/api/hunts/{hunt_id}/curve").json()
     assert curve["players"] and curve["players"][0]["points"]
+    assert set(curve["players"][0]["points"][0]) == {"t", "dmg", "dps"}
     assert client.get("/api/hunts/9999/curve").status_code == 404
 
 
