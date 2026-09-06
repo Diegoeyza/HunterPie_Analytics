@@ -37,16 +37,26 @@ def _hunt_duration_s(hunt: Hunt) -> float | None:
 
 
 def _engagement_duration_s(session: Session, hunt_id: int) -> float | None:
-    """First-hit to last-hit window from DPS snapshots (the actual fight).
-    Falls back to total hunt duration when snapshots are missing or
-    there is only one data point (engagement window would be 0)."""
-    row = session.execute(
-        select(func.min(DpsSnapshot.ts_offset_seconds),
-               func.max(DpsSnapshot.ts_offset_seconds))
+    """First-hit to monster-death window for DPS.
+    Death time = last monster HP step. Falls back to last snapshot,
+    then to total hunt duration."""
+    first = session.execute(
+        select(func.min(DpsSnapshot.ts_offset_seconds))
         .where(DpsSnapshot.hunt_id == hunt_id)
-    ).one()
-    if row[0] is not None and row[1] is not None and row[1] > row[0]:
-        return row[1] - row[0]
+    ).scalar()
+    death = session.execute(
+        select(func.max(MonsterHealthStep.ts_offset_seconds))
+        .where(MonsterHealthStep.hunt_id == hunt_id)
+    ).scalar()
+    if first is not None and death is not None and death > first:
+        return death - first
+    # fallback: last damage snapshot
+    last = session.execute(
+        select(func.max(DpsSnapshot.ts_offset_seconds))
+        .where(DpsSnapshot.hunt_id == hunt_id)
+    ).scalar()
+    if first is not None and last is not None and last > first:
+        return last - first
     return _hunt_duration_s(session.get(Hunt, hunt_id))
 
 
