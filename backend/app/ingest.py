@@ -86,19 +86,12 @@ def upsert_hunt(session: Session, payload: dict) -> tuple[Hunt, bool, list[str]]
     quest_id = payload.get("quest_id_external")
 
     existing: Hunt | None = None
-    if quest_id:
-        existing = session.execute(
-            select(Hunt).where(Hunt.quest_id_external == quest_id)
-        ).scalar_one_or_none()
-    if existing is None:
-        dedup_hash = payload.get("dedup_hash") or compute_dedup_hash(
-            payload["monster_id"], player_names, started_at
-        )
-        existing = session.execute(
-            select(Hunt).where(Hunt.dedup_hash == dedup_hash)
-        ).scalar_one_or_none()
-    else:
-        dedup_hash = existing.dedup_hash
+    dedup_hash = payload.get("dedup_hash") or compute_dedup_hash(
+        payload["monster_id"], player_names, started_at
+    )
+    existing = session.execute(
+        select(Hunt).where(Hunt.dedup_hash == dedup_hash)
+    ).scalar_one_or_none()
     if existing is not None:
         return existing, False, warnings
 
