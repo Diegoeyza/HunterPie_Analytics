@@ -109,7 +109,7 @@ export default function HighScoreView() {
   return (
     <div className="card">
       {filters}
-      <h2>High scores ({rows.length}) — one entry per cleared hunt, main player = top DPS</h2>
+      <h2>High scores ({rows.length}) — one row per hunter per cleared hunt</h2>
       <table className="grid">
         <thead>
           <tr>

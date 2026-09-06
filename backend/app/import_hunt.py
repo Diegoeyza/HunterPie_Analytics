@@ -35,6 +35,8 @@ WEAPONS = [
 DEFAULT_HUNTERPIE_VERSION = "2.14.0.466-analytics"
 DEFAULT_GAME_VERSION = "1.042.00.02"
 DEFAULT_NAMES_XML = Path("/mnt/c/Program Files/HunterPie/Languages/en-us.xml")
+# Bundled Wilds names so `seeds/` import without a HunterPie install.
+BUNDLED_NAMES_JSON = Path(__file__).resolve().parent / "data" / "wilds_monster_names.json"
 
 
 def parse_ts(value: str) -> datetime:
@@ -47,20 +49,27 @@ def parse_ts(value: str) -> datetime:
 
 def load_monster_names(xml_path: str | Path | None = None) -> dict[int, str]:
     """Monster names from the Wilds section only — Rise/World reuse the same
-    numeric ids (e.g. 31 = Tetranadon/Paolumu/Xu Wu)."""
+    numeric ids (e.g. 31 = Tetranadon/Paolumu/Xu Wu).
+
+    Resolution order: explicit --names-xml > HunterPie default path >
+    repo-bundled data/wilds_monster_names.json (so seeds/ work anywhere).
+    """
     import xml.etree.ElementTree as ET
 
     if isinstance(xml_path, str):
         xml_path = Path(xml_path)
     path = xml_path or (DEFAULT_NAMES_XML if DEFAULT_NAMES_XML.exists() else None)
-    if path is None or not path.exists():
-        return {}
-    root = ET.parse(str(path)).getroot()
-    wilds = root.find("./Monsters/Wilds")
-    if wilds is None:
-        return {}
-    return {int(m.get("Id")): m.get("String", "")
-            for m in wilds.iter("Monster") if m.get("Id")}
+    if path is not None and path.exists():
+        root = ET.parse(str(path)).getroot()
+        wilds = root.find("./Monsters/Wilds")
+        if wilds is None:
+            return {}
+        return {int(m.get("Id")): m.get("String", "")
+                for m in wilds.iter("Monster") if m.get("Id")}
+    if BUNDLED_NAMES_JSON.exists():
+        return {int(k): v for k, v in
+                json.loads(BUNDLED_NAMES_JSON.read_text(encoding="utf-8")).items()}
+    return {}
 
 
 def ensure_weapon(session, weapon_id: int | None) -> int | None:
