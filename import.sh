@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 HUNTS_DB="${HUNTS_DB:-backend/hunts.db}"
-HUNT_EXPORTS="/mnt/c/Users/diego/Documents/HunterPie/HuntExports"
+HUNT_EXPORTS="/mnt/c/Program Files/HunterPie/HuntExports"
 
 if [ "${1:-}" = "--dir" ]; then
   HUNT_EXPORTS="${2:-$HUNT_EXPORTS}"
