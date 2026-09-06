@@ -67,32 +67,33 @@ PS C:\Users\diego>
 - [x] If NOT found: cloud scraper explicitly OUT for V1 (auth, tier limits,
   ToS) — recorded in ADR-001, moving to §3.
 
-## 3. Plugin API spike (~1–2 days) — IN PROGRESS ⏳ (references confirmed, spike open)
+## 3. Plugin API spike (~1–2 days) — BLOCKED ⛔ (no loader in installed build)
 
-Concrete starting points (all confirmed to exist upstream):
-
-- [x] `Haato3o/HunterPie.Plugins` — DamageChat, DiscordWebhook, TwitchIntegration.
-- [x] `HunterPie/Arisen` — standalone plugin (ArisenPlugin.cs,
-  ArisenPluginModule.cs, plugin.manifest.json). Its csproj targets
-  **net10.0-windows7.0** — use that as the scaffold TFM, not
-  `dotnet new classlib` defaults.
-- [x] `HunterPie/deploy-plugin` — GitHub Action (action.yml + scripts).
-- [x] Scaffold TFM: **net10.0-windows7.0** (from Arisen csproj + §1 runtime evidence).
-- [ ] "Hello world" plugin: POST one event (e.g. quest start) to a throwaway WSL endpoint
-- [ ] Copy DLL to `HunterPie/Plugins/`, confirm it loads and fires from Windows
-- [ ] CPU/mem overhead during a real hunt (Task Manager / dotnet-counters): ________
-
-⚠️ Version skew: Arisen references HunterPie.Core 2.15.0.159 / HunterPie.UI
-2.15.0.181 NuGet, but the installed app is 2.14.0.466. Pin package versions
-to match the installed build or expect load failures. (HunterPie was running,
-PID 26304, during verification — its log file was locked.)
-
-WSL-side preconditions (checked 2026-09-06): `dotnet` NOT installed in WSL,
-and install needs an interactive sudo password — not done. To unblock:
-`sudo apt update && sudo apt install -y dotnet-sdk-10.0`, then scaffold with
-`-f net10.0-windows7.0`. Cross-boundary read confirmed from WSL
-(`ls /mnt/c/Program\ Files/HunterPie/` works) — the DLL deploy step
-(build in WSL → copy to `/mnt/c/Program Files/HunterPie/Plugins/`) is viable.
+- [x] Reference check (all confirmed to exist upstream, but generation-mismatched):
+  - `Haato3o/HunterPie.Plugins` (DamageChat/DiscordWebhook/TwitchIntegration)
+    is the **v1-era API** (`Modules\`, `module.json`, `Game Context`) — not
+    usable against v2.14.
+  - `HunterPie/Arisen` + `HunterPie/deploy-plugin` target the **2.15-era API**
+    (`IPluginModule`, `plugin.manifest.json`, in-app plugin repository).
+- [x] Installed-build API audit (WSL, 2026-09-06 — decisive):
+  - Cloned `HunterPie/HunterPie`, tag `v2.14.0.466` == installed build;
+    plugin surface identical between tag and HEAD.
+  - `IPlugin` (internal `Context`, `Initialize`/`OnLoad`/...) is **defined but
+    never consumed**: no `AssemblyLoadContext`/assembly scanning, no
+    `Plugins/` or `Modules/` loading, no manifest handling, no local HTTP
+    endpoint (no HttpListener/Kestrel) anywhere in Core/UI/host/Integrations.
+  - No 2.15 host release exists (`gh release list`: latest is v2.14.0.466);
+    the 2.15 Core/UI packages on GitHub Packages are library-only builds for
+    the unreleased plugin system. Our token (no `read:packages`) can't even
+    restore them — and there'd be no host to load the result.
+  - `HunterPie_Log.txt` is exclusively locked by the running process
+    (read-denied); `Game/Wilds/` holds static data only
+    (MonsterData.xml/AbnormalityData.xml); `Address/` holds version maps.
+- [ ] "Hello world" plugin / DLL load / overhead: CANNOT PROCEED — nothing to
+  plug into. See ADR-001 for the revised options.
+- [x] WSL preconditions: .NET 10 SDK installed via dotnet-install
+  (`~/.dotnet`, 10.0.400, no sudo needed — sidesteps the broken Docker apt
+  source); cross-boundary read of the install dir confirmed.
 
 ## 4. Wilds-specific data questions — ANSWERED ✅ (all five)
 

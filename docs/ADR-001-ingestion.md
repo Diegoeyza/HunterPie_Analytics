@@ -1,8 +1,8 @@
 # ADR-001: Hunt Ingestion Architecture
 
-Status: INTERIM — Windows investigation complete (2026-09-06), §3 spike + live
-hunt still open. Promote to ACCEPTED when the exit criteria is met
-(one real hunt end-to-end with player/weapon/monster/damage/timestamp).
+Status: BLOCKED — Windows + WSL investigation complete (2026-09-06). Neither
+ingestion option works against the installed build. Do NOT build Phase 2
+until one of the paths below is chosen.
 Date: 2026-09-06
 HunterPie version tested: 2.14.0.466 (FileVersion confirmed, running PID 26304)
 MH Wilds game version tested: 1.042.00.02 (Steam; on-disk map MonsterHunterWilds.1.42.0.2.map)
@@ -19,32 +19,25 @@ HunterPie on Windows into WSL?
 
 ## Investigation
 
-### Option A — HunterPie plugin pushing over localhost: SELECTED (pending spike)
+### Option A — HunterPie plugin pushing over localhost: BLOCKED on 2.14
 
-- Localhost smoke test (§0): PASS — `curl.exe http://localhost:8000` from
-  PowerShell returned the full WSL directory listing. Auto-forwarding works on
-  this machine's build. The transport assumption is validated.
-- Plugin SDK references (all confirmed to exist):
-  - `Haato3o/HunterPie.Plugins` (DamageChat, DiscordWebhook, TwitchIntegration)
-  - `HunterPie/Arisen` (ArisenPlugin.cs, ArisenPluginModule.cs, plugin.manifest.json)
-  - `HunterPie/deploy-plugin` (action.yml + scripts)
-- Plugin TFM: **net10.0-windows7.0** (from Arisen csproj — do NOT use
-  `dotnet new classlib` defaults).
-- ⚠️ Version skew: Arisen references HunterPie.Core 2.15.0.159 / HunterPie.UI
-  2.15.0.181 NuGet, but the installed app is 2.14.0.466. Pin package versions
-  to the installed build or expect load failures.
-- Hello-world POST / DLL load / CPU-mem overhead: OPEN (needs §3 spike + hunt).
-- Per-player weapon ID for Wilds: YES at API level (MHWildsPlayer.cs:
-  `GetWeaponAsync()` / `GetPlayerWeaponAsync()`, per-party-member Weapon).
-  Caveat: no Player/Weapons widget for Wilds (World/Rise only) — trust the API,
-  verify live. Schema keeps `weapon_id` nullable.
-- Supporter/NPC hunters: tracked since v2.13; v2.14 fixed their exclusion from
-  hunt exports. Map to `is_supporter`, exclude from synergy stats.
-- Damage split: available (v2.14 raw/elemental/affinity; local config.json
-  Wilds section has all four enabled). Schema extension queued for the §3 spike
-  once the frame shape is known — not added speculatively.
-- Enrage/abnormality spans: available (export dashboard + MonsterData.xml
-  AILMENT_ENRAGE Id 0). Feeds `monster_events`.
+- Localhost smoke test (§0): PASS — transport assumption validated, but there
+  is nothing to push from.
+- Installed-build audit (cloned `HunterPie/HunterPie` @ tag `v2.14.0.466`,
+  plugin surface identical tag-vs-HEAD): `IPlugin` is dead code — no assembly
+  scanning, no `Plugins/`/`Modules/` loading, no manifest handling, no local
+  HTTP endpoint. The plugin system is 2.15-era (`IPluginModule`,
+  `plugin.manifest.json`, in-app repository) and no 2.15 host is released
+  (latest release: v2.14.0.466). The v1-era `HunterPie.Plugins` examples
+  (`module.json`, `Game Context`) do not apply.
+- Reference TFM when unblocked: `net10.0-windows7.0` (Arisen csproj). .NET 10
+  SDK ready in WSL (`~/.dotnet`, 10.0.400, dotnet-install, no sudo).
+- Data availability (for when a host exists): per-player weapon YES at API
+  level (`GetWeaponAsync`, nullable in schema pending live verify);
+  supporters YES (map to `is_supporter`); SOS/mid-join unreliable (flags
+  required, already in schema); raw/elemental/affinity YES (schema extension
+  queued on frame shape); enrage/abnormality spans YES (feeds
+  `monster_events`).
 
 ### Option B — Local export/log file polled from WSL: REJECTED
 
@@ -62,10 +55,26 @@ HunterPie on Windows into WSL?
 
 ## Decision
 
-**Option A (plugin push over localhost).** Option B is rejected on evidence,
-not on suspicion. All schema/API work proceeds on the assumption that a
-net10.0-windows7.0 plugin reads HunterPie's in-memory Wilds API and POSTs to
-the WSL-hosted FastAPI server — until the §3 spike confirms or kills it.
+**No ingestion path is viable against HunterPie 2.14.0.466 — Phase 0 exits
+BLOCKED, not go.** Option B rejected (no local file; cloud scrape out for V1).
+Option A blocked (no plugin host). Revised paths, in recommended order:
+
+1. **Ask upstream** (cheap, do first): open a `HunterPie/HunterPie` discussion
+   asking for the 2.15 plugin-system ETA or a supported telemetry hook. Days
+   vs. months changes everything; costs nothing to learn.
+2. **Fork HunterPie (Apache-2.0) + built-in exporter** (self-sufficient):
+   tag `v2.14.0.466` builds byte-parity with the installed app; add a minimal
+   quest-end POST module next to the existing cloud upload
+   (`IsHuntUploadEnabled` path); self-build with the ready WSL SDK, deploy on
+   Windows. Cost: carrying a fork across game patches.
+3. **Wait for 2.15 stable** (passive): plugin host + repository arrive on
+   Haato's schedule; project parks until then.
+4. **Descope to manual import** (fallback): hand-enter or paste post-hunt
+   summaries through the Phase 1 upsert path; real-time abandoned, analytics
+   survives.
+
+Phase 2 stays shelved until a path is chosen — there is nothing to plug an
+API into. Phase 1 stands as built (source-agnostic, seed-unblocked).
 
 ## Consequences
 
