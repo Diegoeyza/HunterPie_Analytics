@@ -1,47 +1,103 @@
-# HunterPie_Analytics
+# HunterPie Analytics
 
-Telemetry & progress analytics for Monster Hunter Wilds via HunterPie v2.
+Post-hunt dashboard for Monster Hunter Wilds via [HunterPie v2](https://github.com/HunterPie/HunterPie).
 
-See [PLAN.md](PLAN.md) for the full project plan (architecture, phased milestones, schema sketch).
+Imports per-hunt JSON dumps (quest-end snapshots) into SQLite and visualises them
+with Next.js + Recharts.
 
-## Status
+## Prerequisites
 
-Phase 0 closed (GO ✅) — real Wilds hunt imports end-to-end. Dashboard MVP
-live with all four Phase 3 views (Progress, Weapons, Damage curves, Synergy).
+- Python 3.10+
+- Node.js 18+
+- (Optional) HunterPie with the [analytics-export fork](https://github.com/Diegoeyza/HunterPie) for real data
 
-- Phase 0 work list: [docs/PHASE0_CHECKLIST.md](docs/PHASE0_CHECKLIST.md)
-- Ingestion decision record: [docs/ADR-001-ingestion.md](docs/ADR-001-ingestion.md)
-- Schema draft (SQLite/Postgres): [db/schema.sql](db/schema.sql)
-- Adding views/metrics/tabs: [docs/ADDING_A_VIEW.md](docs/ADDING_A_VIEW.md)
-
-## Backend (Phase 1 — data layer)
+## Quick start (seeded demo)
 
 ```sh
-python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
-.venv/bin/python -m pytest backend/tests -q          # 12 tests
-cd backend && ../.venv/bin/python -m app.seed --db hunts.db --hunts 50
+# Backend
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
+cd backend && ../.venv/bin/python -m app.seed --db hunts.db --hunts 31
+../.venv/bin/python -m app.api &   # → http://localhost:8000
+
+# Dashboard (new terminal)
+cd dashboard && npm install && npm run dev   # → http://localhost:3000
 ```
 
-## Importing real hunts (fork HuntExports JSON)
+Open `http://localhost:3000`. 31 synthetic hunts across 4 monsters, 5 weapons, 5 hunters.
+
+## Importing real hunts
+
+With the [analytics-export fork](https://github.com/Diegoeyza/HunterPie) installed,
+hunt JSONs are dumped to `Documents/HunterPie/HuntExports/` on quest end.
 
 ```sh
-cd backend && ../.venv/bin/python -m app.import_hunt --db hunts.db \
-  --file "/mnt/c/src/hunt-sample.json"   # or --dir "/mnt/c/.../HuntExports"
+cd backend
+
+# Single file
+../.venv/bin/python -m app.import_hunt --db hunts.db \
+  --file "/mnt/c/src/hunt-sample.json"
+
+# Whole folder (re-imports dedup safely)
+../.venv/bin/python -m app.import_hunt --db hunts.db \
+  --dir "/mnt/c/Users/<you>/Documents/HunterPie/HuntExports"
 ```
 
-Maps the fork's quest-end dump (players, per-frame damage, enrage spans)
-into the schema; re-imports dedup safely. Monster names resolve from the
-Wilds section of HunterPie's `Languages/en-us.xml` (Rise/World share the
-numeric ids, so the section matters).
+Monster names resolve from HunterPie's `Languages/en-us.xml` (Wilds section only).
+Pass `--names-xml` if the default path doesn't match your install.
 
-## Dashboard (Phase 3 — Next.js + Recharts)
+## Running
 
 ```sh
-cd backend && HUNTS_DB=hunts.db PORT=8000 ../.venv/bin/python -m app.api &  # :8000
-cd dashboard && npm install && npm run dev                                   # :3000
+# API — http://localhost:8000
+cd backend && ../.venv/bin/python -m app.api
+
+# Dashboard — http://localhost:3000
+cd dashboard && npm run dev
 ```
 
-Open `http://localhost:3000` in the Windows browser (localhost forwards).
-API also serves the dashboard queries directly, e.g.
-`http://localhost:8000/api/progress`, `/api/weapons`,
-`/api/hunts/1/curve`, `/api/synergy`, `/api/filter-options`.
+Both must run simultaneously. The dashboard fetches from the API.
+
+## Dashboard tabs
+
+| Tab | What it shows |
+|-----|---------------|
+| **Progress** | DPS per hunt + rolling average, clear time trend. Filters: monster, quest, stars, weapon, hunter. |
+| **Weapons** | Average DPS, peak hit, hunt count, clear rate by weapon type. |
+| **Damage curves** | Per-hunt cumulative damage or DPS (5s rolling) for all party members, monster HP overlay, enrage shading. |
+| **Quests** | Per-quest aggregates: clear rate, best DPS, enrage uptime. |
+| **Records** | Personal bests per monster: fastest clear, highest DPS. |
+| **Compare** | Scoped hunters vs whole-party DPS, hunt by hunt. |
+| **Activity** | Hunts per day, clear rate, total damage. |
+| **Synergy** | Clear time and damage share by teammate pairing. |
+
+## Scope bar
+
+Star hunters in the top bar to focus views on specific players.
+Scope applies to Progress, Weapons, Damage curves, Compare, and Synergy.
+Stored in localStorage — survives refreshes.
+
+## Architecture
+
+```
+HunterPie plugin (fork)
+  → quest-end JSON dump to HuntExports/
+    → import_hunt.py parses + upserts into SQLite
+      → FastAPI serves /api/* endpoints
+        → Next.js dashboard fetches and renders
+```
+
+- **Backend**: FastAPI + SQLAlchemy + SQLite. 9 tables, ~450 lines of queries.
+- **Dashboard**: Next.js 15 + Recharts 3 + TypeScript. Tab registry pattern — add a view by dropping a file in `components/views/` and registering it in `lib/registry.tsx`.
+- **Schema**: see `db/schema.sql`. Pre-Alembic migration handles column additions on existing DBs.
+
+## Tests
+
+```sh
+cd backend && ../.venv/bin/python -m pytest tests -q    # 19 tests
+cd dashboard && npx tsc --noEmit                         # type check
+```
+
+## Adding a view
+
+See [docs/ADDING_A_VIEW.md](docs/ADDING_A_VIEW.md). One component file + one registry entry.
