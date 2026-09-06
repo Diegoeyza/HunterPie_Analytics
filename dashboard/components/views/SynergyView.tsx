@@ -32,38 +32,44 @@ export default function SynergyView({ scope }: { scope: number[] }) {
 
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!rows) return <p>Loading…</p>;
+
+  const filters = (
+    <div className="filters">
+      {opts && (
+        <>
+          <label>Monster
+            <select value={monster} onChange={(e) => setMonster(e.target.value)}>
+              <option value="">All</option>
+              {opts.monsters.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>Stars
+            <select value={stars} onChange={(e) => setStars(e.target.value)}>
+              <option value="">All</option>
+              {opts.stars.map((s) => (
+                <option key={s} value={s}>{s}★</option>
+              ))}
+            </select>
+          </label>
+        </>
+      )}
+    </div>
+  );
+
   if (rows.length === 0) {
     return (
-      <EmptyState what="pairing data">
-        <p>Hunt with a party first — solo hunts appear here too, as pairings of one.</p>
-      </EmptyState>
+      <div className="card">
+        {filters}
+        <EmptyState what="pairing data for these filters"><p>Try a different filter combination.</p></EmptyState>
+      </div>
     );
   }
 
   return (
     <div className="card">
-      <div className="filters">
-        {opts && (
-          <>
-            <label>Monster
-              <select value={monster} onChange={(e) => setMonster(e.target.value)}>
-                <option value="">All</option>
-                {opts.monsters.map((m) => (
-                  <option key={m.id} value={m.id}>{m.name}</option>
-                ))}
-              </select>
-            </label>
-            <label>Stars
-              <select value={stars} onChange={(e) => setStars(e.target.value)}>
-                <option value="">All</option>
-                {opts.stars.map((s) => (
-                  <option key={s} value={s}>{s}★</option>
-                ))}
-              </select>
-            </label>
-          </>
-        )}
-      </div>
+      {filters}
       <h2>Teammate pairings ({rows.length})</h2>
       <table className="grid">
         <thead>

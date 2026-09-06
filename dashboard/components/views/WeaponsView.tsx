@@ -50,44 +50,50 @@ export default function WeaponsView({ scope }: { scope: number[] }) {
 
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!rows) return <p>Loading…</p>;
-  if (rows.length === 0) {
-    return (
-      <EmptyState what="weapon data">
-        <p>Seed some with <code>python -m app.seed --db hunts.db --hunts 50</code></p>
-      </EmptyState>
-    );
-  }
 
   const toggle = (k: SortKey) => {
     if (k === sortKey) setDesc(!desc);
     else { setSortKey(k); setDesc(true); }
   };
 
+  const filters = (
+    <div className="filters">
+      {opts && (
+        <>
+          <label>Monster
+            <select value={monster} onChange={(e) => setMonster(e.target.value)}>
+              <option value="">All</option>
+              {opts.monsters.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>Stars
+            <select value={stars} onChange={(e) => setStars(e.target.value)}>
+              <option value="">All</option>
+              {opts.stars.map((s) => (
+                <option key={s} value={s}>{s}★</option>
+              ))}
+            </select>
+          </label>
+        </>
+      )}
+    </div>
+  );
+
+  if (rows.length === 0) {
+    return (
+      <div className="card">
+        {filters}
+        <EmptyState what="weapon data for these filters"><p>Try a different filter combination.</p></EmptyState>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="card">
-        <div className="filters">
-          {opts && (
-            <>
-              <label>Monster
-                <select value={monster} onChange={(e) => setMonster(e.target.value)}>
-                  <option value="">All</option>
-                  {opts.monsters.map((m) => (
-                    <option key={m.id} value={m.id}>{m.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label>Stars
-                <select value={stars} onChange={(e) => setStars(e.target.value)}>
-                  <option value="">All</option>
-                  {opts.stars.map((s) => (
-                    <option key={s} value={s}>{s}★</option>
-                  ))}
-                </select>
-              </label>
-            </>
-          )}
-        </div>
+        {filters}
         <h2>Average DPS by weapon</h2>
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={sorted} layout="vertical">
