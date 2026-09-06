@@ -8,6 +8,7 @@ import CompareView from "../components/views/CompareView";
 import ActivityView from "../components/views/ActivityView";
 import SynergyView from "../components/views/SynergyView";
 import BuffsView from "../components/views/BuffsView";
+import HighScoreView from "../components/views/HighScoreView";
 
 export interface ViewCtx {
   /** Hunter scope: player ids to focus on. Empty = all hunters. */
@@ -52,6 +53,12 @@ export const TABS: TabDef[] = [
     title: "Records",
     blurb: "Personal bests per monster: fastest clear and highest single-hunt DPS.",
     render: () => <RecordsView />,
+  },
+  {
+    id: "high-scores",
+    title: "High Scores",
+    blurb: "Leaderboard filtering per player, monster, weapon, and stars, sorted by fastest clear time or highest DPS with full party breakdown.",
+    render: () => <HighScoreView />,
   },
   {
     id: "compare",

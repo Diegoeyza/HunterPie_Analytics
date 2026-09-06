@@ -8,7 +8,7 @@ HUNTS_DB="${HUNTS_DB:-backend/hunts.db}"
 # Start API
 echo "Starting API on :$PORT ..."
 cd backend
-../.venv/bin/python -m app.api &
+.venv/bin/python -m app.api &
 API_PID=$!
 cd ..
 
