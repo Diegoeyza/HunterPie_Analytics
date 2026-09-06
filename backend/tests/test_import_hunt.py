@@ -99,7 +99,10 @@ def test_reference_helpers():
     assert ensure_weapon(s, 5) == 6
     assert ensure_weapon(s, 255) is None
     assert ensure_monster(s, 31, {}) == 31
-    assert load_monster_names("/nonexistent.xml") == {}
+    # explicit bad path falls back to the repo-bundled Wilds names
+    # (so seeds/ import with real names on machines without HunterPie)
+    bundled = load_monster_names("/nonexistent.xml")
+    assert bundled[27] == "Arkveld" and bundled[31] == "Xu Wu"
 
 
 def test_monster_names_use_wilds_section(tmp_path):
