@@ -46,9 +46,11 @@ export default function ActivityView() {
           <ComposedChart data={days}>
             <CartesianGrid stroke="#2c313e" />
             <XAxis dataKey="date" tick={{ fill: "#9aa1b2", fontSize: 11 }} interval="preserveStartEnd" />
-            <YAxis yAxisId="n" tick={{ fill: "#9aa1b2", fontSize: 11 }} allowDecimals={false} />
+            <YAxis yAxisId="n" tick={{ fill: "#9aa1b2", fontSize: 11 }} allowDecimals={false}
+              label={{ value: "hunts", fill: "#9aa1b2", fontSize: 11, angle: -90, position: "insideLeft" }} />
             <YAxis yAxisId="rate" orientation="right" domain={[0, 1]}
-              tick={{ fill: "#9aa1b2", fontSize: 11 }} tickFormatter={(v: number) => `${v * 100}%`} />
+              tick={{ fill: "#9aa1b2", fontSize: 11 }} tickFormatter={(v: number) => `${v * 100}%`}
+              label={{ value: "clear rate", fill: "#9aa1b2", fontSize: 11, angle: 90, position: "insideRight" }} />
             <Tooltip contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }} />
             <Bar yAxisId="n" dataKey="hunts" name="hunts" fill="#5aa9e6" />
             <Line yAxisId="rate" type="monotone" dataKey="clear_rate" name="clear rate"

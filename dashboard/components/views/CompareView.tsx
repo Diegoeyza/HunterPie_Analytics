@@ -61,7 +61,8 @@ export default function CompareView({ scope }: { scope: number[] }) {
         <LineChart data={rows}>
           <CartesianGrid stroke="#2c313e" />
           <XAxis dataKey="x" tick={{ fill: "#9aa1b2", fontSize: 11 }} interval="preserveStartEnd" />
-          <YAxis tick={{ fill: "#9aa1b2", fontSize: 11 }} />
+          <YAxis tick={{ fill: "#9aa1b2", fontSize: 11 }}
+            label={{ value: "DPS", fill: "#9aa1b2", fontSize: 11, angle: -90, position: "insideLeft" }} />
           <Tooltip contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }} />
           <Legend />
           <Line type="monotone" dataKey="you" name={label} stroke="#e8b64c" dot={false} strokeWidth={2} />

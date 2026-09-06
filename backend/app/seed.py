@@ -36,9 +36,12 @@ def fake_hunt(i: int, rng: random.Random, max_party: int = 4) -> dict:
     members = rng.sample(PLAYERS, rng.randint(1, min(max_party, len(PLAYERS))))
     start = datetime(2026, 1, 1) + timedelta(days=i, hours=rng.randint(0, 20))
     quest_time = rng.uniform(300, 1500)
+    # one total per member, shared by the summary row AND the curve points,
+    # so curves always reconcile to totals (as the real importer guarantees)
+    totals = {name: rng.uniform(2000, 20000) for name in members}
     snapshots = []
     for name in members:
-        total = rng.uniform(2000, 20000)
+        total = totals[name]
         steps = 10
         for k in range(1, steps + 1):
             snapshots.append(
@@ -69,8 +72,9 @@ def fake_hunt(i: int, rng: random.Random, max_party: int = 4) -> dict:
             {
                 "display_name": n,
                 "weapon_id": rng.randint(1, len(WEAPONS)),
-                "total_damage": rng.uniform(2000, 20000),
-                "peak_dps": rng.uniform(50, 200),
+                "total_damage": totals[n],
+                # biggest single ~1s frame, same scale as the real importer
+                "peak_dps": totals[n] / 10 * rng.uniform(0.9, 1.8),
             }
             for n in members
         ],

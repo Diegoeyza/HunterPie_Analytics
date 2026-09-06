@@ -22,11 +22,18 @@ interface CurveData {
   hp_curve: { t: number; hp: number }[];
 }
 
-/** Merge n players' cumulative series onto one time grid (forward-fill). */
-function mergeSeries(players: CurvePlayer[]) {
+/** Merge n players' cumulative series + monster HP onto one time grid.
+ *  Everything is forward-filled per row so all lines share the same x
+ *  positions (a <Line> with its own `data` would be plotted by INDEX,
+ *  misaligning shorter series like the 19-point HP curve). */
+function mergeSeries(players: CurvePlayer[], hp: { t: number; hp: number }[]) {
   const times = Array.from(
-    new Set(players.flatMap((p) => p.points.map((q) => q.t)))
+    new Set([
+      ...players.flatMap((p) => p.points.map((q) => q.t)),
+      ...hp.map((q) => q.t),
+    ])
   ).sort((a, b) => a - b);
+  const hpSorted = [...hp].sort((a, b) => a.t - b.t);
   return times.map((t) => {
     const row: Record<string, number> = { t };
     for (const p of players) {
@@ -37,6 +44,12 @@ function mergeSeries(players: CurvePlayer[]) {
       }
       if (v !== null) row[p.player] = Math.round(v);
     }
+    let hv: number | null = null;
+    for (const q of hpSorted) {
+      if (q.t <= t + 1e-9) hv = q.hp;
+      else break;
+    }
+    if (hv !== null) row["hp"] = hv;
     return row;
   });
 }
@@ -71,7 +84,10 @@ export default function CurveView({ scope }: { scope: number[] }) {
       .catch((e: Error) => setError(e.message));
   }, [huntId]);
 
-  const merged = useMemo(() => (curve ? mergeSeries(curve.players) : []), [curve]);
+  const merged = useMemo(
+    () => (curve ? mergeSeries(curve.players, showHp ? curve.hp_curve : []) : []),
+    [curve, showHp]
+  );
 
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!hunts) return <p>Loading…</p>;
@@ -113,16 +129,29 @@ export default function CurveView({ scope }: { scope: number[] }) {
             <LineChart data={merged}>
               <CartesianGrid stroke="#2c313e" />
               <XAxis dataKey="t" tick={{ fill: "#9aa1b2", fontSize: 11 }}
-                label={{ value: "seconds", fill: "#9aa1b2", fontSize: 11 }} />
-              <YAxis tick={{ fill: "#9aa1b2", fontSize: 11 }} />
+                tickFormatter={(v: number) => `${Math.round(v)}s`}
+                label={{ value: "time since quest start", fill: "#9aa1b2", fontSize: 11, position: "insideBottom", offset: -2 }} />
+              <YAxis tick={{ fill: "#9aa1b2", fontSize: 11 }}
+                label={{ value: "cumulative damage", fill: "#9aa1b2", fontSize: 11, angle: -90, position: "insideLeft" }} />
               <YAxis yAxisId="hp" orientation="right" domain={[0, 1]}
-                tick={{ fill: "#9aa1b2", fontSize: 11 }} hide={!showHp} />
-              <Tooltip contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }} />
+                tick={{ fill: "#e05c5c", fontSize: 11 }}
+                tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
+                label={{ value: "monster HP", fill: "#e05c5c", fontSize: 11, angle: 90, position: "insideRight" }}
+                hide={!showHp} />
+              <Tooltip
+                contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }}
+                labelFormatter={(v: number) => `${typeof v === "number" ? v.toFixed(1) : v}s`}
+                formatter={(value, name) =>
+                  name === "monster HP"
+                    ? [`${((value as number) * 100).toFixed(1)}%`, name]
+                    : [typeof value === "number" ? Math.round(value).toLocaleString() : value, name]
+                }
+              />
               <Legend />
               {curve.events.map((e, i) => (
                 <ReferenceArea key={i} x1={e.start} x2={e.end ?? undefined}
                   fill="#e05c5c" fillOpacity={0.12}
-                  label={{ value: e.type, fill: "#e05c5c", fontSize: 11 }} />
+                  label={{ value: e.type, fill: "#e05c5c", fontSize: 11, position: "insideTopRight" }} />
               ))}
               {curve.players.map((p, i) => {
                 const dimmed = scope.length > 0 &&
@@ -135,9 +164,9 @@ export default function CurveView({ scope }: { scope: number[] }) {
                 );
               })}
               {showHp && curve.hp_curve.length > 0 && (
-                <Line type="monotone" data={curve.hp_curve} dataKey="hp"
+                <Line type="monotone" dataKey="hp"
                   yAxisId="hp" name="monster HP" stroke="#e05c5c"
-                  strokeDasharray="6 3" dot={false} strokeWidth={1.5} />
+                  strokeDasharray="6 3" dot={false} strokeWidth={1.5} connectNulls />
               )}
             </LineChart>
           </ResponsiveContainer>

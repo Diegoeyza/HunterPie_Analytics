@@ -61,7 +61,8 @@ export default function WeaponsView({ scope }: { scope: number[] }) {
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={sorted} layout="vertical">
             <CartesianGrid stroke="#2c313e" />
-            <XAxis type="number" tick={{ fill: "#9aa1b2", fontSize: 11 }} />
+            <XAxis type="number" tick={{ fill: "#9aa1b2", fontSize: 11 }}
+              label={{ value: "average DPS", fill: "#9aa1b2", fontSize: 11, position: "insideBottom", offset: -2 }} />
             <YAxis type="category" dataKey="weapon" width={110} tick={{ fill: "#9aa1b2", fontSize: 12 }} />
             <Tooltip contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }} />
             <Bar dataKey="avg_dps" name="avg DPS" fill="#5aa9e6" />
@@ -76,7 +77,7 @@ export default function WeaponsView({ scope }: { scope: number[] }) {
               <th onClick={() => toggle("weapon")}>Weapon</th>
               <th className="num" onClick={() => toggle("hunts")}>Hunts</th>
               <th className="num" onClick={() => toggle("avg_dps")}>Avg DPS</th>
-              <th className="num" onClick={() => toggle("peak_dps")}>Peak DPS</th>
+              <th className="num" onClick={() => toggle("peak_dps")} title="largest single damage frame (~1s sampling), not sustained DPS">Peak hit*</th>
               <th className="num" onClick={() => toggle("clear_rate")}>Clear %</th>
             </tr>
           </thead>
@@ -92,6 +93,7 @@ export default function WeaponsView({ scope }: { scope: number[] }) {
             ))}
           </tbody>
         </table>
+        <p className="blurb">* Peak hit = biggest single damage frame, not sustained DPS.</p>
       </div>
     </>
   );

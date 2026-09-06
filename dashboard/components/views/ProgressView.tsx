@@ -111,8 +111,10 @@ export default function ProgressView({ scope }: { scope: number[] }) {
         <ComposedChart data={rows}>
           <CartesianGrid stroke="#2c313e" />
           <XAxis dataKey="x" tick={{ fill: "#9aa1b2", fontSize: 11 }} interval="preserveStartEnd" />
-          <YAxis yAxisId="dps" tick={{ fill: "#9aa1b2", fontSize: 11 }} />
-          <YAxis yAxisId="time" orientation="right" tick={{ fill: "#9aa1b2", fontSize: 11 }} />
+          <YAxis yAxisId="dps" tick={{ fill: "#9aa1b2", fontSize: 11 }}
+            label={{ value: "DPS", fill: "#9aa1b2", fontSize: 11, angle: -90, position: "insideLeft" }} />
+          <YAxis yAxisId="time" orientation="right" tick={{ fill: "#9aa1b2", fontSize: 11 }}
+            label={{ value: "clear time (s)", fill: "#9aa1b2", fontSize: 11, angle: 90, position: "insideRight" }} />
           <Tooltip contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }} />
           <Bar yAxisId="dps" dataKey="dps" name="DPS" fill="#e8b64c" />
           <Line yAxisId="dps" type="monotone" dataKey="avg" name="rolling avg" stroke="#5aa9e6" dot={false} />
