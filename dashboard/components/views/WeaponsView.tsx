@@ -61,7 +61,7 @@ export default function WeaponsView({ scope }: { scope: number[] }) {
       {opts && (
         <>
           <label>Monster
-            <select value={monster} onChange={(e) => setMonster(e.target.value)}>
+            <select value={monster} onChange={(e) => { setMonster(e.target.value); setStars(""); }}>
               <option value="">All</option>
               {opts.monsters.map((m) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
@@ -71,7 +71,7 @@ export default function WeaponsView({ scope }: { scope: number[] }) {
           <label>Stars
             <select value={stars} onChange={(e) => setStars(e.target.value)}>
               <option value="">All</option>
-              {opts.stars.map((s) => (
+              {(monster ? (opts.monster_stars[Number(monster)] ?? []) : opts.stars).map((s) => (
                 <option key={s} value={s}>{s}★</option>
               ))}
             </select>

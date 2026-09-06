@@ -73,6 +73,15 @@ def filter_options(session: Session) -> dict:
         select(Hunt.quest_stars).where(Hunt.quest_stars.is_not(None))
         .group_by(Hunt.quest_stars).order_by(Hunt.quest_stars)
     ).scalars().all()
+    monster_stars_rows = session.execute(
+        select(Hunt.monster_id, Hunt.quest_stars)
+        .where(Hunt.quest_stars.is_not(None))
+        .group_by(Hunt.monster_id, Hunt.quest_stars)
+        .order_by(Hunt.monster_id, Hunt.quest_stars)
+    ).all()
+    monster_stars: dict[int, list[int]] = {}
+    for mid, s in monster_stars_rows:
+        monster_stars.setdefault(mid, []).append(s)
     return {
         "monsters": [{"id": m.id, "name": m.name} for m in session.execute(
             select(Monster).order_by(Monster.name)).scalars()],
@@ -83,6 +92,7 @@ def filter_options(session: Session) -> dict:
         "quests": [{"quest_id": q, "monster": m, "monster_id": mid, "stars": s}
                    for q, m, mid, s in quests],
         "stars": list(stars),
+        "monster_stars": monster_stars,
     }
 
 

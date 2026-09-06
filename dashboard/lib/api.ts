@@ -27,6 +27,7 @@ export interface QuestOption { quest_id: number | null; monster: string; monster
 export interface FilterOptions {
   monsters: Option[]; weapons: Option[]; players: Option[];
   quests: QuestOption[]; stars: number[];
+  monster_stars: Record<number, number[]>;
 }
 export interface Pin { player_id: number; name: string; pinned_at: string; }
 export interface HuntSummary {

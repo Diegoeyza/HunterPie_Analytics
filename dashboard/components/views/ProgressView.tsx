@@ -68,7 +68,7 @@ export default function ProgressView({ scope }: { scope: number[] }) {
     <div className="card">
       <div className="filters">
         <label>Monster
-          <select value={monster} onChange={(e) => setMonster(e.target.value)}>
+          <select value={monster} onChange={(e) => { setMonster(e.target.value); setStars(""); }}>
             <option value="">All</option>
             {opts?.monsters.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
@@ -86,7 +86,7 @@ export default function ProgressView({ scope }: { scope: number[] }) {
         <label>Stars
           <select value={stars} onChange={(e) => setStars(e.target.value)}>
             <option value="">All</option>
-            {opts?.stars.map((s) => <option key={s} value={s}>{s}★</option>)}
+            {(monster ? (opts?.monster_stars[Number(monster)] ?? opts?.stars ?? []) : opts?.stars ?? []).map((s) => <option key={s} value={s}>{s}★</option>)}
           </select>
         </label>
         <label>Weapon
