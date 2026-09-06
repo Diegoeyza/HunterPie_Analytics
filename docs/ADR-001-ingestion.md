@@ -1,8 +1,8 @@
 # ADR-001: Hunt Ingestion Architecture
 
-Status: BLOCKED — Windows + WSL investigation complete (2026-09-06). Neither
-ingestion option works against the installed build. Do NOT build Phase 2
-until one of the paths below is chosen.
+Status: SUPERSEDED (2026-09-06) — owner scoped live feed OUT; post-hunt
+dashboard only. See "Decision (post-hunt scope)" below. Phase 2 as originally
+planned (real-time push API) is cancelled, not shelved.
 Date: 2026-09-06
 HunterPie version tested: 2.14.0.466 (FileVersion confirmed, running PID 26304)
 MH Wilds game version tested: 1.042.00.02 (Steam; on-disk map MonsterHunterWilds.1.42.0.2.map)
@@ -53,28 +53,50 @@ HunterPie on Windows into WSL?
 - Cloud scrape explicitly OUT for V1 (auth, tier limits, ToS). Not revisited
   without a new ADR.
 
-## Decision
+## Decision (post-hunt scope)
 
-**No ingestion path is viable against HunterPie 2.14.0.466 — Phase 0 exits
-BLOCKED, not go.** Option B rejected (no local file; cloud scrape out for V1).
-Option A blocked (no plugin host). Revised paths, in recommended order:
+**Owner: no live feed needed — dashboard for reviewing completed hunts only.**
+This kills the hard half of the problem (1–5s frames, buffering, WebSocket,
+plugin push, CPU-overhead-during-gameplay NFR). What remains is getting ONE
+structured payload per finished hunt into our DB. Selected path:
 
-1. **Ask upstream** (cheap, do first): open a `HunterPie/HunterPie` discussion
-   asking for the 2.15 plugin-system ETA or a supported telemetry hook. Days
-   vs. months changes everything; costs nothing to learn.
-2. **Fork HunterPie (Apache-2.0) + built-in exporter** (self-sufficient):
-   tag `v2.14.0.466` builds byte-parity with the installed app; add a minimal
-   quest-end POST module next to the existing cloud upload
-   (`IsHuntUploadEnabled` path); self-build with the ready WSL SDK, deploy on
-   Windows. Cost: carrying a fork across game patches.
-3. **Wait for 2.15 stable** (passive): plugin host + repository arrive on
-   Haato's schedule; project parks until then.
-4. **Descope to manual import** (fallback): hand-enter or paste post-hunt
-   summaries through the Phase 1 upsert path; real-time abandoned, analytics
-   survives.
+**Fork HunterPie (Apache-2.0) + quest-end local JSON dump.**
+Hook `IGame.OnQuestEnd` (exists in Core), serialize the same payload HunterPie
+already builds for its cloud upload, write `hunts/<quest-id>.json` to local
+disk. WSL polls the folder (no watcher — `/mnt/c` doesn't fire inotify) and
+imports via the already-built Phase 1 `upsert_hunt` (dedup makes re-imports
+safe). Single write per hunt, no networking, no auth, no cloud.
 
-Phase 2 stays shelved until a path is chosen — there is nothing to plug an
-API into. Phase 1 stands as built (source-agnostic, seed-unblocked).
+Why this over the alternatives:
+- Manual entry: no fork, but tedious per hunt and no time series (kills FR-3.3).
+- Cloud download: not offered (docs list Summaries + Dashboard only, no
+  export); scraping stays out (auth, tier limits, ToS).
+- 2.15 plugin host: still unreleased; the fork's file dump needs no host
+  support at all — it compiles against the 2.14 API we already audited.
+
+Scope consequences:
+- Phase 2 real-time API (snapshot endpoint, in-memory buffering, `<2s
+  post-hunt persistence` NFR) is CANCELLED. Replaced by a file importer
+  (poll dir or dashboard upload button) + import-lag target (hunt visible
+  within ~1 min of quest end).
+- FR-3.3 time-series curve SURVIVES if the dump includes the per-second
+  frames HunterPie already plots (damage over time, monster HP, enrage
+  spans) — confirm when implementing the hook; if absent, 3.3 degrades to
+  per-hunt summaries and the schema columns stay nullable-ignored.
+- New go/no-go (cheap): `v2.14.0.466` builds unmodified with the WSL SDK.
+  VERIFIED 2026-09-06 → **GO**. Full managed compile passes (~18s, warnings
+  only); all DLLs + apphost produced. Two Linux-only packaging issues, both
+  with one-line fork fixes:
+  1. `HunterPie.Native.vcxproj` (C++/MSVC) can't build on Linux — safe to
+     skip: the host does NOT reference it and the installed app ships no
+     native DLL. Build `HunterPie/HunterPie.csproj` instead of the `.sln`.
+  2. The `PostBuild` target runs Windows-only `xcopy`/`del`/`rmdir` — gate it
+     with `Condition="'$(OS)' == 'Windows_NT'"` in the fork.
+  Recipe: `~/.dotnet` SDK 10.0.400 (dotnet-install, no sudo),
+  `dotnet build HunterPie/HunterPie.csproj -c Release
+  -p:EnableWindowsTargeting=true` (the flag is mandatory for Windows targets
+  on Linux; our GPR token lacks `read:packages`, so the fork must avoid new
+  GitHub-Packages references — build against in-solution projects only).
 
 ## Consequences
 
@@ -97,6 +119,5 @@ API into. Phase 1 stands as built (source-agnostic, seed-unblocked).
   `Address/MonsterHunterWilds.*.map` max version against the game version;
   on mismatch, surface "HunterPie version unsupported by our parser" and halt
   ingestion loudly instead of ingesting garbage.
-- Manual re-import path: operator replays saved hunt payloads through
-  `POST /telemetry/hunt-complete` once a compatible HunterPie ships
-  (endpoint to be built in Phase 2; Phase 1 `upsert_hunt` dedups replays).
+- Manual re-import path: operator re-runs saved hunt JSON files through the
+  file importer (Phase 1 `upsert_hunt` dedups replays).
