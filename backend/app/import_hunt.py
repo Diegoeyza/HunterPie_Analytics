@@ -82,6 +82,10 @@ def ensure_monster(session, monster_id: int, names: dict[int, str]) -> int:
                       name=names.get(monster_id, f"Monster_{monster_id}"))
         session.add(row)
         session.flush()
+    else:
+        resolved = names.get(monster_id)
+        if resolved and row.name != resolved:
+            row.name = resolved
     return row.id
 
 

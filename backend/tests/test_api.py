@@ -169,6 +169,51 @@ def test_quest_star_and_scope_filters():
     assert client.get("/api/compare").json()["points"] == []
 
 
+def test_high_scores():
+    client, _ = make_client(seed_two_hunts)
+    scores = client.get("/api/high-scores").json()["scores"]
+    # hunt 1 = solo Isi over 180s, hunt 2 = Isi + Pal over 240s
+    # per-hunter rows: 1 from hunt 1 + 2 from hunt 2 = 3
+    assert len(scores) == 3
+
+    # default sort = time (fastest first): hunt 1 (180s), hunt 2 (240s)
+    assert [s["hunt_id"] for s in scores] == [1, 2, 2]
+    fastest = scores[0]
+    assert fastest["rank"] == 1
+    assert fastest["clear_s"] == 180.0
+    assert fastest["monster"] == "Xu Wu" and fastest["player"] == "Isi"
+    assert fastest["weapon"] == "HuntingHorn" and fastest["dps"] > 0
+    # solo Isi has no party members
+    assert fastest["party"] == []
+
+    # hunt 2 rows: Isi (top DPS) and Pal
+    duo_rows = [s for s in scores if s["hunt_id"] == 2]
+    assert len(duo_rows) == 2
+    isi_duo = next(r for r in duo_rows if r["player"] == "Isi")
+    pal_duo = next(r for r in duo_rows if r["player"] == "Pal")
+    assert isi_duo["weapon"] == "HuntingHorn" and isi_duo["dps"] > 0
+    assert pal_duo["weapon"] == "GreatSword" and pal_duo["dps"] > 0
+    # each party list excludes the row's own player
+    assert len(isi_duo["party"]) == 1 and isi_duo["party"][0]["player"] == "Pal"
+    assert len(pal_duo["party"]) == 1 and pal_duo["party"][0]["player"] == "Isi"
+
+    by_dps = client.get("/api/high-scores", params={"sort_by": "dps"}).json()["scores"]
+    # Isi hunt 2 > Isi hunt 1 > Pal hunt 2 (by individual DPS)
+    assert by_dps[0]["player"] == "Isi" and by_dps[0]["hunt_id"] == 2
+    assert by_dps[1]["player"] == "Isi" and by_dps[1]["hunt_id"] == 1
+    assert by_dps[2]["player"] == "Pal" and by_dps[2]["hunt_id"] == 2
+    assert [s["rank"] for s in by_dps] == [1, 2, 3]
+
+    assert client.get("/api/high-scores",
+                      params={"monster_id": 999}).json()["scores"] == []
+    pal_id = next(p["id"] for p in
+                  client.get("/api/filter-options").json()["players"]
+                  if p["name"] == "Pal")
+    scoped = client.get("/api/high-scores",
+                        params={"player_id": pal_id}).json()["scores"]
+    assert len(scoped) == 1 and scoped[0]["player"] == "Pal"
+
+
 def test_pins():
     client, _ = make_client(seed_two_hunts)
     assert client.get("/api/players/pins").json() == {"pins": []}
