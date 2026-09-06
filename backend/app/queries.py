@@ -300,6 +300,7 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500) -> dict:
 
 def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
     """Abnormality activations for a hunt, grouped by player."""
+    from .abnormality_names import get_abnormality_name
     hunt = session.get(Hunt, hunt_id)
     if hunt is None:
         raise KeyError(hunt_id)
@@ -315,6 +316,7 @@ def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
         pa = players.setdefault(pname, {"player": pname, "abnormalities": []})
         pa["abnormalities"].append({
             "id": ab.abnormality_id,
+            "name": get_abnormality_name(ab.abnormality_id),
             "category": ab.category,
             "start": ab.started_at_offset,
             "end": ab.finished_at_offset,

@@ -5,7 +5,7 @@ import { apiGet, type HuntSummary } from "../../lib/api";
 import EmptyState from "../EmptyState";
 
 interface AbnormalityEntry {
-  id: string; category: string; start: number; end: number | null;
+  id: string; name: string; category: string; start: number; end: number | null;
 }
 interface PlayerAbnormalities {
   player: string; abnormalities: AbnormalityEntry[];
@@ -16,7 +16,7 @@ interface BuffsData {
 }
 
 interface UptimeRow {
-  player: string; id: string; category: string;
+  player: string; id: string; name: string; category: string;
   uptime_s: number; pct: number; activations: number;
 }
 
@@ -67,7 +67,7 @@ export default function BuffsView({ scope }: { scope: number[] }) {
           existing.activations += 1;
         } else {
           byKey.set(key, {
-            player: p.player, id: ab.id, category: ab.category,
+            player: p.player, id: ab.id, name: ab.name, category: ab.category,
             uptime_s: dur, pct: 0, activations: 1,
           });
         }
@@ -148,7 +148,7 @@ export default function BuffsView({ scope }: { scope: number[] }) {
                           {r.category}
                         </span>
                       </td>
-                      <td title={r.id}>{r.id.split(".").pop()}</td>
+                      <td title={r.id}>{r.name}</td>
                       <td className="num">{Math.round(r.uptime_s)}s</td>
                       <td className="num">{r.pct.toFixed(1)}%</td>
                       <td className="num">{r.activations}</td>
