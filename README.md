@@ -14,14 +14,9 @@ with Next.js + Recharts.
 ## Quick start (seeded demo)
 
 ```sh
-# Backend
-python3 -m venv .venv
-.venv/bin/pip install -r backend/requirements.txt
-cd backend && ../.venv/bin/python -m app.seed --db hunts.db --hunts 31
-../.venv/bin/python -m app.api &   # → http://localhost:8000
-
-# Dashboard (new terminal)
-cd dashboard && npm install && npm run dev   # → http://localhost:3000
+python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
+cd backend && ../.venv/bin/python -m app.seed --db hunts.db --hunts 31 && cd ..
+./start.sh   # API → :8000, Dashboard → :3000
 ```
 
 Open `http://localhost:3000`. 31 synthetic hunts across 4 monsters, 5 weapons, 5 hunters.
@@ -32,28 +27,21 @@ With the [analytics-export fork](https://github.com/Diegoeyza/HunterPie) install
 hunt JSONs are dumped to `Documents/HunterPie/HuntExports/` on quest end.
 
 ```sh
-cd backend
+# Auto-detects HuntExports at /mnt/c/Users/diego/Documents/HunterPie/HuntExports
+./import.sh
+
+# Or point to a specific folder
+./import.sh --dir "/mnt/c/Users/diego/Documents/HunterPie/HuntExports"
 
 # Single file
-../.venv/bin/python -m app.import_hunt --db hunts.db \
-  --file "/mnt/c/src/hunt-sample.json"
-
-# Whole folder (re-imports dedup safely)
-../.venv/bin/python -m app.import_hunt --db hunts.db \
-  --dir "/mnt/c/Users/<you>/Documents/HunterPie/HuntExports"
+./import.sh --file "/mnt/c/src/hunt-sample.json"
 ```
-
-Monster names resolve from HunterPie's `Languages/en-us.xml` (Wilds section only).
-Pass `--names-xml` if the default path doesn't match your install.
 
 ## Running
 
 ```sh
-# API — http://localhost:8000
-cd backend && ../.venv/bin/python -m app.api
-
-# Dashboard — http://localhost:3000
-cd dashboard && npm run dev
+./start.sh              # starts both API (:8000) and dashboard (:3000)
+./import.sh             # import real hunts from HuntExports
 ```
 
 Both must run simultaneously. The dashboard fetches from the API.
