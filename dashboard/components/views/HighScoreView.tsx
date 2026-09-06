@@ -88,9 +88,11 @@ export default function HighScoreView() {
       )}
       <div className="seg" role="group" aria-label="Sort leaderboard">
         <button type="button" className={sortBy === "time" ? "on" : ""}
-          onClick={() => setSortBy("time")}>⚡ Fastest clear</button>
+          aria-pressed={sortBy === "time"}
+          onClick={() => setSortBy("time")}>Fastest clear</button>
         <button type="button" className={sortBy === "dps" ? "on" : ""}
-          onClick={() => setSortBy("dps")}>💥 Highest DPS</button>
+          aria-pressed={sortBy === "dps"}
+          onClick={() => setSortBy("dps")}>Highest DPS</button>
       </div>
     </div>
   );
@@ -126,7 +128,7 @@ export default function HighScoreView() {
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.hunt_id} className={r.rank === 1 ? "top" : ""}>
+            <tr key={`${r.hunt_id}-${r.player}`} className={r.rank === 1 ? "top" : ""}>
               <td className="num">{r.rank}</td>
               <td>{r.monster} <span className="num" title={`hunt #${r.hunt_id}`}>#{r.hunt_id}</span></td>
               <td className="num">{r.stars ?? "—"}</td>
