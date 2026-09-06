@@ -22,7 +22,7 @@ interface CurveData {
   hp_curve: { t: number; hp: number }[];
 }
 
-type Metric = "damage" | "dps";
+type Metric = "damage" | "dps" | "burst";
 const SMOOTH_WINDOW = 5;
 
 /** Compute DPS from cumulative damage, starting from each player's first hit
@@ -46,6 +46,21 @@ function smoothDps(dpsSeries: { t: number; dps: number }[]): { t: number; dps: n
   });
 }
 
+/** Compute instantaneous DPS over a 5-second window ending at each timestamp. */
+function computeBurst(points: CurvePoint[]): { t: number; dps: number }[] {
+  if (points.length === 0) return [];
+  const WINDOW = 5;
+  return points.map((q) => {
+    const windowStart = q.t - WINDOW;
+    let dmgAtStart = 0;
+    for (const p of points) {
+      if (p.t > windowStart + 1e-9) break;
+      dmgAtStart = p.dmg;
+    }
+    return { t: q.t, dps: (q.dmg - dmgAtStart) / WINDOW };
+  });
+}
+
 /** Merge n players' series + monster HP onto one time grid.
  *  Event boundary times (enrage start/end) are injected so that
  *  Recharts <ReferenceArea> has exact x-values to anchor to. */
@@ -54,6 +69,9 @@ function mergeSeries(players: CurvePlayer[], hp: { t: number; hp: number }[],
   const deathT = hp.length > 0 ? hp[hp.length - 1].t : Infinity;
   const smoothed = new Map(
     players.map((p) => [p.player, smoothDps(computeDps(p.points, deathT))])
+  );
+  const burst = new Map(
+    players.map((p) => [p.player, computeBurst(p.points)])
   );
   const eventTimes = events.flatMap((e) => [e.start, e.end ?? []]).flat();
   const times = Array.from(
@@ -74,6 +92,9 @@ function mergeSeries(players: CurvePlayer[], hp: { t: number; hp: number }[],
           else break;
         }
         if (v !== null) row[p.player] = Math.round(v);
+      } else if (metric === "burst") {
+        const hit = (burst.get(p.player) ?? []).find((q) => Math.abs(q.t - t) < 1e-9);
+        if (hit) row[p.player] = Math.round(hit.dps * 10) / 10;
       } else {
         const hit = (smoothed.get(p.player) ?? []).find((q) => Math.abs(q.t - t) < 1e-9);
         if (hit) row[p.player] = Math.round(hit.dps * 10) / 10;
@@ -155,6 +176,7 @@ export default function CurveView({ scope }: { scope: number[] }) {
           <select value={metric} onChange={(e) => setMetric(e.target.value as Metric)}>
             <option value="damage">Cumulative damage</option>
             <option value="dps">DPS (5s rolling avg)</option>
+            <option value="burst">Instantaneous DPS (5s window)</option>
           </select>
         </label>
       </div>
@@ -175,7 +197,7 @@ export default function CurveView({ scope }: { scope: number[] }) {
                 label={{ value: "time since quest start", fill: "#9aa1b2", fontSize: 11, position: "insideBottom", offset: -2 }} />
               <YAxis tick={{ fill: "#9aa1b2", fontSize: 11 }}
                 label={{
-                  value: metric === "damage" ? "cumulative damage" : "DPS (5s rolling avg)",
+                  value: metric === "damage" ? "cumulative damage" : metric === "burst" ? "DPS (5s window)" : "DPS (5s rolling avg)",
                   fill: "#9aa1b2", fontSize: 11, angle: -90, position: "insideLeft",
                 }} />
               <YAxis yAxisId="hp" orientation="right" domain={[0, 1]}
