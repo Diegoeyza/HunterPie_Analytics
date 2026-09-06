@@ -89,6 +89,14 @@ main { padding: 16px 20px 40px; max-width: 1100px; }
   background: var(--bg); color: var(--text);
   border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
 }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button {
+  background: var(--panel); color: var(--muted);
+  border: none; padding: 5px 12px; cursor: pointer; font-size: 13px;
+}
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button:hover { color: var(--text); }
+.seg button.on { background: #2a2f3d; color: var(--text); }
 
 table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.grid th, table.grid td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border); }
