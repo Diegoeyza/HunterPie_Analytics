@@ -7,3 +7,7 @@ See [PLAN.md](PLAN.md) for the full project plan (architecture, phased milestone
 ## Status
 
 Phase 0 — Ingestion spike (go/no-go on HunterPie data source). Nothing else starts until Phase 0 concludes.
+
+- Phase 0 work list: [docs/PHASE0_CHECKLIST.md](docs/PHASE0_CHECKLIST.md)
+- Ingestion decision record: [docs/ADR-001-ingestion.md](docs/ADR-001-ingestion.md)
+- Schema draft (SQLite/Postgres): [db/schema.sql](db/schema.sql)
