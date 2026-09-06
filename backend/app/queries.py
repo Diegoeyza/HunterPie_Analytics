@@ -183,7 +183,8 @@ def progress(session: Session, monster_id: int | None = None,
     return {"points": points, "rolling": rolling, "window": window}
 
 
-def weapon_matrix(session: Session, player_ids: list[int] | None = None) -> dict:
+def weapon_matrix(session: Session, player_ids: list[int] | None = None,
+                   monster_id: int | None = None, stars: int | None = None) -> dict:
     """FR-3.2: per-weapon aggregates (supporters excluded)."""
     stmt = (
         select(Weapon.name, HuntPlayer.weapon_id, Hunt, HuntPlayer)
@@ -193,6 +194,10 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None) -> dict
     )
     if player_ids:
         stmt = stmt.where(HuntPlayer.player_id.in_(player_ids))
+    if monster_id is not None:
+        stmt = stmt.where(Hunt.monster_id == monster_id)
+    if stars is not None:
+        stmt = stmt.where(Hunt.quest_stars == stars)
     by_weapon: dict[str, dict] = {}
     for name, _wid, hunt, hp in session.execute(stmt):
         dur = _engagement_duration_s(session, hunt.id)
@@ -205,11 +210,17 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None) -> dict
         if hunt.cleared:
             agg["clears"].add(hunt.id)
     # hunts played with no recorded weapon
-    unknown_hunts = session.execute(
+    unk_stmt = (
         select(func.count(func.distinct(HuntPlayer.hunt_id)))
+        .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
         .where(HuntPlayer.weapon_id.is_(None),
                HuntPlayer.is_supporter.is_(False))
-    ).scalar_one()
+    )
+    if monster_id is not None:
+        unk_stmt = unk_stmt.where(Hunt.monster_id == monster_id)
+    if stars is not None:
+        unk_stmt = unk_stmt.where(Hunt.quest_stars == stars)
+    unknown_hunts = session.execute(unk_stmt).scalar_one()
     rows = [{
         "weapon": name,
         "hunts": len(a["hunts"]),
@@ -276,7 +287,8 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500) -> dict:
     }
 
 
-def synergy(session: Session, player_ids: list[int] | None = None) -> dict:
+def synergy(session: Session, player_ids: list[int] | None = None,
+            monster_id: int | None = None, stars: int | None = None) -> dict:
     """FR-3.4: aggregate stats keyed by non-supporter teammate pairing.
 
     player_ids narrows to hunts including ALL of those hunters."""
@@ -287,6 +299,10 @@ def synergy(session: Session, player_ids: list[int] | None = None) -> dict:
         .where(HuntPlayer.is_supporter.is_(False))
         .order_by(Hunt.started_at)
     )
+    if monster_id is not None:
+        stmt = stmt.where(Hunt.monster_id == monster_id)
+    if stars is not None:
+        stmt = stmt.where(Hunt.quest_stars == stars)
     hunts: dict[int, dict] = {}
     for hunt, name, dmg, pid in session.execute(stmt):
         h = hunts.setdefault(hunt.id, {"hunt": hunt, "members": []})

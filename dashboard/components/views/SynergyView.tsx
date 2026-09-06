@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiGet } from "../../lib/api";
+import { apiGet, type FilterOptions } from "../../lib/api";
 import EmptyState from "../EmptyState";
 
 interface Pairing {
@@ -12,14 +12,23 @@ interface Pairing {
 export default function SynergyView({ scope }: { scope: number[] }) {
   const [rows, setRows] = useState<Pairing[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [opts, setOpts] = useState<FilterOptions | null>(null);
+  const [monster, setMonster] = useState("");
+  const [stars, setStars] = useState("");
+
+  useEffect(() => {
+    apiGet<FilterOptions>("/filter-options").then(setOpts).catch(() => {});
+  }, []);
 
   useEffect(() => {
     apiGet<{ pairings: Pairing[] }>("/synergy", {
       ...(scope.length > 0 && { player_ids: scope.join(",") }),
+      ...(monster && { monster_id: Number(monster) }),
+      ...(stars && { stars: Number(stars) }),
     })
       .then((d) => setRows(d.pairings))
       .catch((e: Error) => setError(e.message));
-  }, [scope.join(",")]);
+  }, [scope.join(","), monster, stars]);
 
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!rows) return <p>Loading…</p>;
@@ -33,6 +42,28 @@ export default function SynergyView({ scope }: { scope: number[] }) {
 
   return (
     <div className="card">
+      <div className="filters">
+        {opts && (
+          <>
+            <label>Monster
+              <select value={monster} onChange={(e) => setMonster(e.target.value)}>
+                <option value="">All</option>
+                {opts.monsters.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>Stars
+              <select value={stars} onChange={(e) => setStars(e.target.value)}>
+                <option value="">All</option>
+                {opts.stars.map((s) => (
+                  <option key={s} value={s}>{s}★</option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
+      </div>
       <h2>Teammate pairings ({rows.length})</h2>
       <table className="grid">
         <thead>

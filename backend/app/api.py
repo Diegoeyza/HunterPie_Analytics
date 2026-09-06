@@ -59,8 +59,9 @@ def progress(monster_id: int | None = None, weapon_id: int | None = None,
 
 
 @app.get("/api/weapons")
-def weapons(player_ids: str | None = None, db: Session = Depends(get_db)):
-    return queries.weapon_matrix(db, queries._parse_ids(player_ids))
+def weapons(player_ids: str | None = None, monster_id: int | None = None,
+            stars: int | None = None, db: Session = Depends(get_db)):
+    return queries.weapon_matrix(db, queries._parse_ids(player_ids), monster_id, stars)
 
 
 @app.get("/api/hunts/{hunt_id}/curve")
@@ -72,8 +73,9 @@ def curve(hunt_id: int, max_points: int = 500, db: Session = Depends(get_db)):
 
 
 @app.get("/api/synergy")
-def synergy(player_ids: str | None = None, db: Session = Depends(get_db)):
-    return queries.synergy(db, queries._parse_ids(player_ids))
+def synergy(player_ids: str | None = None, monster_id: int | None = None,
+            stars: int | None = None, db: Session = Depends(get_db)):
+    return queries.synergy(db, queries._parse_ids(player_ids), monster_id, stars)
 
 
 @app.get("/api/quests")
