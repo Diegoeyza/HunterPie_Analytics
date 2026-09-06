@@ -44,16 +44,19 @@ function smoothDps(dpsSeries: { t: number; dps: number }[]): { t: number; dps: n
 }
 
 /** Merge n players' series + monster HP onto one time grid.
- *  Everything shares x positions so no line is misaligned. */
+ *  Event boundary times (enrage start/end) are injected so that
+ *  Recharts <ReferenceArea> has exact x-values to anchor to. */
 function mergeSeries(players: CurvePlayer[], hp: { t: number; hp: number }[],
-                     metric: Metric) {
+                     events: CurveEvent[], metric: Metric) {
   const smoothed = new Map(
     players.map((p) => [p.player, smoothDps(computeDps(p.points))])
   );
+  const eventTimes = events.flatMap((e) => [e.start, e.end ?? []]).flat();
   const times = Array.from(
     new Set([
       ...players.flatMap((p) => p.points.map((q) => q.t)),
       ...hp.map((q) => q.t),
+      ...eventTimes,
     ])
   ).sort((a, b) => a - b);
   const hpSorted = [...hp].sort((a, b) => a.t - b.t);
@@ -114,7 +117,7 @@ export default function CurveView({ scope }: { scope: number[] }) {
   }, [huntId]);
 
   const merged = useMemo(
-    () => (curve ? mergeSeries(curve.players, showHp ? curve.hp_curve : [], metric) : []),
+    () => (curve ? mergeSeries(curve.players, showHp ? curve.hp_curve : [], curve.events, metric) : []),
     [curve, showHp, metric]
   );
 
