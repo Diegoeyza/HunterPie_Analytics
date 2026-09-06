@@ -12,13 +12,16 @@ elif [ "${1:-}" = "--file" ]; then
   exit 0
 elif [ -d "$HUNT_EXPORTS" ]; then
   echo "Importing from $HUNT_EXPORTS ..."
+elif [ -d "seeds" ] && ls seeds/*.json >/dev/null 2>&1; then
+  HUNT_EXPORTS="seeds"
+  echo "Importing from $HUNT_EXPORTS ..."
 else
   echo "Usage: ./import.sh [--file path.json | [--dir /path/to/HuntExports]]"
   echo ""
   echo "No HuntExports folder found at:"
   echo "  $HUNT_EXPORTS"
   echo ""
-  echo "Pass --dir to specify the correct path."
+  echo "Pass --dir to specify the correct path, or place .json files in seeds/."
   exit 1
 fi
 
