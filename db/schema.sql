@@ -26,6 +26,13 @@ CREATE TABLE hunts (
     quest_id_external       TEXT,            -- HunterPie quest/session ID when available
     dedup_hash              TEXT UNIQUE,     -- fallback: hash(monster, players, start_ts rounded to 1s)
     monster_id              INTEGER NOT NULL REFERENCES monsters(id),
+    quest_id                INTEGER,         -- HunterPie quest id (same monster, different HP per quest)
+    quest_type              INTEGER,
+    quest_level             INTEGER,
+    quest_stars             INTEGER,         -- e.g. 6★ Xu Wu
+    monster_max_hp          REAL,            -- per-hunt instance HP (varies by quest)
+    monster_variant         INTEGER,
+    monster_crown           INTEGER,         -- crown roll (0 = none seen yet)
     started_at              TIMESTAMP NOT NULL,
     ended_at                TIMESTAMP,
     quest_time_seconds      REAL,            -- HunterPie "quest time"
@@ -73,3 +80,20 @@ CREATE TABLE monster_events (
     end_offset_seconds   REAL
 );
 CREATE INDEX idx_events_hunt ON monster_events(hunt_id, monster_id);
+
+-- Monster HP fraction over time (HunterPie health_steps) — feeds the HP
+-- overlay on FR-3.3 damage curves.
+CREATE TABLE monster_health_steps (
+    id                 INTEGER PRIMARY KEY,
+    hunt_id            INTEGER NOT NULL REFERENCES hunts(id) ON DELETE CASCADE,
+    monster_id         INTEGER NOT NULL REFERENCES monsters(id),
+    ts_offset_seconds  REAL NOT NULL,
+    hp_fraction        REAL NOT NULL   -- 1.0 = full, 0.0 = dead
+);
+CREATE INDEX idx_hpsteps_hunt_ts ON monster_health_steps(hunt_id, ts_offset_seconds);
+
+-- Pinned hunters (own hunters): star them once, scope views to them.
+CREATE TABLE player_pins (
+    player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+    pinned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

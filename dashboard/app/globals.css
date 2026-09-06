@@ -32,6 +32,38 @@ header.topbar h1 { font-size: 18px; margin: 0; }
 .status-dot.on { background: var(--good); }
 .status-text { color: var(--muted); font-size: 13px; }
 
+.scopebar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 20px 0; font-size: 13px;
+}
+.scope-label { color: var(--muted); }
+.scope-hint { color: var(--muted); font-style: italic; }
+.chip {
+  background: #2a2f3d; color: var(--text);
+  border: 1px solid var(--accent); border-radius: 12px;
+  padding: 3px 10px; cursor: pointer; font-size: 13px;
+}
+.scope-picker { position: relative; }
+.scope-picker > button, .scope-clear {
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 4px 10px; cursor: pointer; font-size: 13px;
+}
+.scope-menu {
+  position: absolute; z-index: 10; top: 110%; left: 0; min-width: 220px;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px; max-height: 300px; overflow-y: auto;
+}
+.scope-row { display: flex; align-items: center; gap: 4px; padding: 2px 4px; }
+.scope-name {
+  flex: 1; text-align: left; background: none; border: none;
+  color: var(--muted); cursor: pointer; font-size: 13px; padding: 4px 6px;
+  border-radius: 4px;
+}
+.scope-name.in { color: var(--text); background: #2a2f3d; }
+.star { background: none; border: none; cursor: pointer; font-size: 15px; color: var(--muted); }
+.star.on { color: var(--accent); }
+
 nav.tabs { display: flex; gap: 4px; padding: 10px 20px 0; }
 nav.tabs button {
   background: none; border: none; border-bottom: 2px solid transparent;

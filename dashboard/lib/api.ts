@@ -15,9 +15,20 @@ export async function apiGet<T>(path: string, params?: Record<string, string | n
   return (await res.json()) as T;
 }
 
+export async function apiSend<T>(method: string, path: string): Promise<T> {
+  const res = await fetch(new URL(`/api${path}`, BASE).toString(), { method });
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  return (await res.json()) as T;
+}
+
 export interface Health { status: string; hunts: number; }
 export interface Option { id: number; name: string; }
-export interface FilterOptions { monsters: Option[]; weapons: Option[]; players: Option[]; }
+export interface QuestOption { quest_id: number | null; monster: string; monster_id: number; stars: number | null; }
+export interface FilterOptions {
+  monsters: Option[]; weapons: Option[]; players: Option[];
+  quests: QuestOption[]; stars: number[];
+}
+export interface Pin { player_id: number; name: string; pinned_at: string; }
 export interface HuntSummary {
   id: number; monster: string; started_at: string;
   clear_s: number | null; cleared: boolean; carts: number; players: number;

@@ -25,7 +25,9 @@ Two registries, two one-line additions. Nothing else to touch.
 1. Add one component file in `dashboard/components/views/MyView.tsx`
    (`"use client"`, fetch via `apiGet` from `lib/api`, use `seriesColor(i)`
    for per-player series so n-player hunts get distinct colors, render
-   `<EmptyState>` when the API returns zero rows).
+   `<EmptyState>` when the API returns zero rows). Views receive the hunter
+   scope as a `scope: number[]` prop (empty = all hunters) — pass it through
+   as `player_ids` to scope-aware endpoints, or dim out-of-scope series.
 2. Register it with one entry in `dashboard/lib/registry.tsx`:
 
    ```tsx

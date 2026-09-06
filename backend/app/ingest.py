@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .models import DpsSnapshot, Hunt, HuntPlayer, MonsterEvent, Player
+from .models import DpsSnapshot, Hunt, HuntPlayer, MonsterEvent, MonsterHealthStep, Player
 
 REQUIRED_HUNT_FIELDS = (
     "monster_id",
@@ -108,6 +108,13 @@ def upsert_hunt(session: Session, payload: dict) -> tuple[Hunt, bool, list[str]]
             dedup_hash=payload.get("dedup_hash")
             or compute_dedup_hash(payload["monster_id"], player_names, started_at),
             monster_id=payload["monster_id"],
+            quest_id=payload.get("quest_id"),
+            quest_type=payload.get("quest_type"),
+            quest_level=payload.get("quest_level"),
+            quest_stars=payload.get("quest_stars"),
+            monster_max_hp=payload.get("monster_max_hp"),
+            monster_variant=payload.get("monster_variant"),
+            monster_crown=payload.get("monster_crown"),
             started_at=started_at,
             ended_at=_coerce_ts(payload["ended_at"]) if payload.get("ended_at") else None,
             quest_time_seconds=payload.get("quest_time_seconds"),
@@ -161,6 +168,15 @@ def upsert_hunt(session: Session, payload: dict) -> tuple[Hunt, bool, list[str]]
                     event_type=e["event_type"],
                     start_offset_seconds=e["start_offset_seconds"],
                     end_offset_seconds=e.get("end_offset_seconds"),
+                )
+            )
+        for h in payload.get("hp_steps", []):
+            session.add(
+                MonsterHealthStep(
+                    hunt_id=hunt.id,
+                    monster_id=hunt.monster_id,
+                    ts_offset_seconds=h["ts_offset_seconds"],
+                    hp_fraction=h["hp_fraction"],
                 )
             )
         session.commit()

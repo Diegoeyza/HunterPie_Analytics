@@ -54,6 +54,13 @@ class Hunt(Base):
     quest_id_external: Mapped[str | None] = mapped_column(String(128))
     dedup_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     monster_id: Mapped[int] = mapped_column(ForeignKey("monsters.id"), nullable=False)
+    quest_id: Mapped[int | None] = mapped_column(Integer)
+    quest_type: Mapped[int | None] = mapped_column(Integer)
+    quest_level: Mapped[int | None] = mapped_column(Integer)
+    quest_stars: Mapped[int | None] = mapped_column(Integer)
+    monster_max_hp: Mapped[float | None] = mapped_column(Float)
+    monster_variant: Mapped[int | None] = mapped_column(Integer)
+    monster_crown: Mapped[int | None] = mapped_column(Integer)
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime)
     quest_time_seconds: Mapped[float | None] = mapped_column(Float)
@@ -113,3 +120,24 @@ class MonsterEvent(Base):
         Index("idx_events_hunt", "hunt_id", "monster_id"),
         UniqueConstraint("hunt_id", "monster_id", "event_type", "start_offset_seconds"),
     )
+
+
+class MonsterHealthStep(Base):
+    __tablename__ = "monster_health_steps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    hunt_id: Mapped[int] = mapped_column(ForeignKey("hunts.id", ondelete="CASCADE"), nullable=False)
+    monster_id: Mapped[int] = mapped_column(ForeignKey("monsters.id"), nullable=False)
+    ts_offset_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    hp_fraction: Mapped[float] = mapped_column(Float, nullable=False)
+
+    __table_args__ = (Index("idx_hpsteps_hunt_ts", "hunt_id", "ts_offset_seconds"),)
+
+
+class PlayerPin(Base):
+    __tablename__ = "player_pins"
+
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id", ondelete="CASCADE"),
+                                           primary_key=True)
+    pinned_at: Mapped[datetime] = mapped_column(DateTime, nullable=False,
+                                                default=datetime.utcnow)

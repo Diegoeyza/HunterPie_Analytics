@@ -5,15 +5,21 @@ import {
   CartesianGrid, Legend, Line, LineChart, ReferenceArea,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { apiGet, seriesColor, type HuntSummary } from "../../lib/api";
+import { apiGet, seriesColor, type FilterOptions, type HuntSummary } from "../../lib/api";
 import EmptyState from "../EmptyState";
 
 interface CurvePoint { t: number; dmg: number; }
 interface CurvePlayer { player: string; weapon: string | null; points: CurvePoint[]; }
 interface CurveEvent { type: string; start: number; end: number | null; }
+interface CurveQuest {
+  quest_id: number | null; stars: number | null; level: number | null;
+  max_hp: number | null; variant: number | null; crown: number | null;
+}
 interface CurveData {
   hunt_id: number; monster: string; started_at: string;
-  clear_s: number | null; players: CurvePlayer[]; events: CurveEvent[];
+  clear_s: number | null; quest: CurveQuest;
+  players: CurvePlayer[]; events: CurveEvent[];
+  hp_curve: { t: number; hp: number }[];
 }
 
 /** Merge n players' cumulative series onto one time grid (forward-fill). */
@@ -35,11 +41,19 @@ function mergeSeries(players: CurvePlayer[]) {
   });
 }
 
-export default function CurveView() {
+export default function CurveView({ scope }: { scope: number[] }) {
   const [hunts, setHunts] = useState<HuntSummary[] | null>(null);
   const [huntId, setHuntId] = useState<number | null>(null);
   const [curve, setCurve] = useState<CurveData | null>(null);
+  const [showHp, setShowHp] = useState(true);
+  const [nameToId, setNameToId] = useState<Map<string, number>>(new Map());
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiGet<FilterOptions>("/filter-options")
+      .then((d) => setNameToId(new Map(d.players.map((p) => [p.name, p.id]))))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     apiGet<{ hunts: HuntSummary[] }>("/hunts", { limit: 200 })
@@ -81,11 +95,18 @@ export default function CurveView() {
             ))}
           </select>
         </label>
+        <label>
+          <input type="checkbox" checked={showHp} onChange={(e) => setShowHp(e.target.checked)} />
+          Monster HP
+        </label>
       </div>
       {curve && (
         <>
           <h2>
             #{curve.hunt_id} {curve.monster}
+            {curve.quest.stars ? ` · ${curve.quest.stars}★` : ""}
+            {curve.quest.quest_id ? ` · quest #${curve.quest.quest_id}` : ""}
+            {curve.quest.max_hp ? ` · ${Math.round(curve.quest.max_hp).toLocaleString()} HP` : ""}
             {curve.clear_s ? ` · cleared in ${Math.round(curve.clear_s)}s` : ""}
           </h2>
           <ResponsiveContainer width="100%" height={360}>
@@ -94,6 +115,8 @@ export default function CurveView() {
               <XAxis dataKey="t" tick={{ fill: "#9aa1b2", fontSize: 11 }}
                 label={{ value: "seconds", fill: "#9aa1b2", fontSize: 11 }} />
               <YAxis tick={{ fill: "#9aa1b2", fontSize: 11 }} />
+              <YAxis yAxisId="hp" orientation="right" domain={[0, 1]}
+                tick={{ fill: "#9aa1b2", fontSize: 11 }} hide={!showHp} />
               <Tooltip contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }} />
               <Legend />
               {curve.events.map((e, i) => (
@@ -101,11 +124,21 @@ export default function CurveView() {
                   fill="#e05c5c" fillOpacity={0.12}
                   label={{ value: e.type, fill: "#e05c5c", fontSize: 11 }} />
               ))}
-              {curve.players.map((p, i) => (
-                <Line key={p.player} type="monotone" dataKey={p.player}
-                  name={`${p.player}${p.weapon ? ` (${p.weapon})` : ""}`}
-                  stroke={seriesColor(i)} dot={false} strokeWidth={2} connectNulls />
-              ))}
+              {curve.players.map((p, i) => {
+                const dimmed = scope.length > 0 &&
+                  !scope.includes(nameToId.get(p.player) ?? -1);
+                return (
+                  <Line key={p.player} type="monotone" dataKey={p.player}
+                    name={`${p.player}${p.weapon ? ` (${p.weapon})` : ""}`}
+                    stroke={seriesColor(i)} dot={false} strokeWidth={dimmed ? 1 : 2}
+                    strokeOpacity={dimmed ? 0.25 : 1} connectNulls />
+                );
+              })}
+              {showHp && curve.hp_curve.length > 0 && (
+                <Line type="monotone" data={curve.hp_curve} dataKey="hp"
+                  yAxisId="hp" name="monster HP" stroke="#e05c5c"
+                  strokeDasharray="6 3" dot={false} strokeWidth={1.5} />
+              )}
             </LineChart>
           </ResponsiveContainer>
         </>

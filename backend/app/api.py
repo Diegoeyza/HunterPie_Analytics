@@ -51,14 +51,16 @@ def hunts(limit: int = 200, db: Session = Depends(get_db)):
 
 @app.get("/api/progress")
 def progress(monster_id: int | None = None, weapon_id: int | None = None,
-             player_id: int | None = None, window: int = 5,
-             db: Session = Depends(get_db)):
-    return queries.progress(db, monster_id, weapon_id, player_id, window)
+             player_id: int | None = None, quest_id: int | None = None,
+             stars: int | None = None, player_ids: str | None = None,
+             window: int = 5, db: Session = Depends(get_db)):
+    return queries.progress(db, monster_id, weapon_id, player_id,
+                            quest_id, stars, queries._parse_ids(player_ids), window)
 
 
 @app.get("/api/weapons")
-def weapons(db: Session = Depends(get_db)):
-    return queries.weapon_matrix(db)
+def weapons(player_ids: str | None = None, db: Session = Depends(get_db)):
+    return queries.weapon_matrix(db, queries._parse_ids(player_ids))
 
 
 @app.get("/api/hunts/{hunt_id}/curve")
@@ -70,8 +72,50 @@ def curve(hunt_id: int, max_points: int = 500, db: Session = Depends(get_db)):
 
 
 @app.get("/api/synergy")
-def synergy(db: Session = Depends(get_db)):
-    return queries.synergy(db)
+def synergy(player_ids: str | None = None, db: Session = Depends(get_db)):
+    return queries.synergy(db, queries._parse_ids(player_ids))
+
+
+@app.get("/api/quests")
+def quests(db: Session = Depends(get_db)):
+    return queries.quest_stats(db)
+
+
+@app.get("/api/records")
+def records(db: Session = Depends(get_db)):
+    return queries.records(db)
+
+
+@app.get("/api/activity")
+def activity(db: Session = Depends(get_db)):
+    return queries.activity(db)
+
+
+@app.get("/api/compare")
+def compare(player_ids: str | None = None, window: int = 5,
+            db: Session = Depends(get_db)):
+    return queries.compare(db, queries._parse_ids(player_ids), window)
+
+
+@app.get("/api/players/pins")
+def pins(db: Session = Depends(get_db)):
+    return queries.list_pins(db)
+
+
+@app.post("/api/players/{player_id}/pin")
+def pin(player_id: int, db: Session = Depends(get_db)):
+    try:
+        return queries.set_pin(db, player_id, True)
+    except KeyError:
+        raise HTTPException(404, f"player {player_id} not found")
+
+
+@app.delete("/api/players/{player_id}/pin")
+def unpin(player_id: int, db: Session = Depends(get_db)):
+    try:
+        return queries.set_pin(db, player_id, False)
+    except KeyError:
+        raise HTTPException(404, f"player {player_id} not found")
 
 
 if __name__ == "__main__":

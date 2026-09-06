@@ -5,7 +5,8 @@ Dump schema (audited 2026-09-06 against Diegoeyza/HunterPie@analytics-export):
   players[].{name, weapon (Wilds Weapon enum id), damages[{damage, dealt_at}],
              abnormalities, is_hunterpie_user}
   monsters[].{id, variant, max_health, crown, enrage.activations[],
-              hunt_started_at, hunt_finished_at, hunt_type, health_steps[]}
+               hunt_started_at, hunt_finished_at, hunt_type, health_steps[]}
+  quest.{id, type, level, stars, deaths, max_deaths} -> hunts quest_* columns
 
 Known gaps (logged as warnings, not silently dropped):
   - player abnormalities have no table yet (count reported)
@@ -140,11 +141,23 @@ def poogie_to_payload(doc: dict, names: dict[int, str],
             if a.get("finished_at") else None,
         })
 
+    hp_steps = [{
+        "ts_offset_seconds": (parse_ts(s["time"]) - started).total_seconds(),
+        "hp_fraction": s["percentage"],
+    } for s in (m.get("health_steps") or []) if s.get("time")]
+
     quest = doc.get("quest") or {}
     payload = {
         "quest_id_external": doc.get("hash"),
         "monster_id": m["id"],
         "_monster_name": names.get(m["id"], f"Monster_{m['id']}"),
+        "quest_id": quest.get("id"),
+        "quest_type": quest.get("type"),
+        "quest_level": quest.get("level"),
+        "quest_stars": quest.get("stars"),
+        "monster_max_hp": m.get("max_health"),
+        "monster_variant": m.get("variant"),
+        "monster_crown": m.get("crown"),
         "started_at": started,
         "ended_at": finished,
         "quest_time_seconds": (finished - started).total_seconds() if finished else None,
@@ -154,6 +167,7 @@ def poogie_to_payload(doc: dict, names: dict[int, str],
         "players": players,
         "snapshots": snapshots,
         "events": events,
+        "hp_steps": hp_steps,
         "hunterpie_version": hunterpie_version,
         "game_version": game_version,
     }

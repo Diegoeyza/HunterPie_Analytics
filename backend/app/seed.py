@@ -8,9 +8,9 @@ import argparse
 import random
 from datetime import datetime, timedelta
 
-from .db import make_engine, make_session
+from .db import init_db, make_session
 from .ingest import upsert_hunt
-from .models import Base, Monster, Weapon
+from .models import Monster, Weapon
 
 MONSTERS = [("Rathalos", "Flying Wyvern"), ("Nergigante", "Elder Dragon"), ("Zinogre", "Fanged Wyvern")]
 WEAPONS = [("Great Sword", "GS"), ("Long Sword", "LS"), ("Bow", "Bow"), ("Hammer", "Hammer")]
@@ -27,6 +27,12 @@ def ensure_reference_data(session) -> None:
 
 def fake_hunt(i: int, rng: random.Random, max_party: int = 4) -> dict:
     monster_id = rng.randint(1, len(MONSTERS))
+    # same monster, different quests: distinct ids + HP pools per monster.
+    # Stars are fixed per quest id (a real quest doesn't change ★ rating).
+    suffix = rng.randint(1, 2)
+    quest_id = monster_id * 100 + suffix
+    stars = 3 + monster_id + suffix  # 101->5★, 102->6★, ..., 302->8★
+    max_hp = round(rng.uniform(12000, 16000) * (1 + stars * 0.06))
     members = rng.sample(PLAYERS, rng.randint(1, min(max_party, len(PLAYERS))))
     start = datetime(2026, 1, 1) + timedelta(days=i, hours=rng.randint(0, 20))
     quest_time = rng.uniform(300, 1500)
@@ -46,6 +52,13 @@ def fake_hunt(i: int, rng: random.Random, max_party: int = 4) -> dict:
     return {
         "quest_id_external": f"seed-quest-{i:04d}",
         "monster_id": monster_id,
+        "quest_id": quest_id,
+        "quest_type": 0,
+        "quest_level": rng.randint(1, 3),
+        "quest_stars": stars,
+        "monster_max_hp": max_hp,
+        "monster_variant": 0,
+        "monster_crown": rng.choice([0, 0, 0, 1, 2, 3]),
         "started_at": start,
         "ended_at": start + timedelta(seconds=quest_time),
         "quest_time_seconds": quest_time,
@@ -64,6 +77,11 @@ def fake_hunt(i: int, rng: random.Random, max_party: int = 4) -> dict:
         "snapshots": snapshots,
         "events": [{"event_type": "enrage", "start_offset_seconds": quest_time * 0.4,
                     "end_offset_seconds": quest_time * 0.55}],
+        "hp_steps": [
+            {"ts_offset_seconds": quest_time * k / 12,
+             "hp_fraction": max(0.02, 1.0 - k / 12 + rng.uniform(-0.03, 0.03))}
+            for k in range(13)
+        ],
         "hunterpie_version": "2.14.0",
         "game_version": "1.40.0.0",
     }
@@ -78,8 +96,7 @@ def main() -> None:
                     help="max hunters per fake hunt (Wilds parties are n-sized)")
     args = ap.parse_args()
 
-    engine = make_engine(args.db)
-    Base.metadata.create_all(engine)
+    init_db(args.db)
     session = make_session(args.db)
     ensure_reference_data(session)
     rng = random.Random(args.seed)

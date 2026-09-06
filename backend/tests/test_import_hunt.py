@@ -59,6 +59,8 @@ def test_payload_mapping():
                                           "hv", "gv")
     assert payload["quest_id_external"] == "5B0389D5685CA451"
     assert payload["_monster_name"] == "Tetranadon"
+    assert (payload["quest_id"], payload["quest_stars"], payload["quest_level"]) == (543, 6, 1)
+    assert (payload["monster_max_hp"], payload["monster_variant"]) == (18450.0, 5)
     assert payload["players"][0]["total_damage"] == 183.0
     assert payload["players"][0]["peak_dps"] == 126.0
     # cumulative snapshots incl. tail frame past finished_at (tolerated)

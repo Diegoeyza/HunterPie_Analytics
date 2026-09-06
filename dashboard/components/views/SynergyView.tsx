@@ -9,15 +9,17 @@ interface Pairing {
   avg_clear_s: number | null; avg_share: Record<string, number>;
 }
 
-export default function SynergyView() {
+export default function SynergyView({ scope }: { scope: number[] }) {
   const [rows, setRows] = useState<Pairing[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiGet<{ pairings: Pairing[] }>("/synergy")
+    apiGet<{ pairings: Pairing[] }>("/synergy", {
+      ...(scope.length > 0 && { player_ids: scope.join(",") }),
+    })
       .then((d) => setRows(d.pairings))
       .catch((e: Error) => setError(e.message));
-  }, []);
+  }, [scope.join(",")]);
 
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!rows) return <p>Loading…</p>;

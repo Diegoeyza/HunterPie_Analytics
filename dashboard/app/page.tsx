@@ -2,20 +2,35 @@
 
 import { useEffect, useState } from "react";
 import { apiGet, type Health } from "../lib/api";
-import { TABS } from "../lib/registry";
+import { TABS, type ViewCtx } from "../lib/registry";
+import ScopeBar, { loadScope } from "../components/ScopeBar";
+
+const SCOPE_KEY = "hp.scope";
 
 export default function Home() {
   const [tab, setTab] = useState(TABS[0].id);
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+  const [scope, setScope] = useState<number[]>([]);
+  const [scopeReady, setScopeReady] = useState(false);
 
   useEffect(() => {
+    setScope(loadScope());
+    setScopeReady(true);
     apiGet<Health>("/health")
       .then(setHealth)
       .catch((e: Error) => setHealthError(e.message));
   }, []);
 
+  const changeScope = (ids: number[]) => {
+    setScope(ids);
+    try {
+      localStorage.setItem(SCOPE_KEY, JSON.stringify(ids));
+    } catch { /* private mode: scope just won't persist */ }
+  };
+
   const active = TABS.find((t) => t.id === tab) ?? TABS[0];
+  const ctx: ViewCtx = { scope };
 
   return (
     <>
@@ -28,6 +43,7 @@ export default function Home() {
             : (healthError ?? "connecting…")}
         </span>
       </header>
+      {scopeReady && <ScopeBar scope={scope} onScope={changeScope} />}
       <nav className="tabs">
         {TABS.map((t) => (
           <button key={t.id} className={t.id === tab ? "active" : ""} onClick={() => setTab(t.id)}>
@@ -37,7 +53,7 @@ export default function Home() {
       </nav>
       <main>
         <p className="blurb">{active.blurb}</p>
-        {active.render()}
+        {active.render(ctx)}
       </main>
     </>
   );

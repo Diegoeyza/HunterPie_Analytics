@@ -10,16 +10,19 @@ import EmptyState from "../EmptyState";
 
 interface Point {
   hunt_id: number; started_at: string; monster: string;
+  quest_id: number | null; quest_stars: number | null; monster_max_hp: number | null;
   weapon: string; player: string; dps: number;
   clear_s: number | null; cleared: boolean;
 }
 interface ProgressData { points: Point[]; rolling: { hunt_id: number; avg_dps: number }[]; window: number; }
 
-export default function ProgressView() {
+export default function ProgressView({ scope }: { scope: number[] }) {
   const [opts, setOpts] = useState<FilterOptions | null>(null);
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
   const [player, setPlayer] = useState("");
+  const [quest, setQuest] = useState("");
+  const [stars, setStars] = useState("");
   const [windowSize, setWindowSize] = useState(5);
   const [data, setData] = useState<ProgressData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,9 +37,12 @@ export default function ProgressView() {
       ...(monster && { monster_id: Number(monster) }),
       ...(weapon && { weapon_id: Number(weapon) }),
       ...(player && { player_id: Number(player) }),
+      ...(quest && { quest_id: Number(quest) }),
+      ...(stars && { stars: Number(stars) }),
+      ...(scope.length > 0 && { player_ids: scope.join(",") }),
       window: windowSize,
     }).then(setData).catch((e: Error) => setError(e.message));
-  }, [monster, weapon, player, windowSize]);
+  }, [monster, weapon, player, quest, stars, windowSize, scope.join(",")]);
 
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!data) return <p>Loading…</p>;
@@ -50,7 +56,7 @@ export default function ProgressView() {
 
   // rolling[i] aligns with points[i] (same order, one row per hunt-player)
   const rows = data.points.map((p, i) => ({
-    x: `#${p.hunt_id} ${p.monster}`,
+    x: `#${p.hunt_id} ${p.monster}${p.quest_stars ? ` ${p.quest_stars}★` : ""}`,
     dps: Math.round(p.dps * 10) / 10,
     avg: Math.round((data.rolling[i]?.avg_dps ?? 0) * 10) / 10,
     clear_s: p.clear_s ? Math.round(p.clear_s) : null,
@@ -65,6 +71,22 @@ export default function ProgressView() {
           <select value={monster} onChange={(e) => setMonster(e.target.value)}>
             <option value="">All</option>
             {opts?.monsters.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </label>
+        <label>Quest
+          <select value={quest} onChange={(e) => setQuest(e.target.value)}>
+            <option value="">All</option>
+            {opts?.quests.map((q) => (
+              <option key={`${q.quest_id}-${q.stars}`} value={q.quest_id ?? ""}>
+                #{q.quest_id} {q.monster}{q.stars ? ` ${q.stars}★` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>Stars
+          <select value={stars} onChange={(e) => setStars(e.target.value)}>
+            <option value="">All</option>
+            {opts?.stars.map((s) => <option key={s} value={s}>{s}★</option>)}
           </select>
         </label>
         <label>Weapon

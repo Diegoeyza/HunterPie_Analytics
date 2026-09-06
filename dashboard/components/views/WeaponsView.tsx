@@ -15,17 +15,19 @@ interface WeaponRow {
 
 type SortKey = keyof WeaponRow;
 
-export default function WeaponsView() {
+export default function WeaponsView({ scope }: { scope: number[] }) {
   const [rows, setRows] = useState<WeaponRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("avg_dps");
   const [desc, setDesc] = useState(true);
 
   useEffect(() => {
-    apiGet<{ weapons: WeaponRow[] }>("/weapons")
+    apiGet<{ weapons: WeaponRow[] }>("/weapons", {
+      ...(scope.length > 0 && { player_ids: scope.join(",") }),
+    })
       .then((d) => setRows(d.weapons))
       .catch((e: Error) => setError(e.message));
-  }, []);
+  }, [scope.join(",")]);
 
   const sorted = useMemo(() => {
     if (!rows) return [];
