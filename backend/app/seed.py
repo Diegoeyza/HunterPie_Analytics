@@ -25,9 +25,9 @@ def ensure_reference_data(session) -> None:
     session.commit()
 
 
-def fake_hunt(i: int, rng: random.Random) -> dict:
+def fake_hunt(i: int, rng: random.Random, max_party: int = 4) -> dict:
     monster_id = rng.randint(1, len(MONSTERS))
-    members = rng.sample(PLAYERS, rng.randint(1, 3))
+    members = rng.sample(PLAYERS, rng.randint(1, min(max_party, len(PLAYERS))))
     start = datetime(2026, 1, 1) + timedelta(days=i, hours=rng.randint(0, 20))
     quest_time = rng.uniform(300, 1500)
     snapshots = []
@@ -74,6 +74,8 @@ def main() -> None:
     ap.add_argument("--db", default="hunts.db")
     ap.add_argument("--hunts", type=int, default=20)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--max-party", type=int, default=4,
+                    help="max hunters per fake hunt (Wilds parties are n-sized)")
     args = ap.parse_args()
 
     engine = make_engine(args.db)
@@ -83,7 +85,7 @@ def main() -> None:
     rng = random.Random(args.seed)
     created = 0
     for i in range(args.hunts):
-        _, was_created, _ = upsert_hunt(session, fake_hunt(i, rng))
+        _, was_created, _ = upsert_hunt(session, fake_hunt(i, rng, args.max_party))
         created += was_created
     print(f"seeded {created} new hunts into {args.db}")
 

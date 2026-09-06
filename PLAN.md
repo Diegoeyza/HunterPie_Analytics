@@ -83,12 +83,12 @@ Everything downstream (schema, API, dashboard) is standard, well-understood engi
 - [ ] Load test: simulate 1,000+ historical hunts to validate the <500ms query target from PRD §6 before building the dashboard around unoptimized queries.
 - [ ] If Option A: set up a quick deploy loop for the plugin (a small script that builds the DLL in WSL and copies it to the Windows `Plugins/` folder) so iterating on plugin logic doesn't mean manually copying files after every change.
 
-### Phase 3 — Dashboard (est. 1.5–2 weeks)
-- [ ] FR-3.1 Player Progress Tracker: line chart, rolling DPS + clear time, filterable by monster + weapon.
-- [ ] FR-3.2 Weapon Performance Matrix: sortable table + bar chart (avg/peak DPS, hunt count, clear rate) by weapon type.
-- [ ] FR-3.3 Time-Series Damage Curve: multi-line overlay per hunt, all party members, with phase/enrage markers if HunterPie exposes them (stretch — confirm in Phase 0).
-- [ ] FR-3.4 Teammate Synergy Overview: aggregate table, clear time + contribution % by teammate pairing.
-- [ ] Loading states and empty states (a new user has zero hunts — dashboard shouldn't look broken).
+### Phase 3 — Dashboard (est. 1.5–2 weeks) — MVP DONE 2026-09-06 ✅
+- [x] FR-3.1 Player Progress Tracker: line chart, rolling DPS + clear time, filterable by monster + weapon.
+- [x] FR-3.2 Weapon Performance Matrix: sortable table + bar chart (avg/peak DPS, hunt count, clear rate) by weapon type.
+- [x] FR-3.3 Time-Series Damage Curve: multi-line overlay per hunt, all party members, with phase/enrage markers if HunterPie exposes them (stretch — confirm in Phase 0).
+- [x] FR-3.4 Teammate Synergy Overview: aggregate table, clear time + contribution % by teammate pairing.
+- [x] Loading states and empty states (a new user has zero hunts — dashboard shouldn't look broken).
 
 ### Phase 4 — Hardening & Polish (est. 3–5 days)
 - [ ] Handle HunterPie version mismatches gracefully: detect and surface "HunterPie version unsupported by our parser" rather than silently ingesting garbage.

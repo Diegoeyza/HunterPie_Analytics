@@ -1,0 +1,72 @@
+:root {
+  --bg: #14161c;
+  --panel: #1d2029;
+  --border: #2c313e;
+  --text: #e6e8ee;
+  --muted: #9aa1b2;
+  --accent: #e8b64c;
+  --good: #58b368;
+  --bad: #e05c5c;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+header.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+header.topbar h1 { font-size: 18px; margin: 0; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.status-dot.on { background: var(--good); }
+.status-text { color: var(--muted); font-size: 13px; }
+
+nav.tabs { display: flex; gap: 4px; padding: 10px 20px 0; }
+nav.tabs button {
+  background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--muted); font-size: 14px; padding: 8px 14px; cursor: pointer;
+}
+nav.tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+
+main { padding: 16px 20px 40px; max-width: 1100px; }
+.blurb { color: var(--muted); font-size: 13px; margin: 4px 0 16px; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.card h2 { font-size: 15px; margin: 0 0 12px; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.filters label { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.filters select, .filters input {
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
+}
+
+table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.grid th, table.grid td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+table.grid th { color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; }
+table.grid tr:hover td { background: #232733; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.empty {
+  border: 1px dashed var(--border); border-radius: 8px;
+  padding: 32px; text-align: center; color: var(--muted);
+}
+.empty code { color: var(--text); background: var(--bg); padding: 1px 6px; border-radius: 4px; }
+.error { color: var(--bad); }
