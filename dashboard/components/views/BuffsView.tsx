@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import { apiGet, type HuntSummary } from "../../lib/api";
+import DataTable from "../DataTable";
+import SearchSelect from "../SearchSelect";
 import EmptyState from "../EmptyState";
 
 interface AbnormalityEntry {
@@ -29,6 +32,35 @@ const CATEGORY_COLORS: Record<string, string> = {
   Unknown: "#9aa1b2",
 };
 
+const columns: ColumnDef<UptimeRow>[] = [
+  { id: "player", accessorKey: "player", header: "Hunter" },
+  {
+    id: "category", accessorKey: "category", header: "Category",
+    cell: ({ row }) => (
+      <span style={{ color: CATEGORY_COLORS[row.original.category] ?? "#9aa1b2" }}>
+        {row.original.category}
+      </span>
+    ),
+  },
+  {
+    id: "name", accessorKey: "name", header: "Abnormality",
+    cell: ({ row }) => <span title={row.original.id}>{row.original.name}</span>,
+  },
+  {
+    id: "uptime_s", accessorKey: "uptime_s", header: "Uptime",
+    meta: { cls: "num" },
+    cell: ({ row }) => `${Math.round(row.original.uptime_s)}s`,
+  },
+  {
+    id: "pct", accessorKey: "pct", header: "%",
+    meta: { cls: "num" },
+    cell: ({ row }) => `${row.original.pct.toFixed(1)}%`,
+  },
+  {
+    id: "activations", accessorKey: "activations", header: "Activations",
+    meta: { cls: "num" },
+  },
+];
 export default function BuffsView({ scope }: { scope: number[] }) {
   const [hunts, setHunts] = useState<HuntSummary[] | null>(null);
   const [huntId, setHuntId] = useState<number | null>(null);
@@ -100,15 +132,15 @@ export default function BuffsView({ scope }: { scope: number[] }) {
   return (
     <div className="card">
       <div className="filters">
-        <label>Hunt
-          <select value={huntId ?? ""} onChange={(e) => setHuntId(Number(e.target.value))}>
-            {hunts.map((h) => (
-              <option key={h.id} value={h.id}>
-                #{h.id} {h.monster} · {h.started_at.slice(0, 10)} · {h.players}p
-              </option>
-            ))}
-          </select>
-        </label>
+        <SearchSelect
+          label="Hunt"
+          value={huntId === null ? "" : String(huntId)}
+          options={(hunts ?? []).map((h) => ({
+            value: String(h.id),
+            label: `#${h.id} ${h.monster} · ${h.started_at.slice(0, 10)} · ${h.players}p`,
+          }))}
+          onChange={(v) => setHuntId(Number(v))}
+        />
         <label>Category
           <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)}>
             <option value="">All</option>
@@ -128,34 +160,12 @@ export default function BuffsView({ scope }: { scope: number[] }) {
             <p className="blurb">No abnormality data for this hunt. (Only HunterPie users have buff tracking.)</p>
           ) : (
             <>
-              <table className="grid">
-                <thead>
-                  <tr>
-                    <th>Hunter</th>
-                    <th>Category</th>
-                    <th>Abnormality</th>
-                    <th className="num">Uptime</th>
-                    <th className="num">%</th>
-                    <th className="num">Activations</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((r, i) => (
-                    <tr key={i}>
-                      <td>{r.player}</td>
-                      <td>
-                        <span style={{ color: CATEGORY_COLORS[r.category] ?? "#9aa1b2" }}>
-                          {r.category}
-                        </span>
-                      </td>
-                      <td title={r.id}>{r.name}</td>
-                      <td className="num">{Math.round(r.uptime_s)}s</td>
-                      <td className="num">{r.pct.toFixed(1)}%</td>
-                      <td className="num">{r.activations}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable
+                data={filtered}
+                columns={columns}
+                initialSort={[{ id: "pct", desc: true }]}
+                getRowId={(r) => `${r.player}|${r.id}|${r.category}`}
+              />
               <p className="blurb">Only HunterPie users have buff/debuff tracking data.</p>
             </>
           )}

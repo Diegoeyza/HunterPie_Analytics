@@ -5,7 +5,9 @@ import {
   CartesianGrid, ComposedChart, Line, Bar, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from "recharts";
-import { apiGet, type FilterOptions } from "../../lib/api";
+import { apiGet } from "../../lib/api";
+import SearchSelect from "../SearchSelect";
+import { useFilterOptions } from "../useFilterOptions";
 import EmptyState from "../EmptyState";
 
 interface Point {
@@ -17,7 +19,7 @@ interface Point {
 interface ProgressData { points: Point[]; rolling: { hunt_id: number; avg_dps: number }[]; window: number; }
 
 export default function ProgressView({ scope }: { scope: number[] }) {
-  const [opts, setOpts] = useState<FilterOptions | null>(null);
+  const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
   const [player, setPlayer] = useState("");
@@ -26,10 +28,6 @@ export default function ProgressView({ scope }: { scope: number[] }) {
   const [windowSize, setWindowSize] = useState(5);
   const [data, setData] = useState<ProgressData | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    apiGet<FilterOptions>("/filter-options").then(setOpts).catch(() => {});
-  }, []);
 
   useEffect(() => {
     setError(null);
@@ -67,40 +65,39 @@ export default function ProgressView({ scope }: { scope: number[] }) {
   return (
     <div className="card">
       <div className="filters">
-        <label>Monster
-          <select value={monster} onChange={(e) => { setMonster(e.target.value); setStars(""); }}>
-            <option value="">All</option>
-            {opts?.monsters.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-        </label>
-        <label>Quest
-          <select value={quest} onChange={(e) => setQuest(e.target.value)}>
-            <option value="">All</option>
-            {opts?.quests.map((q) => (
-              <option key={`${q.quest_id}-${q.stars}`} value={q.quest_id ?? ""}>
-                #{q.quest_id} {q.monster}{q.stars ? ` ${q.stars}★` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SearchSelect
+          label="Monster"
+          value={monster}
+          options={(opts?.monsters ?? []).map((m) => ({ value: String(m.id), label: m.name }))}
+          onChange={(v) => { setMonster(v); setStars(""); }}
+        />
+        <SearchSelect
+          label="Quest"
+          value={quest}
+          options={(opts?.quests ?? []).map((q) => ({
+            value: String(q.quest_id ?? ""),
+            label: `#${q.quest_id} ${q.monster}${q.stars ? ` ${q.stars}★` : ""}`,
+          }))}
+          onChange={setQuest}
+        />
         <label>Stars
           <select value={stars} onChange={(e) => setStars(e.target.value)}>
             <option value="">All</option>
             {(monster ? (opts?.monster_stars[Number(monster)] ?? opts?.stars ?? []) : opts?.stars ?? []).map((s) => <option key={s} value={s}>{s}★</option>)}
           </select>
         </label>
-        <label>Weapon
-          <select value={weapon} onChange={(e) => setWeapon(e.target.value)}>
-            <option value="">All</option>
-            {opts?.weapons.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-          </select>
-        </label>
-        <label>Hunter
-          <select value={player} onChange={(e) => setPlayer(e.target.value)}>
-            <option value="">All</option>
-            {opts?.players.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </label>
+        <SearchSelect
+          label="Weapon"
+          value={weapon}
+          options={(opts?.weapons ?? []).map((w) => ({ value: String(w.id), label: w.name }))}
+          onChange={setWeapon}
+        />
+        <SearchSelect
+          label="Hunter"
+          value={player}
+          options={(opts?.players ?? []).map((p) => ({ value: String(p.id), label: p.name }))}
+          onChange={setPlayer}
+        />
         <label>Rolling window
           <input type="number" min={1} max={50} value={windowSize}
             onChange={(e) => setWindowSize(Number(e.target.value) || 5)} />

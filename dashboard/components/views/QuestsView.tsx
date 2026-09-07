@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import { apiGet } from "../../lib/api";
+import { fmtDps, fmtPct, fmtTime } from "../../lib/format";
+import DataTable from "../DataTable";
 import EmptyState from "../EmptyState";
 
 interface QuestRow {
@@ -12,8 +15,54 @@ interface QuestRow {
   best_dps: number; enrage_uptime: number;
 }
 
-const fmtTime = (s: number | null) =>
-  s === null ? "—" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+const columns: ColumnDef<QuestRow>[] = [
+  {
+    id: "quest", accessorFn: (r) => r.quest_id ?? -1, header: "Quest",
+    cell: ({ row }) => (row.original.quest_id === null ? "—" : `#${row.original.quest_id}`),
+  },
+  { id: "monster", accessorKey: "monster", header: "Monster" },
+  {
+    id: "stars", accessorFn: (r) => r.stars ?? -1, header: "★",
+    meta: { cls: "num" },
+    cell: ({ row }) => (row.original.stars ?? "—"),
+  },
+  {
+    id: "max_hp", accessorFn: (r) => r.max_hp ?? -1, header: "HP",
+    meta: { cls: "num" },
+    cell: ({ row }) => (row.original.max_hp ? Math.round(row.original.max_hp).toLocaleString() : "—"),
+  },
+  { id: "hunts", accessorKey: "hunts", header: "Hunts", meta: { cls: "num" } },
+  {
+    id: "clear_rate", accessorKey: "clear_rate", header: "Clear %",
+    meta: { cls: "num" },
+    cell: ({ row }) => fmtPct(row.original.clear_rate),
+  },
+  {
+    id: "avg_clear_s", accessorFn: (r) => r.avg_clear_s ?? -1, header: "Avg clear",
+    meta: { cls: "num" },
+    cell: ({ row }) => fmtTime(row.original.avg_clear_s),
+  },
+  {
+    id: "best_clear", accessorFn: (r) => r.best_clear?.clear_s ?? -1, header: "Best clear",
+    meta: { cls: "num" },
+    cell: ({ row }) => (
+      row.original.best_clear
+        ? `#${row.original.best_clear.hunt_id} ${fmtTime(row.original.best_clear.clear_s)}`
+        : "—"
+    ),
+  },
+  {
+    id: "best_dps", accessorKey: "best_dps", header: "Best DPS",
+    meta: { cls: "num" },
+    cell: ({ row }) => fmtDps(row.original.best_dps),
+  },
+  {
+    id: "enrage_uptime", accessorKey: "enrage_uptime", header: "Enrage %",
+    meta: { cls: "num" },
+    cell: ({ row }) => fmtPct(row.original.enrage_uptime),
+  },
+  { id: "carts", accessorKey: "carts", header: "Carts", meta: { cls: "num" } },
+];
 
 export default function QuestsView() {
   const [rows, setRows] = useState<QuestRow[] | null>(null);
@@ -37,43 +86,13 @@ export default function QuestsView() {
 
   return (
     <div className="card">
-      <h2>Quests ({rows.length}) — same monster, different HP per quest</h2>
-      <table className="grid">
-        <thead>
-          <tr>
-            <th>Quest</th>
-            <th>Monster</th>
-            <th className="num">★</th>
-            <th className="num">HP</th>
-            <th className="num">Hunts</th>
-            <th className="num">Clear %</th>
-            <th className="num">Avg clear</th>
-            <th className="num">Best clear</th>
-            <th className="num">Best DPS</th>
-            <th className="num">Enrage %</th>
-            <th className="num">Carts</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={String(r.quest_id)}>
-              <td>{r.quest_id === null ? "—" : `#${r.quest_id}`}</td>
-              <td>{r.monster}</td>
-              <td className="num">{r.stars ?? "—"}</td>
-              <td className="num">{r.max_hp ? Math.round(r.max_hp).toLocaleString() : "—"}</td>
-              <td className="num">{r.hunts}</td>
-              <td className="num">{(r.clear_rate * 100).toFixed(0)}%</td>
-              <td className="num">{fmtTime(r.avg_clear_s)}</td>
-              <td className="num">
-                {r.best_clear ? `#${r.best_clear.hunt_id} ${fmtTime(r.best_clear.clear_s)}` : "—"}
-              </td>
-              <td className="num">{r.best_dps.toFixed(1)}</td>
-              <td className="num">{(r.enrage_uptime * 100).toFixed(0)}%</td>
-              <td className="num">{r.carts}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <h2>Quests ({rows.length}) — same monster, different HP per quest. Click a header to sort.</h2>
+      <DataTable
+        data={rows}
+        columns={columns}
+        initialSort={[{ id: "hunts", desc: true }]}
+        getRowId={(r) => String(r.quest_id)}
+      />
     </div>
   );
 }

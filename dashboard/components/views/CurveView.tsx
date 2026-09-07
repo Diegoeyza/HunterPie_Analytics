@@ -6,6 +6,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { apiGet, seriesColor, type FilterOptions, type HuntSummary } from "../../lib/api";
+import SearchSelect from "../SearchSelect";
 import EmptyState from "../EmptyState";
 
 interface CurvePoint { t: number; dmg: number; }
@@ -159,15 +160,15 @@ export default function CurveView({ scope }: { scope: number[] }) {
   return (
     <div className="card">
       <div className="filters">
-        <label>Hunt
-          <select value={huntId ?? ""} onChange={(e) => setHuntId(Number(e.target.value))}>
-            {hunts.map((h) => (
-              <option key={h.id} value={h.id}>
-                #{h.id} {h.monster} · {h.started_at.slice(0, 10)} · {h.players}p
-              </option>
-            ))}
-          </select>
-        </label>
+        <SearchSelect
+          label="Hunt"
+          value={huntId === null ? "" : String(huntId)}
+          options={(hunts ?? []).map((h) => ({
+            value: String(h.id),
+            label: `#${h.id} ${h.monster} · ${h.started_at.slice(0, 10)} · ${h.players}p`,
+          }))}
+          onChange={(v) => setHuntId(Number(v))}
+        />
         <label>
           <input type="checkbox" checked={showHp} onChange={(e) => setShowHp(e.target.checked)} />
           Monster HP

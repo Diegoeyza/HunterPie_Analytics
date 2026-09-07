@@ -1,17 +1,40 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import {
   Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from "recharts";
 import { apiGet } from "../../lib/api";
+import { fmtDps, fmtPct } from "../../lib/format";
+import DataTable from "../DataTable";
 import EmptyState from "../EmptyState";
 
 interface DayRow {
   date: string; hunts: number; clear_rate: number;
   avg_dps: number; total_damage: number;
 }
+
+const columns: ColumnDef<DayRow>[] = [
+  { id: "date", accessorKey: "date", header: "Date" },
+  { id: "hunts", accessorKey: "hunts", header: "Hunts", meta: { cls: "num" } },
+  {
+    id: "clear_rate", accessorKey: "clear_rate", header: "Clear %",
+    meta: { cls: "num" },
+    cell: ({ row }) => fmtPct(row.original.clear_rate),
+  },
+  {
+    id: "avg_dps", accessorKey: "avg_dps", header: "Avg DPS",
+    meta: { cls: "num" },
+    cell: ({ row }) => fmtDps(row.original.avg_dps),
+  },
+  {
+    id: "total_damage", accessorKey: "total_damage", header: "Damage",
+    meta: { cls: "num" },
+    cell: ({ row }) => Math.round(row.original.total_damage).toLocaleString(),
+  },
+];
 
 export default function ActivityView() {
   const [days, setDays] = useState<DayRow[] | null>(null);
@@ -37,7 +60,7 @@ export default function ActivityView() {
   const totalDmg = days.reduce((n, d) => n + d.total_damage, 0);
 
   return (
-    <>
+    <div className="cards-2">
       <div className="card">
         <h2>
           {totalHunts} hunts · {Math.round(totalDmg).toLocaleString()} total damage · {days.length} active day{days.length === 1 ? "" : "s"}
@@ -59,30 +82,14 @@ export default function ActivityView() {
         </ResponsiveContainer>
       </div>
       <div className="card">
-        <h2>By day</h2>
-        <table className="grid">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th className="num">Hunts</th>
-              <th className="num">Clear %</th>
-              <th className="num">Avg DPS</th>
-              <th className="num">Damage</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...days].reverse().map((d) => (
-              <tr key={d.date}>
-                <td>{d.date}</td>
-                <td className="num">{d.hunts}</td>
-                <td className="num">{(d.clear_rate * 100).toFixed(0)}%</td>
-                <td className="num">{d.avg_dps.toFixed(1)}</td>
-                <td className="num">{Math.round(d.total_damage).toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <h2>By day — click a header to sort</h2>
+        <DataTable
+          data={days}
+          columns={columns}
+          initialSort={[{ id: "date", desc: true }]}
+          getRowId={(d) => d.date}
+        />
       </div>
-    </>
+    </div>
   );
 }
