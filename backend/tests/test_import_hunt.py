@@ -8,7 +8,7 @@ from app.import_hunt import (
     ensure_weapon,
     load_monster_names,
     parse_ts,
-    poogie_to_payload,
+    poogie_to_payloads,
 )
 from app.models import Base, DpsSnapshot, Hunt, HuntPlayer, MonsterEvent
 
@@ -55,8 +55,8 @@ def test_parse_ts_handles_z_and_7_digits():
 
 
 def test_payload_mapping():
-    payload, warnings = poogie_to_payload(sample_doc(), {31: "Tetranadon"},
-                                          "hv", "gv")
+    [(payload, warnings)] = poogie_to_payloads(sample_doc(), {31: "Tetranadon"},
+                                               "hv", "gv")
     assert payload["quest_id_external"] == "5B0389D5685CA451"
     assert payload["_monster_name"] == "Tetranadon"
     assert (payload["quest_id"], payload["quest_stars"], payload["quest_level"]) == (543, 6, 1)
@@ -74,7 +74,7 @@ def test_payload_mapping():
 def test_end_to_end_import_and_redup():
     from app.import_hunt import import_doc
     s = make_session()
-    hunt, created, _ = import_doc(s, sample_doc(), {31: "Tetranadon"}, "hv", "gv")
+    [(hunt, created, _)] = import_doc(s, sample_doc(), {31: "Tetranadon"}, "hv", "gv")
     assert created
     assert s.execute(select(Hunt)).scalar_one().id == hunt.id
     assert len(s.execute(select(HuntPlayer)).scalars().all()) == 1
@@ -82,16 +82,31 @@ def test_end_to_end_import_and_redup():
     assert len(s.execute(select(MonsterEvent)).scalars().all()) == 1
     assert s.get(HuntPlayer, (hunt.id, 1)).weapon_id == 6  # HuntingHorn enum 5 -> row 6
     # re-import dedups
-    _, created2, _ = import_doc(s, sample_doc(), {31: "Tetranadon"}, "hv", "gv")
+    [(_, created2, _)] = import_doc(s, sample_doc(), {31: "Tetranadon"}, "hv", "gv")
     assert created2 is False
     assert len(s.execute(select(Hunt)).scalars().all()) == 1
 
 
-def test_multi_monster_warns():
+def test_multi_monster_registers_each_monster():
+    from app.import_hunt import import_doc
     doc = sample_doc()
-    doc["monsters"] = [doc["monsters"][0], {**doc["monsters"][0], "id": 2}]
-    _, warnings = poogie_to_payload(doc, {}, "hv", "gv")
-    assert any("multi-monster" in w for w in warnings)
+    doc["monsters"] = [doc["monsters"][0],
+                       {**doc["monsters"][0], "id": 1, "max_health": 18450.0}]
+    payloads = poogie_to_payloads(doc, {}, "hv", "gv")
+    assert len(payloads) == 2
+    assert [p["monster_id"] for p, _ in payloads] == [31, 1]
+    assert any("multi-monster" in w for _, ws in payloads for w in ws)
+    # equal HP -> damage split evenly across both hunts
+    assert payloads[0][0]["players"][0]["total_damage"] == 91.5
+    assert payloads[1][0]["players"][0]["total_damage"] == 91.5
+    # full end-to-end: two hunts, idempotent re-import
+    s = make_session()
+    results = import_doc(s, doc, {}, "hv", "gv")
+    assert [c for _, c, _ in results] == [True, True]
+    assert len(s.execute(select(Hunt)).scalars().all()) == 2
+    results2 = import_doc(s, doc, {}, "hv", "gv")
+    assert [c for _, c, _ in results2] == [False, False]
+    assert len(s.execute(select(Hunt)).scalars().all()) == 2
 
 
 def test_reference_helpers():

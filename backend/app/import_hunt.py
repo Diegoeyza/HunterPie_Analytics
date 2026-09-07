@@ -9,9 +9,11 @@ Dump schema (audited 2026-09-06 against Diegoeyza/HunterPie@analytics-export):
   quest.{id, type, level, stars, deaths, max_deaths} -> hunts quest_* columns
 
 Known gaps (logged as warnings, not silently dropped):
-  - player abnormalities have no table yet (count reported)
-  - multi-monster quests import monsters[0] only (others reported)
-  - dump carries no HunterPie/game versions -> CLI flags with defaults
+- player abnormalities have no table yet (count reported)
+- multi-monster quests register one hunt per monster (quest x monster):
+  per-hit damage can't be attributed per monster, so each hunter's damage
+  is split proportional to monster max_health (equal split if unknown)
+- dump carries no HunterPie/game versions -> CLI flags with defaults
 """
 from __future__ import annotations
 
@@ -98,9 +100,15 @@ def ensure_monster(session, monster_id: int, names: dict[int, str]) -> int:
     return row.id
 
 
-def poogie_to_payload(doc: dict, names: dict[int, str],
-                      hunterpie_version: str, game_version: str
-                      ) -> tuple[dict, list[str]]:
+def poogie_to_payloads(doc: dict, names: dict[int, str],
+                        hunterpie_version: str, game_version: str
+                        ) -> list[tuple[dict, list[str]]]:
+    """One payload per monster (quest x monster combinations all register).
+
+    Per-hit damage is quest-level, so each hunter's damage is split across
+    the hunt's monsters proportional to max_health (equal split when any
+    max_health is unknown). Single-monster quests are unaffected (share 1.0).
+    """
     warnings: list[str] = []
     started = parse_ts(doc["started_at"])
     finished = parse_ts(doc["finished_at"]) if doc.get("finished_at") else None
@@ -108,19 +116,22 @@ def poogie_to_payload(doc: dict, names: dict[int, str],
     monsters = doc.get("monsters", [])
     if not monsters:
         raise ValueError("dump has no monsters")
-    if len(monsters) > 1:
-        warnings.append(f"multi-monster quest: importing monsters[0] only "
-                        f"(ids={[m['id'] for m in monsters]})")
-    m = monsters[0]
 
-    players = []
-    snapshots = []
-    abnormalities = []
-    raw_players = doc.get("players", [])
+    hps = [m.get("max_health") for m in monsters]
+    if all(h for h in hps):
+        total_hp = sum(hps)
+        shares = [h / total_hp for h in hps]
+    else:
+        shares = [1.0 / len(monsters)] * len(monsters)
+    if len(monsters) > 1:
+        warnings.append(f"multi-monster quest: registering one hunt per monster "
+                        f"(ids={[m['id'] for m in monsters]}, "
+                        f"damage split {[round(s, 2) for s in shares]})")
+
     # Same hunter listed twice = disconnect/rejoin: merge damage frames so
-    # the hunt keeps one row per hunter (UNIQUE hunt_id/player_id).
+    # each hunt keeps one row per hunter (UNIQUE hunt_id/player_id).
     merged: dict[str, dict] = {}
-    for p in raw_players:
+    for p in doc.get("players", []):
         name = p.get("name")
         entry = merged.setdefault(name, {"weapon": p.get("weapon"),
                                          "damages": [], "abnormalities": []})
@@ -130,14 +141,30 @@ def poogie_to_payload(doc: dict, names: dict[int, str],
         if entry_total > entry.get("_best_total", -1):
             entry["_best_total"] = entry_total
             entry["weapon"] = p.get("weapon")
-    if len(merged) != len(raw_players):
-        warnings.append(f"merged {len(raw_players) - len(merged)} duplicate "
-                        f"player entr{'y' if len(raw_players) - len(merged) == 1 else 'ies'} "
+    if len(merged) != len(doc.get("players", [])):
+        warnings.append(f"merged {len(doc.get('players', [])) - len(merged)} duplicate "
+                        f"player entr{'y' if len(doc.get('players', [])) - len(merged) == 1 else 'ies'} "
                         f"(disconnect/rejoin)")
+
+    out = []
+    for m, share in zip(monsters, shares):
+        out.append((_monster_payload(doc, m, share, merged, started, finished,
+                                     names, hunterpie_version, game_version),
+                    warnings))
+    return out
+
+
+def _monster_payload(doc: dict, m: dict, share: float, merged: dict[str, dict],
+                     started: datetime, finished: datetime | None,
+                     names: dict[int, str],
+                     hunterpie_version: str, game_version: str) -> dict:
+    players = []
+    snapshots = []
+    abnormalities = []
     for name, p in merged.items():
         frames = sorted(p["damages"], key=lambda f: f["dealt_at"])
-        total = sum(f.get("damage", 0) for f in frames)
-        peak = max((f.get("damage", 0) for f in frames), default=0)
+        total = sum(f.get("damage", 0) * share for f in frames)
+        peak = max((f.get("damage", 0) * share for f in frames), default=0)
         players.append({
             "display_name": name,
             "_weapon_enum": p.get("weapon"),
@@ -148,14 +175,15 @@ def poogie_to_payload(doc: dict, names: dict[int, str],
         cum, prev = 0.0, None
         for f in frames:
             ts = parse_ts(f["dealt_at"])
-            cum += f.get("damage", 0)
+            dmg = f.get("damage", 0) * share
+            cum += dmg
             dt = (ts - prev).total_seconds() if prev else 1.0
             snapshots.append({
                 "display_name": name,
                 "ts_offset_seconds": (ts - started).total_seconds(),
                 # dealt_at past finished_at is a tail flush: tolerate, don't filter
                 "cumulative_damage": cum,
-                "instant_dps": f.get("damage", 0) / dt if dt > 0 else 0.0,
+                "instant_dps": dmg / dt if dt > 0 else 0.0,
             })
             prev = ts
         for ab in p["abnormalities"]:
@@ -186,7 +214,7 @@ def poogie_to_payload(doc: dict, names: dict[int, str],
     } for s in (m.get("health_steps") or []) if s.get("time")]
 
     quest = doc.get("quest") or {}
-    payload = {
+    return {
         "quest_id_external": doc.get("hash"),
         "monster_id": m["id"],
         "_monster_name": names.get(m["id"], f"Monster_{m['id']}"),
@@ -211,18 +239,20 @@ def poogie_to_payload(doc: dict, names: dict[int, str],
         "hunterpie_version": hunterpie_version,
         "game_version": game_version,
     }
-    return payload, warnings
 
 
 def import_doc(session, doc: dict, names: dict[int, str],
                hunterpie_version: str, game_version: str):
-    payload, warnings = poogie_to_payload(doc, names, hunterpie_version, game_version)
-    ensure_monster(session, payload["monster_id"], names)
-    for p in payload["players"]:
-        p["weapon_id"] = ensure_weapon(session, p.pop("_weapon_enum"))
-    session.commit()  # persist reference rows before the hunt transaction
-    hunt, created, upsert_warnings = upsert_hunt(session, payload)
-    return hunt, created, warnings + upsert_warnings
+    results = []
+    for payload, warnings in poogie_to_payloads(doc, names, hunterpie_version,
+                                                game_version):
+        ensure_monster(session, payload["monster_id"], names)
+        for p in payload["players"]:
+            p["weapon_id"] = ensure_weapon(session, p.pop("_weapon_enum"))
+        session.commit()  # persist reference rows before the hunt transaction
+        hunt, created, upsert_warnings = upsert_hunt(session, payload)
+        results.append((hunt, created, warnings + upsert_warnings))
+    return results
 
 
 def import_file(db_path: str, file_path: str, hunterpie_version: str,
@@ -231,12 +261,12 @@ def import_file(db_path: str, file_path: str, hunterpie_version: str,
     doc = json.loads(Path(file_path).read_text(encoding="utf-8-sig"))
     init_db(db_path)
     session = make_session(db_path)
-    hunt, created, warnings = import_doc(session, doc, names,
-                                          hunterpie_version, game_version)
-    print(f"{'imported' if created else 'duplicate-skipped'} hunt id={hunt.id} "
-          f"from {file_path}")
-    for w in warnings:
-        print(f"  warning: {w}")
+    for hunt, created, warnings in import_doc(
+            session, doc, names, hunterpie_version, game_version):
+        print(f"{'imported' if created else 'duplicate-skipped'} hunt id={hunt.id} "
+              f"from {file_path}")
+        for w in warnings:
+            print(f"  warning: {w}")
 
 
 def main() -> None:
