@@ -116,12 +116,30 @@ def poogie_to_payload(doc: dict, names: dict[int, str],
     players = []
     snapshots = []
     abnormalities = []
-    for p in doc.get("players", []):
-        frames = sorted(p.get("damages", []), key=lambda f: f["dealt_at"])
+    raw_players = doc.get("players", [])
+    # Same hunter listed twice = disconnect/rejoin: merge damage frames so
+    # the hunt keeps one row per hunter (UNIQUE hunt_id/player_id).
+    merged: dict[str, dict] = {}
+    for p in raw_players:
+        name = p.get("name")
+        entry = merged.setdefault(name, {"weapon": p.get("weapon"),
+                                         "damages": [], "abnormalities": []})
+        entry["damages"].extend(p.get("damages", []))
+        entry["abnormalities"].extend(p.get("abnormalities", []))
+        entry_total = sum(f.get("damage", 0) for f in p.get("damages", []))
+        if entry_total > entry.get("_best_total", -1):
+            entry["_best_total"] = entry_total
+            entry["weapon"] = p.get("weapon")
+    if len(merged) != len(raw_players):
+        warnings.append(f"merged {len(raw_players) - len(merged)} duplicate "
+                        f"player entr{'y' if len(raw_players) - len(merged) == 1 else 'ies'} "
+                        f"(disconnect/rejoin)")
+    for name, p in merged.items():
+        frames = sorted(p["damages"], key=lambda f: f["dealt_at"])
         total = sum(f.get("damage", 0) for f in frames)
         peak = max((f.get("damage", 0) for f in frames), default=0)
         players.append({
-            "display_name": p["name"],
+            "display_name": name,
             "_weapon_enum": p.get("weapon"),
             "total_damage": total,
             "peak_dps": peak,  # ~1s sampling: max single-frame damage
@@ -133,19 +151,19 @@ def poogie_to_payload(doc: dict, names: dict[int, str],
             cum += f.get("damage", 0)
             dt = (ts - prev).total_seconds() if prev else 1.0
             snapshots.append({
-                "display_name": p["name"],
+                "display_name": name,
                 "ts_offset_seconds": (ts - started).total_seconds(),
                 # dealt_at past finished_at is a tail flush: tolerate, don't filter
                 "cumulative_damage": cum,
                 "instant_dps": f.get("damage", 0) / dt if dt > 0 else 0.0,
             })
             prev = ts
-        for ab in p.get("abnormalities", []):
+        for ab in p["abnormalities"]:
             ab_id = ab["id"]
             category = ab_id.split("_")[0] if "_" in ab_id else "Unknown"
             for act in ab.get("activations", []):
                 abnormalities.append({
-                    "display_name": p["name"],
+                    "display_name": name,
                     "abnormality_id": ab_id,
                     "category": category,
                     "started_at_offset": (parse_ts(act["started_at"]) - started).total_seconds(),
