@@ -10,9 +10,9 @@ Dump schema (audited 2026-09-06 against Diegoeyza/HunterPie@analytics-export):
 
 Known gaps (logged as warnings, not silently dropped):
 - player abnormalities have no table yet (count reported)
-- multi-monster quests register one hunt per monster (quest x monster):
-  per-hit damage can't be attributed per monster, so each hunter's damage
-  is split proportional to monster max_health (equal split if unknown)
+- multi-monster quests register one hunt per monster (quest x monster),
+  each carrying the FULL quest damage (per-hit damage can't be
+  attributed per monster, and a quest's damage belongs to the quest)
 - dump carries no HunterPie/game versions -> CLI flags with defaults
 """
 from __future__ import annotations
@@ -105,9 +105,9 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
                         ) -> list[tuple[dict, list[str]]]:
     """One payload per monster (quest x monster combinations all register).
 
-    Per-hit damage is quest-level, so each hunter's damage is split across
-    the hunt's monsters proportional to max_health (equal split when any
-    max_health is unknown). Single-monster quests are unaffected (share 1.0).
+    Each hunt carries the FULL quest damage: per-hit damage can't be
+    attributed per monster, and a quest's damage belongs to the quest.
+    Single-monster quests are unaffected.
     """
     warnings: list[str] = []
     started = parse_ts(doc["started_at"])
@@ -116,17 +116,10 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
     monsters = doc.get("monsters", [])
     if not monsters:
         raise ValueError("dump has no monsters")
-
-    hps = [m.get("max_health") for m in monsters]
-    if all(h for h in hps):
-        total_hp = sum(hps)
-        shares = [h / total_hp for h in hps]
-    else:
-        shares = [1.0 / len(monsters)] * len(monsters)
     if len(monsters) > 1:
         warnings.append(f"multi-monster quest: registering one hunt per monster "
-                        f"(ids={[m['id'] for m in monsters]}, "
-                        f"damage split {[round(s, 2) for s in shares]})")
+                        f"(ids={[m['id'] for m in monsters]}), "
+                        f"each with full quest damage")
 
     # Same hunter listed twice = disconnect/rejoin: merge damage frames so
     # each hunt keeps one row per hunter (UNIQUE hunt_id/player_id).
@@ -147,14 +140,14 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
                         f"(disconnect/rejoin)")
 
     out = []
-    for m, share in zip(monsters, shares):
-        out.append((_monster_payload(doc, m, share, merged, started, finished,
+    for m in monsters:
+        out.append((_monster_payload(doc, m, merged, started, finished,
                                      names, hunterpie_version, game_version),
                     warnings))
     return out
 
 
-def _monster_payload(doc: dict, m: dict, share: float, merged: dict[str, dict],
+def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
                      started: datetime, finished: datetime | None,
                      names: dict[int, str],
                      hunterpie_version: str, game_version: str) -> dict:
@@ -163,8 +156,8 @@ def _monster_payload(doc: dict, m: dict, share: float, merged: dict[str, dict],
     abnormalities = []
     for name, p in merged.items():
         frames = sorted(p["damages"], key=lambda f: f["dealt_at"])
-        total = sum(f.get("damage", 0) * share for f in frames)
-        peak = max((f.get("damage", 0) * share for f in frames), default=0)
+        total = sum(f.get("damage", 0) for f in frames)
+        peak = max((f.get("damage", 0) for f in frames), default=0)
         players.append({
             "display_name": name,
             "_weapon_enum": p.get("weapon"),
@@ -175,7 +168,7 @@ def _monster_payload(doc: dict, m: dict, share: float, merged: dict[str, dict],
         cum, prev = 0.0, None
         for f in frames:
             ts = parse_ts(f["dealt_at"])
-            dmg = f.get("damage", 0) * share
+            dmg = f.get("damage", 0)
             cum += dmg
             dt = (ts - prev).total_seconds() if prev else 1.0
             snapshots.append({
