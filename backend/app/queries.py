@@ -61,6 +61,25 @@ def _engagement_duration_s(session: Session, hunt_id: int) -> float | None:
     return _hunt_duration_s(session.get(Hunt, hunt_id))
 
 
+def _player_engagement_s(session: Session, hunt_id: int,
+                          player_id: int) -> float | None:
+    """Active window for one hunter: own first→last damage snapshot.
+
+    Handles mid-fight (SOS) joins, where the party-wide window would
+    misattribute DPS: a late joiner's damage must be divided by their own
+    time in the fight, not by first-hit→death. Falls back to the
+    hunt-wide window when the hunter has fewer than two snapshots."""
+    first, last = session.execute(
+        select(func.min(DpsSnapshot.ts_offset_seconds),
+               func.max(DpsSnapshot.ts_offset_seconds))
+        .where(DpsSnapshot.hunt_id == hunt_id,
+               DpsSnapshot.player_id == player_id)
+    ).one()
+    if first is not None and last is not None and last > first:
+        return last - first
+    return _engagement_duration_s(session, hunt_id)
+
+
 def filter_options(session: Session) -> dict:
     """Dropdown options for dashboard filters (ids + names)."""
     quests = session.execute(
@@ -170,7 +189,7 @@ def progress(session: Session, monster_id: int | None = None,
 
     points = []
     for hunt, hp, player, weapon, monster in session.execute(stmt):
-        dur = _engagement_duration_s(session, hunt.id)
+        dur = _player_engagement_s(session, hunt.id, hp.player_id)
         points.append({
             "hunt_id": hunt.id,
             "started_at": hunt.started_at.isoformat(),
@@ -181,7 +200,7 @@ def progress(session: Session, monster_id: int | None = None,
             "weapon": weapon.name if weapon else "Unknown",
             "player": player.display_name,
             "dps": (hp.total_damage / dur) if dur else 0.0,
-            "clear_s": dur,
+            "clear_s": _hunt_duration_s(hunt),
             "cleared": bool(hunt.cleared),
         })
     dps_vals = [p["dps"] for p in points]
@@ -211,7 +230,7 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
         stmt = stmt.where(Hunt.quest_stars == stars)
     by_weapon: dict[str, dict] = {}
     for name, _wid, hunt, hp in session.execute(stmt):
-        dur = _engagement_duration_s(session, hunt.id)
+        dur = _player_engagement_s(session, hunt.id, hp.player_id)
         agg = by_weapon.setdefault(name, {"hunts": set(), "dps": [], "peak": 0.0,
                                            "clears": set()})
         agg["hunts"].add(hunt.id)
@@ -407,12 +426,12 @@ def quest_stats(session: Session) -> dict:
                 agg["best"] = (hunt.id, dur)
     for qid, agg in by_quest.items():
         id_filter = (Hunt.quest_id == qid) if qid > 0 else (Hunt.id == -qid)
-        for dmg, hunt in session.execute(
-            select(HuntPlayer.total_damage, Hunt)
+        for dmg, pid, hunt in session.execute(
+            select(HuntPlayer.total_damage, HuntPlayer.player_id, Hunt)
             .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
             .where(id_filter, HuntPlayer.is_supporter.is_(False))
         ).all():
-            eng = _engagement_duration_s(session, hunt.id)
+            eng = _player_engagement_s(session, hunt.id, pid)
             if eng:
                 agg["best_dps"] = max(agg["best_dps"], (dmg or 0.0) / eng)
         spans = session.execute(
@@ -450,7 +469,7 @@ def records(session: Session) -> dict:
     by_monster: dict[str, dict] = {}
     for hunt, hp, pname, wname, mname in rows:
         dur = _hunt_duration_s(hunt)
-        eng = _engagement_duration_s(session, hunt.id)
+        eng = _player_engagement_s(session, hunt.id, hp.player_id)
         dps = ((hp.total_damage or 0.0) / eng) if eng else 0.0
         agg = by_monster.setdefault(mname, {"hunts": set(), "fastest": None,
                                             "top_dps": None})
@@ -501,7 +520,7 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
 
     by_hunt: dict[int, dict] = {}
     for hunt, hp, pname, wname, wid, mname in session.execute(stmt):
-        eng = _engagement_duration_s(session, hunt.id)
+        eng = _player_engagement_s(session, hunt.id, hp.player_id)
         h = by_hunt.setdefault(hunt.id, {"hunt": hunt, "monster": mname,
                                          "members": []})
         h["members"].append({
@@ -554,12 +573,12 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
 def activity(session: Session) -> dict:
     """Hunts per day + clear rate + avg DPS (heatmap fuel)."""
     rows = session.execute(
-        select(Hunt, HuntPlayer.total_damage)
+        select(Hunt, HuntPlayer.total_damage, HuntPlayer.player_id)
         .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
         .where(HuntPlayer.is_supporter.is_(False))
     ).all()
     by_day: dict[str, dict] = {}
-    for hunt, dmg in rows:
+    for hunt, dmg, pid in rows:
         day = hunt.started_at.date().isoformat()
         agg = by_day.setdefault(day, {"hunts": set(), "clears": set(),
                                       "dps": [], "damage": 0.0})
@@ -567,7 +586,7 @@ def activity(session: Session) -> dict:
         if hunt.cleared:
             agg["clears"].add(hunt.id)
         agg["damage"] += dmg or 0.0
-        dur = _engagement_duration_s(session, hunt.id)
+        dur = _player_engagement_s(session, hunt.id, pid)
         if dur:
             agg["dps"].append((dmg or 0.0) / dur)
     return {"days": [{
@@ -592,7 +611,7 @@ def compare(session: Session, player_ids: list[int], window: int = 5) -> dict:
     hunts: dict[int, dict] = {}
     for hunt, hp in rows:
         h = hunts.setdefault(hunt.id, {"hunt": hunt, "all": [], "scope": []})
-        dur = _engagement_duration_s(session, hunt.id)
+        dur = _player_engagement_s(session, hunt.id, hp.player_id)
         dps = ((hp.total_damage or 0.0) / dur) if dur else 0.0
         h["all"].append(dps)
         if hp.player_id in want:

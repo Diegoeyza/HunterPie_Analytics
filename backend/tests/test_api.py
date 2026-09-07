@@ -66,6 +66,54 @@ def seed_two_hunts(s):
                            datetime(2026, 9, 7, 3, 0), datetime(2026, 9, 7, 3, 4)))
 
 
+def test_sos_join_dps_uses_own_window():
+    """Late (SOS) joiner: DPS = own damage / own tracked window, not the
+    party-wide first-hit→death window (regression: showed ~2x real DPS)."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    client, s = make_client()
+    s.add_all([Monster(id=8, name="Lagiacrus"),
+               Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn"),
+               Weapon(id=1, name="GreatSword", weapon_type="GreatSword")])
+    s.flush()
+    upsert_hunt(s, {
+        "quest_id_external": "sos", "dedup_hash": "sos",
+        "monster_id": 8, "_monster_name": "Lagiacrus",
+        "started_at": datetime(2026, 9, 7, 1, 0),
+        "ended_at": datetime(2026, 9, 7, 1, 10),
+        "quest_time_seconds": 587.0,
+        "cart_count": 0, "cleared": True,
+        "hunterpie_version": "t", "game_version": "g",
+        "players": [
+            {"display_name": "Isi", "weapon_id": 6,
+             "total_damage": 23385.0, "peak_dps": 300.0, "is_supporter": False},
+            {"display_name": "Host", "weapon_id": 1,
+             "total_damage": 12909.0, "peak_dps": 150.0, "is_supporter": False},
+        ],
+        # Isi joins mid-fight (first snapshot at 33s); host tracked from 7s.
+        # HP tracking goes stale early (last step 67s) while damage runs to 152s.
+        "snapshots": [
+            {"display_name": "Isi", "ts_offset_seconds": 33.0,
+             "cumulative_damage": 100.0, "instant_dps": 50.0},
+            {"display_name": "Isi", "ts_offset_seconds": 152.0,
+             "cumulative_damage": 23385.0, "instant_dps": 190.0},
+            {"display_name": "Host", "ts_offset_seconds": 7.0,
+             "cumulative_damage": 50.0, "instant_dps": 40.0},
+            {"display_name": "Host", "ts_offset_seconds": 152.0,
+             "cumulative_damage": 12909.0, "instant_dps": 85.0},
+        ],
+        "hp_steps": [{"ts_offset_seconds": 7.0, "hp_fraction": 1.0},
+                     {"ts_offset_seconds": 67.0, "hp_fraction": 0.25}],
+        "events": [],
+    })
+    scores = client.get("/api/high-scores").json()["scores"]
+    assert len(scores) == 1
+    # Isi 23385 / (152 - 33) = 196.5 — old code gave 23385 / (67 - 7) = 389.8
+    assert abs(scores[0]["dps"] - 196.5) < 0.1
+    assert scores[0]["player"] == "Isi"
+
+
 def teardown_function():
     api.app.dependency_overrides.clear()
     while _TEST_DBS:
