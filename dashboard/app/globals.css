@@ -86,6 +86,11 @@ header.topbar h1 { font-size: 18px; margin: 0; }
   padding: 5px 8px; font-size: 13px; margin-bottom: 4px;
 }
 .scope-row { display: flex; align-items: center; gap: 4px; padding: 2px 4px; }
+.scope-section {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); padding: 4px 6px 2px;
+}
+.scope-div { border-top: 1px solid var(--border); margin: 4px 2px; }
 .scope-name {
   flex: 1; text-align: left; background: none; border: none;
   color: var(--muted); cursor: pointer; font-size: 13px; padding: 4px 6px;

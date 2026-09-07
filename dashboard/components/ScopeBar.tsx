@@ -53,8 +53,35 @@ export default function ScopeBar({ scope, onScope }: Props) {
   };
 
   const q = query.trim().toLowerCase();
-  const matches = q ? players.filter((p) => p.name.toLowerCase().includes(q)) : players;
-  const shown = matches.slice(0, 100);
+  const hit = (name: string) => !q || name.toLowerCase().includes(q);
+  // Starred hunters stay fixed on top, then everyone else — both alphabetical.
+  const starred = pins
+    .map((p) => ({ id: p.player_id, name: byId.get(p.player_id) ?? p.name }))
+    .filter((p) => hit(p.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const rest = players
+    .filter((p) => !pinnedIds.has(p.id) && hit(p.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const matchCount = starred.length + rest.length;
+  const shownRest = rest.slice(0, Math.max(0, 100 - starred.length));
+
+  const row = (p: { id: number; name: string }) => (
+    <div key={p.id} className="scope-row">
+      <button
+        className={scope.includes(p.id) ? "scope-name in" : "scope-name"}
+        onClick={() => toggleScope(p.id)}
+      >
+        {p.name}
+      </button>
+      <button
+        className={pinnedIds.has(p.id) ? "star on" : "star"}
+        title={pinnedIds.has(p.id) ? "unpin" : "pin (star)"}
+        onClick={() => togglePin(p.id)}
+      >
+        {pinnedIds.has(p.id) ? "★" : "☆"}
+      </button>
+    </div>
+  );
 
   return (
     <div className="scopebar">
@@ -75,27 +102,18 @@ export default function ScopeBar({ scope, onScope }: Props) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            {shown.map((p) => (
-              <div key={p.id} className="scope-row">
-                <button
-                  className={scope.includes(p.id) ? "scope-name in" : "scope-name"}
-                  onClick={() => toggleScope(p.id)}
-                >
-                  {p.name}
-                </button>
-                <button
-                  className={pinnedIds.has(p.id) ? "star on" : "star"}
-                  title={pinnedIds.has(p.id) ? "unpin" : "pin (star)"}
-                  onClick={() => togglePin(p.id)}
-                >
-                  {pinnedIds.has(p.id) ? "★" : "☆"}
-                </button>
-              </div>
-            ))}
+            {starred.length > 0 && (
+              <>
+                <div className="scope-section">Starred</div>
+                {starred.map(row)}
+              </>
+            )}
+            {starred.length > 0 && shownRest.length > 0 && <div className="scope-div" />}
+            {shownRest.map(row)}
             {players.length === 0 && <span className="scope-hint">no hunters yet</span>}
-            {q && matches.length === 0 && <span className="scope-hint">no matches</span>}
-            {matches.length > shown.length && (
-              <span className="scope-hint">{matches.length} matches — keep typing to narrow</span>
+            {q && matchCount === 0 && <span className="scope-hint">no matches</span>}
+            {matchCount > starred.length + shownRest.length && (
+              <span className="scope-hint">{matchCount} matches — keep typing to narrow</span>
             )}
           </div>
         )}
