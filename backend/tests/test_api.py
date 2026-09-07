@@ -171,47 +171,47 @@ def test_quest_star_and_scope_filters():
 
 def test_high_scores():
     client, _ = make_client(seed_two_hunts)
+    # hunt 1 = solo Isi (5.6 dps), hunt 2 = Isi (8.3) + Pal (2.1)
+    # one row per hunt, default sort = dps: hunt 2, hunt 1
     scores = client.get("/api/high-scores").json()["scores"]
-    # hunt 1 = solo Isi over 180s, hunt 2 = Isi + Pal over 240s
-    # per-hunter rows: 1 from hunt 1 + 2 from hunt 2 = 3
-    assert len(scores) == 3
+    assert [s["hunt_id"] for s in scores] == [2, 1]
+    assert [s["rank"] for s in scores] == [1, 2]
+    top = scores[0]
+    assert top["monster"] == "Xu Wu" and top["player"] == "Isi"
+    assert top["weapon"] == "HuntingHorn" and top["dps"] > 0
+    assert [m["player"] for m in top["party"]] == ["Pal"]
+    solo = scores[1]
+    assert solo["party"] == []
 
-    # default sort = time (fastest first): hunt 1 (180s), hunt 2 (240s)
-    assert [s["hunt_id"] for s in scores] == [1, 2, 2]
-    fastest = scores[0]
-    assert fastest["rank"] == 1
-    assert fastest["clear_s"] == 180.0
-    assert fastest["monster"] == "Xu Wu" and fastest["player"] == "Isi"
-    assert fastest["weapon"] == "HuntingHorn" and fastest["dps"] > 0
-    # solo Isi has no party members
-    assert fastest["party"] == []
+    # top-N limit
+    assert len(client.get("/api/high-scores",
+                          params={"limit": 1}).json()["scores"]) == 1
 
-    # hunt 2 rows: Isi (top DPS) and Pal
-    duo_rows = [s for s in scores if s["hunt_id"] == 2]
-    assert len(duo_rows) == 2
-    isi_duo = next(r for r in duo_rows if r["player"] == "Isi")
-    pal_duo = next(r for r in duo_rows if r["player"] == "Pal")
-    assert isi_duo["weapon"] == "HuntingHorn" and isi_duo["dps"] > 0
-    assert pal_duo["weapon"] == "GreatSword" and pal_duo["dps"] > 0
-    # each party list excludes the row's own player
-    assert len(isi_duo["party"]) == 1 and isi_duo["party"][0]["player"] == "Pal"
-    assert len(pal_duo["party"]) == 1 and pal_duo["party"][0]["player"] == "Isi"
-
-    by_dps = client.get("/api/high-scores", params={"sort_by": "dps"}).json()["scores"]
-    # Isi hunt 2 > Isi hunt 1 > Pal hunt 2 (by individual DPS)
-    assert by_dps[0]["player"] == "Isi" and by_dps[0]["hunt_id"] == 2
-    assert by_dps[1]["player"] == "Isi" and by_dps[1]["hunt_id"] == 1
-    assert by_dps[2]["player"] == "Pal" and by_dps[2]["hunt_id"] == 2
-    assert [s["rank"] for s in by_dps] == [1, 2, 3]
+    # sort by fastest clear: hunt 1 (180s) before hunt 2 (240s)
+    by_time = client.get("/api/high-scores",
+                         params={"sort_by": "time"}).json()["scores"]
+    assert [s["hunt_id"] for s in by_time] == [1, 2]
 
     assert client.get("/api/high-scores",
                       params={"monster_id": 999}).json()["scores"] == []
+
+    # global hunter scope: hunts including Pal, featured = Pal's own DPS
     pal_id = next(p["id"] for p in
                   client.get("/api/filter-options").json()["players"]
                   if p["name"] == "Pal")
     scoped = client.get("/api/high-scores",
-                        params={"player_id": pal_id}).json()["scores"]
+                        params={"player_ids": str(pal_id)}).json()["scores"]
     assert len(scoped) == 1 and scoped[0]["player"] == "Pal"
+    assert [m["player"] for m in scoped[0]["party"]] == ["Isi"]
+
+    # weapon filter applies to the featured player: GreatSword (id 1)
+    # is Pal's, not the party top — empty unscoped, hit when scoped to Pal
+    assert client.get("/api/high-scores",
+                      params={"weapon_id": 1}).json()["scores"] == []
+    scoped_gs = client.get("/api/high-scores",
+                           params={"weapon_id": 1,
+                                   "player_ids": str(pal_id)}).json()["scores"]
+    assert len(scoped_gs) == 1 and scoped_gs[0]["player"] == "Pal"
 
 
 def test_pins():

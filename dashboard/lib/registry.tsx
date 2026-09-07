@@ -58,7 +58,7 @@ export const TABS: TabDef[] = [
     id: "high-scores",
     title: "High Scores",
     blurb: "Leaderboard filtering per player, monster, weapon, and stars, sorted by fastest clear time or highest DPS with full party breakdown.",
-    render: () => <HighScoreView />,
+    render: (ctx) => <HighScoreView scope={ctx.scope} />,
   },
   {
     id: "compare",

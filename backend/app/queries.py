@@ -471,62 +471,72 @@ def records(session: Session) -> dict:
     } for m, a in sorted(by_monster.items())]}
 
 
-def high_scores(session: Session, player_id: int | None = None,
+def high_scores(session: Session, player_ids: list[int] | None = None,
                 monster_id: int | None = None, weapon_id: int | None = None,
-                stars: int | None = None, sort_by: str = "time") -> dict:
-    """Cleared-hunt leaderboard: one row per player per cleared hunt.
+                stars: int | None = None, sort_by: str = "dps",
+                limit: int | None = None) -> dict:
+    """Cleared-hunt leaderboard: one row per hunt, ranked.
 
-    Each participating non-supporter in a cleared hunt gets its own row,
-    showing that player's individual DPS, weapon used, clear time, monster
-    name, and party breakdown.  ``sort_by`` is either ``"time"`` (fastest
-    clears first) or ``"dps"`` (highest individual DPS first).
+    ``player_ids`` (global hunter scope) narrows to hunts including ANY of
+    those hunters; the featured DPS is the best among the scoped members
+    present (or the party top DPS when no scope). ``weapon_id`` applies to
+    the featured player. ``sort_by`` is ``"dps"`` (highest featured DPS
+    first) or ``"time"`` (fastest clear first). ``limit`` keeps only the
+    top N rows (client Top-N filter).
     """
-    sort_by = "time" if sort_by != "dps" else "dps"
+    sort_by = "time" if sort_by == "time" else "dps"
     stmt = (
-        select(Hunt, HuntPlayer, Player.display_name, Weapon.name, Monster.name)
+        select(Hunt, HuntPlayer, Player.display_name, Weapon.name, Weapon.id,
+               Monster.name)
         .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
         .join(Player, Player.id == HuntPlayer.player_id)
         .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
         .join(Monster, Monster.id == Hunt.monster_id)
         .where(Hunt.cleared.is_(True), HuntPlayer.is_supporter.is_(False))
     )
-    if player_id is not None:
-        stmt = stmt.where(HuntPlayer.player_id == player_id)
     if monster_id is not None:
         stmt = stmt.where(Hunt.monster_id == monster_id)
-    if weapon_id is not None:
-        stmt = stmt.where(HuntPlayer.weapon_id == weapon_id)
     if stars is not None:
         stmt = stmt.where(Hunt.quest_stars == stars)
 
     by_hunt: dict[int, dict] = {}
-    for hunt, hp, pname, wname, mname in session.execute(stmt):
+    for hunt, hp, pname, wname, wid, mname in session.execute(stmt):
         eng = _engagement_duration_s(session, hunt.id)
         h = by_hunt.setdefault(hunt.id, {"hunt": hunt, "monster": mname,
                                          "members": []})
         h["members"].append({
+            "player_id": hp.player_id,
             "player": pname,
             "weapon": wname or "Unknown",
+            "weapon_id": wid,
             "dps": ((hp.total_damage or 0.0) / eng) if eng else 0.0,
         })
 
     scores: list[dict] = []
     for h in by_hunt.values():
+        members = h["members"]
+        if player_ids and not any(m["player_id"] in player_ids for m in members):
+            continue
+        pool = ([m for m in members if m["player_id"] in player_ids]
+                if player_ids else members)
+        featured = max(pool, key=lambda m: (m["dps"], m["player"]))
+        if weapon_id is not None and featured["weapon_id"] != weapon_id:
+            continue
         clear_s = _hunt_duration_s(h["hunt"])
-        members = sorted(h["members"], key=lambda m: (-m["dps"], m["player"]))
-        for member in members:
-            party = [m for m in members if m["player"] != member["player"]]
-            scores.append({
-                "hunt_id": h["hunt"].id,
-                "date": h["hunt"].started_at.date().isoformat(),
-                "monster": h["monster"],
-                "stars": h["hunt"].quest_stars,
-                "clear_s": clear_s,
-                "player": member["player"],
-                "weapon": member["weapon"],
-                "dps": member["dps"],
-                "party": party,
-            })
+        party = sorted((m for m in members if m["player"] != featured["player"]),
+                       key=lambda m: (-m["dps"], m["player"]))
+        scores.append({
+            "hunt_id": h["hunt"].id,
+            "date": h["hunt"].started_at.date().isoformat(),
+            "monster": h["monster"],
+            "stars": h["hunt"].quest_stars,
+            "clear_s": clear_s,
+            "player": featured["player"],
+            "weapon": featured["weapon"],
+            "dps": featured["dps"],
+            "party": [{"player": m["player"], "weapon": m["weapon"],
+                       "dps": m["dps"]} for m in party],
+        })
     if sort_by == "dps":
         scores.sort(key=lambda s: (-s["dps"], s["hunt_id"]))
     else:
@@ -534,6 +544,8 @@ def high_scores(session: Session, player_id: int | None = None,
                                    s["clear_s"] if s["clear_s"] is not None
                                    else float("inf"),
                                    s["hunt_id"]))
+    if limit is not None and limit > 0:
+        scores = scores[:limit]
     for rank, s in enumerate(scores, 1):
         s["rank"] = rank
     return {"scores": scores}
