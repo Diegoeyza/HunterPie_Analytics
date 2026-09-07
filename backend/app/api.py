@@ -97,10 +97,12 @@ def records(db: Session = Depends(get_db)):
 
 
 @app.get("/api/high-scores")
-def high_scores(player_id: int | None = None, monster_id: int | None = None,
+def high_scores(player_ids: str | None = None, monster_id: int | None = None,
                 weapon_id: int | None = None, stars: int | None = None,
-                sort_by: str = "time", db: Session = Depends(get_db)):
-    return queries.high_scores(db, player_id, monster_id, weapon_id, stars, sort_by)
+                sort_by: str = "dps", limit: int | None = None,
+                db: Session = Depends(get_db)):
+    return queries.high_scores(db, queries._parse_ids(player_ids), monster_id,
+                               weapon_id, stars, sort_by, limit)
 
 
 @app.get("/api/activity")

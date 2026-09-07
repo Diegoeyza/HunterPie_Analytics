@@ -26,13 +26,13 @@ interface HighScore {
 const fmtTime = (s: number | null) =>
   s === null ? "—" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 
-export default function HighScoreView() {
+export default function HighScoreView({ scope }: { scope: number[] }) {
   const [opts, setOpts] = useState<FilterOptions | null>(null);
-  const [player, setPlayer] = useState("");
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
   const [stars, setStars] = useState("");
-  const [sortBy, setSortBy] = useState<"time" | "dps">("time");
+  const [sortBy, setSortBy] = useState<"time" | "dps">("dps");
+  const [topN, setTopN] = useState("10");
   const [rows, setRows] = useState<HighScore[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,13 +43,15 @@ export default function HighScoreView() {
   useEffect(() => {
     setError(null);
     apiGet<{ scores: HighScore[] }>("/high-scores", {
-      ...(player && { player_id: Number(player) }),
+      ...(scope.length > 0 && { player_ids: scope.join(",") }),
       ...(monster && { monster_id: Number(monster) }),
       ...(weapon && { weapon_id: Number(weapon) }),
       ...(stars && { stars: Number(stars) }),
       sort_by: sortBy,
+      ...(topN && { limit: Number(topN) }),
     }).then((d) => setRows(d.scores)).catch((e: Error) => setError(e.message));
-  }, [player, monster, weapon, stars, sortBy]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope.join(","), monster, weapon, stars, sortBy, topN]);
 
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!rows) return <p>Loading…</p>;
@@ -58,12 +60,6 @@ export default function HighScoreView() {
     <div className="filters">
       {opts && (
         <>
-          <label>Player
-            <select value={player} onChange={(e) => setPlayer(e.target.value)}>
-              <option value="">All</option>
-              {opts.players.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </label>
           <label>Monster
             <select value={monster} onChange={(e) => { setMonster(e.target.value); setStars(""); }}>
               <option value="">All</option>
@@ -82,6 +78,15 @@ export default function HighScoreView() {
               {(monster ? (opts.monster_stars[Number(monster)] ?? []) : opts.stars).map((s) => (
                 <option key={s} value={s}>{s}★</option>
               ))}
+            </select>
+          </label>
+          <label>Top
+            <select value={topN} onChange={(e) => setTopN(e.target.value)}>
+              <option value="3">3</option>
+              <option value="5">5</option>
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="">All</option>
             </select>
           </label>
         </>
@@ -111,7 +116,7 @@ export default function HighScoreView() {
   return (
     <div className="card">
       {filters}
-      <h2>High scores ({rows.length}) — one row per hunter per cleared hunt</h2>
+      <h2>Top {topN || rows.length} hunts by {sortBy === "dps" ? "DPS" : "clear time"}{scope.length > 0 ? " — scoped hunters" : ""} ({rows.length})</h2>
       <table className="grid">
         <thead>
           <tr>
