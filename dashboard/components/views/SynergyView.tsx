@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiGet, type FilterOptions } from "../../lib/api";
+import type { ColumnDef } from "@tanstack/react-table";
+import { apiGet } from "../../lib/api";
+import { fmtDps, fmtPct, fmtTime } from "../../lib/format";
+import DataTable from "../DataTable";
+import SearchSelect from "../SearchSelect";
+import { useFilterOptions } from "../useFilterOptions";
 import EmptyState from "../EmptyState";
 
 interface Pairing {
@@ -9,16 +14,40 @@ interface Pairing {
   avg_clear_s: number | null; avg_share: Record<string, number>;
 }
 
+const columns: ColumnDef<Pairing>[] = [
+  { id: "pairing", accessorKey: "pairing", header: "Pairing" },
+  { id: "hunts", accessorKey: "hunts", header: "Hunts", meta: { cls: "num" } },
+  {
+    id: "clear_rate", accessorKey: "clear_rate", header: "Clear %",
+    meta: { cls: "num" },
+    cell: ({ row }) => fmtPct(row.original.clear_rate),
+  },
+  {
+    id: "avg_clear_s", accessorFn: (r) => r.avg_clear_s ?? -1, header: "Avg clear",
+    meta: { cls: "num" },
+    cell: ({ row }) => (
+      row.original.avg_clear_s ? `${Math.round(row.original.avg_clear_s)}s` : "—"
+    ),
+  },
+  {
+    id: "avg_share",
+    accessorFn: (r) => Object.keys(r.avg_share).length,
+    header: "Avg damage share",
+    enableSorting: false,
+    cell: ({ row }) => (
+      Object.entries(row.original.avg_share)
+        .map(([n, s]) => `${n} ${fmtPct(s)}`)
+        .join(" · ")
+    ),
+  },
+];
+
 export default function SynergyView({ scope }: { scope: number[] }) {
   const [rows, setRows] = useState<Pairing[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [opts, setOpts] = useState<FilterOptions | null>(null);
+  const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [stars, setStars] = useState("");
-
-  useEffect(() => {
-    apiGet<FilterOptions>("/filter-options").then(setOpts).catch(() => {});
-  }, []);
 
   useEffect(() => {
     apiGet<{ pairings: Pairing[] }>("/synergy", {
@@ -33,28 +62,22 @@ export default function SynergyView({ scope }: { scope: number[] }) {
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!rows) return <p>Loading…</p>;
 
+  const starOptions = monster ? (opts?.monster_stars[Number(monster)] ?? []) : opts?.stars ?? [];
+
   const filters = (
     <div className="filters">
-      {opts && (
-        <>
-          <label>Monster
-            <select value={monster} onChange={(e) => { setMonster(e.target.value); setStars(""); }}>
-              <option value="">All</option>
-              {opts.monsters.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          </label>
-          <label>Stars
-            <select value={stars} onChange={(e) => setStars(e.target.value)}>
-              <option value="">All</option>
-              {(monster ? (opts.monster_stars[Number(monster)] ?? []) : opts.stars).map((s) => (
-                <option key={s} value={s}>{s}★</option>
-              ))}
-            </select>
-          </label>
-        </>
-      )}
+      <SearchSelect
+        label="Monster"
+        value={monster}
+        options={(opts?.monsters ?? []).map((m) => ({ value: String(m.id), label: m.name }))}
+        onChange={(v) => { setMonster(v); setStars(""); }}
+      />
+      <label>Stars
+        <select value={stars} onChange={(e) => setStars(e.target.value)}>
+          <option value="">All</option>
+          {starOptions.map((s) => <option key={s} value={s}>{s}★</option>)}
+        </select>
+      </label>
     </div>
   );
 
@@ -70,35 +93,13 @@ export default function SynergyView({ scope }: { scope: number[] }) {
   return (
     <div className="card">
       {filters}
-      <h2>Teammate pairings ({rows.length})</h2>
-      <table className="grid">
-        <thead>
-          <tr>
-            <th>Pairing</th>
-            <th className="num">Hunts</th>
-            <th className="num">Clear %</th>
-            <th className="num">Avg clear</th>
-            <th>Avg damage share</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.pairing}>
-              <td>{r.pairing}</td>
-              <td className="num">{r.hunts}</td>
-              <td className="num">{(r.clear_rate * 100).toFixed(0)}%</td>
-              <td className="num">
-                {r.avg_clear_s ? `${Math.round(r.avg_clear_s)}s` : "—"}
-              </td>
-              <td>
-                {Object.entries(r.avg_share)
-                  .map(([n, s]) => `${n} ${(s * 100).toFixed(0)}%`)
-                  .join(" · ")}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <h2>Teammate pairings ({rows.length}) — click a header to sort</h2>
+      <DataTable
+        data={rows}
+        columns={columns}
+        initialSort={[{ id: "hunts", desc: true }]}
+        getRowId={(r) => r.pairing}
+      />
     </div>
   );
 }
