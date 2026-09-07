@@ -1,9 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiGet, apiSend, type Option, type Pin } from "../lib/api";
+import {
+  apiGet, apiSend, variantLabel, UNKNOWN_VARIANT_ID,
+  type Option, type Pin, type PlayerVariants,
+} from "../lib/api";
+import SearchSelect from "./SearchSelect";
+import WeaponVariantManager from "./WeaponVariantManager";
 
 const SCOPE_KEY = "hp.scope";
+const VARIANT_KEY = "hp.variant";
 
 export function loadScope(): number[] {
   try {
@@ -15,16 +21,39 @@ export function loadScope(): number[] {
   }
 }
 
+export function loadVariant(): number | null {
+  try {
+    const raw = localStorage.getItem(VARIANT_KEY);
+    const v = raw ? (JSON.parse(raw) as unknown) : null;
+    return typeof v === "number" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeVariant(id: number | null) {
+  try {
+    localStorage.setItem(VARIANT_KEY, JSON.stringify(id));
+  } catch { /* private mode: variant just won't persist */ }
+}
+
 interface Props {
   scope: number[];
   onScope: (ids: number[]) => void;
+  variantId: number | null;
+  onVariant: (id: number | null) => void;
 }
 
-/** Hunter scope bar: star (pin) hunters, toggle who's in scope. Persisted. */
-export default function ScopeBar({ scope, onScope }: Props) {
+/** Hunter scope bar: star (pin) hunters, toggle who's in scope. Persisted.
+ *  With exactly one scoped hunter who has gear data, a weapon-variant
+ *  filter appears next to the hunter chips, with an edit button that
+ *  opens the label-once naming menu. */
+export default function ScopeBar({ scope, onScope, variantId, onVariant }: Props) {
   const [players, setPlayers] = useState<Option[]>([]);
   const [pins, setPins] = useState<Pin[]>([]);
+  const [variants, setVariants] = useState<PlayerVariants | null>(null);
   const [open, setOpen] = useState(false);
+  const [variantMenu, setVariantMenu] = useState(false);
   const [query, setQuery] = useState("");
 
   const refresh = () => {
@@ -33,6 +62,33 @@ export default function ScopeBar({ scope, onScope }: Props) {
     apiGet<{ pins: Pin[] }>("/players/pins").then((d) => setPins(d.pins)).catch(() => {});
   };
   useEffect(refresh, []);
+
+  const loadVariants = (playerId: number) => {
+    apiGet<PlayerVariants>(`/players/${playerId}/variants`)
+      .then(setVariants).catch(() => {});
+  };
+
+  // Variant options only exist for a single scoped hunter with gear data.
+  useEffect(() => {
+    setVariants(null);
+    setVariantMenu(false);
+    if (scope.length !== 1) {
+      if (variantId !== null) onVariant(null);
+      return;
+    }
+    loadVariants(scope[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope.join(",")]);
+
+  // Drop a persisted variant the hunter no longer has (e.g. DB rebuild).
+  useEffect(() => {
+    if (variantId === null || variants === null) return;
+    const ok = variantId === UNKNOWN_VARIANT_ID
+      ? variants.unknown_hunts > 0
+      : variants.variants.some((v) => v.id === variantId);
+    if (!ok) onVariant(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variants]);
 
   const pinnedIds = new Set(pins.map((p) => p.player_id));
   const byId = new Map(players.map((p) => [p.id, p.name]));
@@ -64,6 +120,20 @@ export default function ScopeBar({ scope, onScope }: Props) {
     .sort((a, b) => a.name.localeCompare(b.name));
   const matchCount = starred.length + rest.length;
   const shownRest = rest.slice(0, Math.max(0, 100 - starred.length));
+
+  // The filter only appears once the hunter has real fingerprint data;
+  // "Unknown (pre-gear hunts)" joins the options when those exist too.
+  const hasVariants = variants !== null && variants.variants.length > 0;
+  const variantOptions = [
+    ...(variants?.variants ?? []).map((v) => ({
+      value: String(v.id ?? `fp:${v.weapon_type}:${v.raw}:${v.element}:${v.affinity}`),
+      label: `${variantLabel(v)} · ${v.hunts} hunt${v.hunts === 1 ? "" : "s"}`,
+    })),
+    ...((variants?.unknown_hunts ?? 0) > 0 ? [{
+      value: String(UNKNOWN_VARIANT_ID),
+      label: `Unknown (pre-gear hunts) · ${variants!.unknown_hunts} hunt${variants!.unknown_hunts === 1 ? "" : "s"}`,
+    }] : []),
+  ];
 
   const row = (p: { id: number; name: string }) => (
     <div key={p.id} className="scope-row">
@@ -120,6 +190,30 @@ export default function ScopeBar({ scope, onScope }: Props) {
       </div>
       {scope.length > 0 && (
         <button className="scope-clear" onClick={() => onScope([])}>clear</button>
+      )}
+      {hasVariants && (
+        <div className="scope-variant">
+          <SearchSelect
+            label="Weapon"
+            value={variantId === null ? "" : String(variantId)}
+            options={variantOptions}
+            placeholder="All weapons"
+            onChange={(v) => {
+              // Unlabeled fingerprints without an identity row (shouldn't
+              // happen — ingest auto-creates them) can't filter server-side.
+              if (v !== "" && (v.startsWith("fp:") || Number.isNaN(Number(v)))) return;
+              onVariant(v === "" ? null : Number(v));
+            }}
+          />
+          <button className="scope-edit" title="Name your weapons"
+            onClick={() => setVariantMenu(!variantMenu)}>✎</button>
+          {variantMenu && (
+            <div className="scope-variant-menu">
+              <WeaponVariantManager playerId={scope[0]}
+                onChanged={() => loadVariants(scope[0])} />
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

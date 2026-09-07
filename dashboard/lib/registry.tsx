@@ -13,6 +13,9 @@ import HighScoreView from "../components/views/HighScoreView";
 export interface ViewCtx {
   /** Hunter scope: player ids to focus on. Empty = all hunters. */
   scope: number[];
+  /** Weapon-variant scope (WeaponIdentity id, 0 = unknown-gear hunts).
+   *  Only set with exactly one scoped hunter. Null = all variants. */
+  variantId: number | null;
 }
 
 export interface TabDef {
@@ -28,13 +31,13 @@ export const TABS: TabDef[] = [
     id: "progress",
     title: "Progress",
     blurb: "FR-3.1 — rolling DPS and clear time per hunt, filterable by monster, quest, stars, weapon, hunter.",
-    render: (ctx) => <ProgressView scope={ctx.scope} />,
+    render: (ctx) => <ProgressView scope={ctx.scope} variantId={ctx.variantId} />,
   },
   {
     id: "weapons",
     title: "Weapons",
     blurb: "FR-3.2 — avg/peak DPS, hunt count and clear rate by weapon type.",
-    render: (ctx) => <WeaponsView scope={ctx.scope} />,
+    render: (ctx) => <WeaponsView scope={ctx.scope} variantId={ctx.variantId} />,
   },
   {
     id: "curves",
@@ -58,13 +61,13 @@ export const TABS: TabDef[] = [
     id: "high-scores",
     title: "High Scores",
     blurb: "One row per cleared hunt, ranked by top DPS or fastest clear. Scoped to the hunters bar above; filterable by monster, weapon and stars.",
-    render: (ctx) => <HighScoreView scope={ctx.scope} />,
+    render: (ctx) => <HighScoreView scope={ctx.scope} variantId={ctx.variantId} />,
   },
   {
     id: "compare",
     title: "Compare",
     blurb: "Your scoped hunters vs the whole party, hunt by hunt. Star yourself in the hunters bar above.",
-    render: (ctx) => <CompareView scope={ctx.scope} />,
+    render: (ctx) => <CompareView scope={ctx.scope} variantId={ctx.variantId} />,
   },
   {
     id: "activity",
@@ -76,7 +79,7 @@ export const TABS: TabDef[] = [
     id: "synergy",
     title: "Synergy",
     blurb: "FR-3.4 — clear time and damage share by teammate pairing (supporters excluded).",
-    render: (ctx) => <SynergyView scope={ctx.scope} />,
+    render: (ctx) => <SynergyView scope={ctx.scope} variantId={ctx.variantId} />,
   },
   {
     id: "buffs",

@@ -15,18 +15,21 @@ interface ComparePoint {
 }
 interface CompareData { points: ComparePoint[]; window: number; scope: string[]; }
 
-export default function CompareView({ scope }: { scope: number[] }) {
+export default function CompareView({ scope, variantId }: { scope: number[]; variantId: number | null }) {
   const [data, setData] = useState<CompareData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const key = scope.join(",");
 
   useEffect(() => {
     if (scope.length === 0) { setData(null); return; }
-    apiGet<CompareData>("/compare", { player_ids: scope.join(",") })
+    apiGet<CompareData>("/compare", {
+      player_ids: scope.join(","),
+      ...(variantId !== null && { variant_id: variantId }),
+    })
       .then(setData)
       .catch((e: Error) => setError(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, variantId]);
 
   if (scope.length === 0) {
     return (

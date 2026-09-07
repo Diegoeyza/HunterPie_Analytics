@@ -100,6 +100,41 @@ header.topbar h1 { font-size: 18px; margin: 0; }
 .star { background: none; border: none; cursor: pointer; font-size: 15px; color: var(--muted); }
 .star.on { color: var(--accent); }
 
+/* Weapon-variant filter (SearchSelect embedded in the scope bar) */
+.scopebar .combo { min-width: 220px; }
+.scopebar label { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.scope-variant { position: relative; display: flex; gap: 4px; align-items: end; }
+.scope-edit {
+  background: var(--panel); color: var(--muted);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 9px; cursor: pointer; font-size: 13px;
+}
+.scope-edit:hover { color: var(--text); border-color: var(--accent); }
+.scope-variant-menu {
+  position: absolute; z-index: 10; top: 110%; right: 0; min-width: 340px;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px; max-height: 340px; overflow-y: auto;
+}
+.scope-variant-menu .variant-manager {
+  max-width: none; margin: 0; border: none; padding: 8px;
+}
+
+/* Label-once weapon manager under the scope bar */
+.variant-manager { max-width: min(1600px, 100% - 32px); margin: 8px auto 0; }
+.variant-manager h3 { font-size: 14px; margin: 0 0 4px; }
+.variant-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; flex-wrap: wrap; }
+.variant-stats { font-size: 13px; }
+.variant-input {
+  flex: 1; min-width: 160px; background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 13px;
+}
+.variant-row button {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 12px; cursor: pointer; font-size: 13px;
+}
+.variant-row button:disabled { opacity: 0.4; cursor: default; }
+
 nav.tabs {
   display: flex; gap: 4px; padding: 10px 20px 0; flex-wrap: wrap;
   max-width: min(1600px, 100% - 32px); margin: 0 auto;

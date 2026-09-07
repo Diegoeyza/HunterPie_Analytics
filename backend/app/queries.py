@@ -19,6 +19,7 @@ from .models import (
     PlayerAbnormality,
     PlayerPin,
     Weapon,
+    WeaponIdentity,
 )
 
 
@@ -26,6 +27,102 @@ def _parse_ids(raw: str | None) -> list[int]:
     if not raw:
         return []
     return [int(x) for x in raw.split(",") if x.strip().isdigit()]
+
+
+UNKNOWN_VARIANT_ID = 0
+"""Pseudo variant id for hunts with no gear data (pre-gear fork exports)."""
+
+
+def _variant_hunt_ids(session: Session, player_id: int,
+                      variant_id: int) -> set[int]:
+    """Hunt ids where ``player_id`` fought with the given weapon variant.
+
+    ``variant_id`` is a WeaponIdentity id, or UNKNOWN_VARIANT_ID for hunts
+    with NULL gear columns. Unknown identity ids yield the empty set.
+    """
+    stmt = select(HuntPlayer.hunt_id).where(HuntPlayer.player_id == player_id)
+    if variant_id == UNKNOWN_VARIANT_ID:
+        stmt = stmt.where(HuntPlayer.gear_raw.is_(None))
+    else:
+        identity = session.get(WeaponIdentity, variant_id)
+        if identity is None:
+            return set()
+        stmt = stmt.where(
+            HuntPlayer.gear_raw == identity.gear_raw,
+            HuntPlayer.gear_element == identity.gear_element,
+            HuntPlayer.gear_affinity == identity.gear_affinity,
+        )
+    return set(session.execute(stmt).scalars())
+
+
+def _resolve_variant_filter(session: Session,
+                            player_ids: list[int] | None,
+                            variant_id: int | None) -> set[int] | None:
+    """Shared variant narrowing for scoped queries.
+
+    Only applies with exactly one scoped hunter (the dashboard only offers
+    the filter then); otherwise returns None = no narrowing.
+    """
+    if variant_id is None or not player_ids or len(player_ids) != 1:
+        return None
+    return _variant_hunt_ids(session, player_ids[0], variant_id)
+
+
+def _identity_label_map(session: Session) -> dict[tuple, str | None]:
+    """(weapon_type, raw, element, affinity) -> user label (or None)."""
+    return {(i.weapon_type, i.gear_raw, i.gear_element, i.gear_affinity): i.label
+            for i in session.execute(select(WeaponIdentity)).scalars()}
+
+
+def _gear_variant_label(label_map: dict[tuple, str | None], weapon_name: str | None,
+                        raw: float | None, element: float | None,
+                        affinity: float | None) -> str | None:
+    if raw is None:
+        return None
+    return label_map.get((weapon_name or "Unknown", raw, element, affinity))
+
+
+def player_variants(session: Session, player_id: int) -> dict:
+    """Distinct gear fingerprints used by one hunter, with hunt counts."""
+    rows = session.execute(
+        select(Weapon.name, HuntPlayer.gear_raw, HuntPlayer.gear_element,
+               HuntPlayer.gear_affinity,
+               func.count(func.distinct(HuntPlayer.hunt_id)))
+        .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
+        .where(HuntPlayer.player_id == player_id,
+               HuntPlayer.gear_raw.is_not(None))
+        .group_by(Weapon.name, HuntPlayer.gear_raw, HuntPlayer.gear_element,
+                  HuntPlayer.gear_affinity)
+    ).all()
+    identities = {(i.weapon_type, i.gear_raw, i.gear_element, i.gear_affinity): i
+                  for i in session.execute(select(WeaponIdentity)).scalars()}
+    variants = []
+    for wname, raw, element, affinity, hunts in rows:
+        identity = identities.get((wname or "Unknown", raw, element, affinity))
+        variants.append({
+            "id": identity.id if identity else None,
+            "weapon_type": wname or "Unknown",
+            "raw": raw, "element": element, "affinity": affinity,
+            "label": identity.label if identity else None,
+            "hunts": hunts,
+        })
+    unknown = session.execute(
+        select(func.count(func.distinct(HuntPlayer.hunt_id)))
+        .where(HuntPlayer.player_id == player_id,
+               HuntPlayer.gear_raw.is_(None))
+    ).scalar_one()
+    return {"player_id": player_id, "variants": variants, "unknown_hunts": unknown}
+
+
+def set_identity_label(session: Session, identity_id: int,
+                       label: str | None) -> dict:
+    """Name (or un-name, with null/empty) a weapon variant. Label-once."""
+    identity = session.get(WeaponIdentity, identity_id)
+    if identity is None:
+        raise KeyError(identity_id)
+    identity.label = (label or "").strip() or None
+    session.commit()
+    return {"id": identity.id, "label": identity.label}
 
 
 def _hunt_duration_s(hunt: Hunt) -> float | None:
@@ -163,7 +260,7 @@ def progress(session: Session, monster_id: int | None = None,
              weapon_id: int | None = None, player_id: int | None = None,
              quest_id: int | None = None, stars: int | None = None,
              player_ids: list[int] | None = None,
-             window: int = 5) -> dict:
+             window: int = 5, variant_id: int | None = None) -> dict:
     """FR-3.1: per-hunt DPS + clear time series with rolling average."""
     stmt = (
         select(Hunt, HuntPlayer, Player, Weapon, Monster)
@@ -186,7 +283,11 @@ def progress(session: Session, monster_id: int | None = None,
         stmt = stmt.where(Hunt.quest_stars == stars)
     if player_ids:
         stmt = stmt.where(HuntPlayer.player_id.in_(player_ids))
+    variant_hunts = _resolve_variant_filter(session, player_ids, variant_id)
+    if variant_hunts is not None:
+        stmt = stmt.where(Hunt.id.in_(variant_hunts))
 
+    labels = _identity_label_map(session)
     points = []
     for hunt, hp, player, weapon, monster in session.execute(stmt):
         dur = _player_engagement_s(session, hunt.id, hp.player_id)
@@ -198,6 +299,9 @@ def progress(session: Session, monster_id: int | None = None,
             "quest_stars": hunt.quest_stars,
             "monster_max_hp": hunt.monster_max_hp,
             "weapon": weapon.name if weapon else "Unknown",
+            "variant": _gear_variant_label(
+                labels, weapon.name if weapon else None,
+                hp.gear_raw, hp.gear_element, hp.gear_affinity),
             "player": player.display_name,
             "dps": (hp.total_damage / dur) if dur else 0.0,
             "clear_s": _hunt_duration_s(hunt),
@@ -214,7 +318,8 @@ def progress(session: Session, monster_id: int | None = None,
 
 
 def weapon_matrix(session: Session, player_ids: list[int] | None = None,
-                   monster_id: int | None = None, stars: int | None = None) -> dict:
+                   monster_id: int | None = None, stars: int | None = None,
+                   variant_id: int | None = None) -> dict:
     """FR-3.2: per-weapon aggregates (supporters excluded)."""
     stmt = (
         select(Weapon.name, HuntPlayer.weapon_id, Hunt, HuntPlayer)
@@ -228,6 +333,9 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
         stmt = stmt.where(Hunt.monster_id == monster_id)
     if stars is not None:
         stmt = stmt.where(Hunt.quest_stars == stars)
+    variant_hunts = _resolve_variant_filter(session, player_ids, variant_id)
+    if variant_hunts is not None:
+        stmt = stmt.where(Hunt.id.in_(variant_hunts))
     by_weapon: dict[str, dict] = {}
     for name, _wid, hunt, hp in session.execute(stmt):
         dur = _player_engagement_s(session, hunt.id, hp.player_id)
@@ -283,15 +391,26 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
         .order_by(DpsSnapshot.player_id, DpsSnapshot.ts_offset_seconds)
     ).all()
     # weapon per player comes from hunt_players, not the snapshot join above
-    weapons = dict(session.execute(
-        select(HuntPlayer.player_id, Weapon.name)
+    hp_rows = session.execute(
+        select(HuntPlayer.player_id, Weapon.name, HuntPlayer.gear_raw,
+               HuntPlayer.gear_element, HuntPlayer.gear_affinity)
         .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
         .where(HuntPlayer.hunt_id == hunt_id)
-    ).all())
+    ).all()
+    labels = _identity_label_map(session)
+    weapons: dict[int, dict] = {}
+    for pid, wname, raw, element, affinity in hp_rows:
+        weapons[pid] = {
+            "name": wname,
+            "variant": _gear_variant_label(labels, wname, raw, element,
+                                           affinity),
+        }
     series: dict[int, dict] = {}
     for snap, name in snaps:
+        w = weapons.get(snap.player_id, {})
         s = series.setdefault(snap.player_id,
-                              {"player": name, "weapon": weapons.get(snap.player_id),
+                              {"player": name, "weapon": w.get("name"),
+                               "variant": w.get("variant"),
                                "points": []})
         s["points"].append({"t": snap.ts_offset_seconds, "dmg": snap.cumulative_damage,
                             "dps": snap.instant_dps})
@@ -376,7 +495,8 @@ def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
 
 
 def synergy(session: Session, player_ids: list[int] | None = None,
-            monster_id: int | None = None, stars: int | None = None) -> dict:
+            monster_id: int | None = None, stars: int | None = None,
+            variant_id: int | None = None) -> dict:
     """FR-3.4: aggregate stats keyed by non-supporter teammate pairing.
 
     player_ids narrows to hunts including ALL of those hunters."""
@@ -399,6 +519,9 @@ def synergy(session: Session, player_ids: list[int] | None = None,
         want = set(player_ids)
         hunts = {hid: h for hid, h in hunts.items()
                  if want <= {pid for _, _, pid in h["members"]}}
+    variant_hunts = _resolve_variant_filter(session, player_ids, variant_id)
+    if variant_hunts is not None:
+        hunts = {hid: h for hid, h in hunts.items() if hid in variant_hunts}
     pairings: dict[str, dict] = {}
     for h in hunts.values():
         key = " + ".join(sorted(n for n, _, _ in h["members"]))
@@ -519,15 +642,18 @@ def records(session: Session) -> dict:
 def high_scores(session: Session, player_ids: list[int] | None = None,
                 monster_id: int | None = None, weapon_id: int | None = None,
                 stars: int | None = None, sort_by: str = "dps",
-                limit: int | None = None) -> dict:
+                limit: int | None = None,
+                variant_id: int | None = None) -> dict:
     """Cleared-hunt leaderboard: one row per hunt, ranked.
 
     ``player_ids`` (global hunter scope) narrows to hunts including ANY of
     those hunters; the featured DPS is the best among the scoped members
     present (or the party top DPS when no scope). ``weapon_id`` applies to
-    the featured player. ``sort_by`` is ``"dps"`` (highest featured DPS
-    first) or ``"time"`` (fastest clear first). ``limit`` keeps only the
-    top N rows (client Top-N filter).
+    the featured player. ``variant_id`` (with exactly one scoped hunter)
+    narrows to hunts where that hunter used the weapon variant.
+    ``sort_by`` is ``"dps"`` (highest featured DPS first) or ``"time"``
+    (fastest clear first). ``limit`` keeps only the top N rows (client
+    Top-N filter).
     """
     sort_by = "time" if sort_by == "time" else "dps"
     stmt = (
@@ -544,6 +670,7 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
     if stars is not None:
         stmt = stmt.where(Hunt.quest_stars == stars)
 
+    labels = _identity_label_map(session)
     by_hunt: dict[int, dict] = {}
     for hunt, hp, pname, wname, wid, mname in session.execute(stmt):
         eng = _player_engagement_s(session, hunt.id, hp.player_id)
@@ -554,11 +681,16 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
             "player": pname,
             "weapon": wname or "Unknown",
             "weapon_id": wid,
+            "variant": _gear_variant_label(
+                labels, wname, hp.gear_raw, hp.gear_element, hp.gear_affinity),
             "dps": ((hp.total_damage or 0.0) / eng) if eng else 0.0,
         })
 
+    variant_hunts = _resolve_variant_filter(session, player_ids, variant_id)
     scores: list[dict] = []
     for h in by_hunt.values():
+        if variant_hunts is not None and h["hunt"].id not in variant_hunts:
+            continue
         members = h["members"]
         if player_ids and not any(m["player_id"] in player_ids for m in members):
             continue
@@ -578,8 +710,10 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
             "clear_s": clear_s,
             "player": featured["player"],
             "weapon": featured["weapon"],
+            "variant": featured["variant"],
             "dps": featured["dps"],
             "party": [{"player": m["player"], "weapon": m["weapon"],
+                       "variant": m["variant"],
                        "dps": m["dps"]} for m in party],
         })
     if sort_by == "dps":
@@ -623,7 +757,8 @@ def activity(session: Session) -> dict:
     } for d, a in sorted(by_day.items())]}
 
 
-def compare(session: Session, player_ids: list[int], window: int = 5) -> dict:
+def compare(session: Session, player_ids: list[int], window: int = 5,
+              variant_id: int | None = None) -> dict:
     """Scoped hunters' DPS vs whole-party DPS per hunt (needs a scope)."""
     if not player_ids:
         return {"points": [], "window": window, "scope": []}
@@ -642,6 +777,9 @@ def compare(session: Session, player_ids: list[int], window: int = 5) -> dict:
         h["all"].append(dps)
         if hp.player_id in want:
             h["scope"].append(dps)
+    variant_hunts = _resolve_variant_filter(session, player_ids, variant_id)
+    if variant_hunts is not None:
+        hunts = {hid: h for hid, h in hunts.items() if hid in variant_hunts}
     points = [{
         "hunt_id": hid,
         "date": h["hunt"].started_at.date().isoformat(),

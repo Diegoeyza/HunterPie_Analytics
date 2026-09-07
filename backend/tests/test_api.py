@@ -320,11 +320,121 @@ def test_migration_backfills_old_db():
     con = sqlite3.connect(path)
     con.execute("CREATE TABLE hunts (id INTEGER PRIMARY KEY, monster_id INTEGER, "
                 "started_at TIMESTAMP)")
+    con.execute("CREATE TABLE hunt_players (hunt_id INTEGER, player_id INTEGER)")
     con.commit()
     con.close()
     from app.db import init_db
     init_db(path)
     con = sqlite3.connect(path)
     cols = {r[1] for r in con.execute("PRAGMA table_info(hunts)")}
+    hp_cols = {r[1] for r in con.execute("PRAGMA table_info(hunt_players)")}
+    tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     con.close()
     assert {"quest_id", "quest_stars", "monster_max_hp", "monster_crown"} <= cols
+    assert {"gear_raw", "gear_element", "gear_affinity"} <= hp_cols
+    assert "weapon_identities" in tables
+
+
+def _seed_gear_hunts(s):
+    """Two hunts: one with a gear fingerprint (auto-creates identity),
+    one without (Unknown). Returns (isi_id, identity_id)."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    s.add_all([Monster(id=8, name="Lagiacrus"),
+               Weapon(id=5, name="HuntingHorn", weapon_type="HuntingHorn")])
+    s.flush()
+    gear = {"raw": 264.0, "element": 560.0, "affinity": 20.0}
+    hunt1, _, _ = upsert_hunt(s, {
+        "quest_id_external": "g1", "dedup_hash": "gear1",
+        "monster_id": 8, "_monster_name": "Lagiacrus",
+        "started_at": datetime(2026, 9, 7, 4, 0),
+        "ended_at": datetime(2026, 9, 7, 4, 5),
+        "quest_time_seconds": 300.0, "cart_count": 0, "cleared": True,
+        "hunterpie_version": "t", "game_version": "g",
+        "players": [{"display_name": "Isi", "weapon_id": 5, "gear": gear,
+                     "total_damage": 9000.0, "peak_dps": 60.0,
+                     "is_supporter": False}],
+        "snapshots": [{"display_name": "Isi", "ts_offset_seconds": 10.0,
+                       "cumulative_damage": 4500.0, "instant_dps": 40.0},
+                      {"display_name": "Isi", "ts_offset_seconds": 20.0,
+                       "cumulative_damage": 9000.0, "instant_dps": 40.0}],
+        "events": [],
+    })
+    upsert_hunt(s, {
+        "quest_id_external": "g2", "dedup_hash": "gear2",
+        "monster_id": 8, "_monster_name": "Lagiacrus",
+        "started_at": datetime(2026, 9, 7, 5, 0),
+        "ended_at": datetime(2026, 9, 7, 5, 5),
+        "quest_time_seconds": 300.0, "cart_count": 0, "cleared": True,
+        "hunterpie_version": "t", "game_version": "g",
+        "players": [{"display_name": "Isi", "weapon_id": 5,
+                     "total_damage": 8000.0, "peak_dps": 55.0,
+                     "is_supporter": False}],
+        "snapshots": [{"display_name": "Isi", "ts_offset_seconds": 10.0,
+                       "cumulative_damage": 4000.0, "instant_dps": 40.0},
+                      {"display_name": "Isi", "ts_offset_seconds": 20.0,
+                       "cumulative_damage": 8000.0, "instant_dps": 40.0}],
+        "events": [],
+    })
+    from app.models import Player, WeaponIdentity
+    from sqlalchemy import select
+    isi_id = s.execute(select(Player.id)
+                       .where(Player.display_name == "Isi")).scalar_one()
+    identity = s.execute(select(WeaponIdentity)).scalars().all()
+    assert len(identity) == 1
+    return isi_id, identity[0].id
+
+
+def test_gear_import_creates_identity_and_variants():
+    client, s = make_client()
+    isi_id, identity_id = _seed_gear_hunts(s)
+    body = client.get(f"/api/players/{isi_id}/variants").json()
+    assert body["unknown_hunts"] == 1
+    assert len(body["variants"]) == 1
+    v = body["variants"][0]
+    assert (v["raw"], v["element"], v["affinity"]) == (264.0, 560.0, 20.0)
+    assert v["hunts"] == 1 and v["label"] is None
+    # label-once
+    renamed = client.patch(f"/api/weapon-identities/{identity_id}",
+                           json={"label": "Artian Horn III"}).json()
+    assert renamed["label"] == "Artian Horn III"
+    assert client.patch("/api/weapon-identities/9999",
+                        json={"label": "x"}).status_code == 404
+    # label surfaces on high-scores + progress + curve
+    scores = client.get("/api/high-scores").json()["scores"]
+    assert all(s["variant"] == "Artian Horn III" for s in scores
+               if s["hunt_id"] == 1)
+    assert all(s["variant"] is None for s in scores if s["hunt_id"] == 2)
+    prog = client.get("/api/progress").json()["points"]
+    assert {p["variant"] for p in prog} == {"Artian Horn III", None}
+    hunt_id = client.get("/api/hunts").json()["hunts"][0]["id"]
+    curve = client.get(f"/api/hunts/{hunt_id}/curve").json()
+    assert set(curve["players"][0]) >= {"player", "weapon", "variant", "points"}
+
+
+def test_variant_filter_narrows_scoped_queries():
+    client, s = make_client()
+    isi_id, identity_id = _seed_gear_hunts(s)
+    params = {"player_ids": str(isi_id), "variant_id": identity_id}
+    assert {s["hunt_id"] for s in
+            client.get("/api/high-scores", params=params).json()["scores"]} == {1}
+    assert {p["hunt_id"] for p in
+            client.get("/api/progress", params=params).json()["points"]} == {1}
+    assert {p["hunt_id"] for p in
+            client.get("/api/compare", params=params).json()["points"]} == {1}
+    assert client.get("/api/weapons", params=params).json()["weapons"][0]["hunts"] == 1
+    assert {p["pairing"] for p in
+            client.get("/api/synergy", params=params).json()["pairings"]} == {"Isi"}
+    # unknown-variant pseudo id narrows to the gear-less hunt
+    unk = dict(params, variant_id=0)
+    assert {s["hunt_id"] for s in
+            client.get("/api/high-scores", params=unk).json()["scores"]} == {2}
+    # bogus identity id narrows to nothing; multi-hunter scope ignores variant
+    assert client.get("/api/high-scores",
+                      params={"player_ids": str(isi_id),
+                              "variant_id": 9999}).json()["scores"] == []
+    assert len(client.get(
+        "/api/high-scores",
+        params={"player_ids": f"{isi_id},999",
+                "variant_id": identity_id}).json()["scores"]) == 2

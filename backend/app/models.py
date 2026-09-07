@@ -91,6 +91,33 @@ class HuntPlayer(Base):
     total_damage: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     peak_dps: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     is_supporter: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Gear fingerprint (fork export, local player only): exact weapon stats
+    # snapshotted at quest start. NULL = pre-gear export ("Unknown").
+    gear_raw: Mapped[float | None] = mapped_column(Float)
+    gear_element: Mapped[float | None] = mapped_column(Float)
+    gear_affinity: Mapped[float | None] = mapped_column(Float)
+
+
+class WeaponIdentity(Base):
+    """User-named weapon variant: one row per distinct gear fingerprint.
+
+    The fork exports no weapon names, only (type, raw, element, affinity).
+    The first sighting auto-creates an unlabeled row; the user names it
+    once in the dashboard and every hunt with that fingerprint resolves.
+    """
+    __tablename__ = "weapon_identities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    weapon_type: Mapped[str] = mapped_column(Text, nullable=False)
+    gear_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    gear_element: Mapped[float] = mapped_column(Float, nullable=False)
+    gear_affinity: Mapped[float] = mapped_column(Float, nullable=False)
+    label: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        UniqueConstraint("weapon_type", "gear_raw", "gear_element",
+                         "gear_affinity"),
+    )
 
 
 class DpsSnapshot(Base):

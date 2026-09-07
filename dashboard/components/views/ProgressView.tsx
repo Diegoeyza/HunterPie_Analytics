@@ -13,12 +13,12 @@ import EmptyState from "../EmptyState";
 interface Point {
   hunt_id: number; started_at: string; monster: string;
   quest_id: number | null; quest_stars: number | null; monster_max_hp: number | null;
-  weapon: string; player: string; dps: number;
+  weapon: string; variant: string | null; player: string; dps: number;
   clear_s: number | null; cleared: boolean;
 }
 interface ProgressData { points: Point[]; rolling: { hunt_id: number; avg_dps: number }[]; window: number; }
 
-export default function ProgressView({ scope }: { scope: number[] }) {
+export default function ProgressView({ scope, variantId }: { scope: number[]; variantId: number | null }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -38,9 +38,10 @@ export default function ProgressView({ scope }: { scope: number[] }) {
       ...(quest && { quest_id: Number(quest) }),
       ...(stars && { stars: Number(stars) }),
       ...(scope.length > 0 && { player_ids: scope.join(",") }),
+      ...(variantId !== null && { variant_id: variantId }),
       window: windowSize,
     }).then(setData).catch((e: Error) => setError(e.message));
-  }, [monster, weapon, player, quest, stars, windowSize, scope.join(",")]);
+  }, [monster, weapon, player, quest, stars, windowSize, scope.join(","), variantId]);
 
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!data) return <p>Loading…</p>;
@@ -59,7 +60,7 @@ export default function ProgressView({ scope }: { scope: number[] }) {
     avg: Math.round((data.rolling[i]?.avg_dps ?? 0) * 10) / 10,
     clear_s: p.clear_s ? Math.round(p.clear_s) : null,
     player: p.player,
-    weapon: p.weapon,
+    weapon: p.variant ? `${p.weapon} · ${p.variant}` : p.weapon,
   }));
 
   return (

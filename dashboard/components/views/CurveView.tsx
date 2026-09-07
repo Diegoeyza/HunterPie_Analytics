@@ -10,7 +10,7 @@ import SearchSelect from "../SearchSelect";
 import EmptyState from "../EmptyState";
 
 interface CurvePoint { t: number; dmg: number; }
-interface CurvePlayer { player: string; weapon: string | null; points: CurvePoint[]; }
+interface CurvePlayer { player: string; weapon: string | null; variant: string | null; points: CurvePoint[]; }
 interface CurveEvent { type: string; start: number; end: number | null; }
 interface CurveQuest {
   quest_id: number | null; stars: number | null; level: number | null;
@@ -299,7 +299,7 @@ export default function CurveView({ scope }: { scope: number[] }) {
                   !scope.includes(nameToId.get(p.player) ?? -1);
                 return (
                   <Line key={p.player} type="monotone" dataKey={p.player}
-                    name={`${p.player}${p.weapon ? ` (${p.weapon})` : ""}`}
+                    name={`${p.player}${p.weapon ? ` (${p.weapon}${p.variant ? ` · ${p.variant}` : ""})` : ""}`}
                     stroke={seriesColor(i)} dot={false} strokeWidth={dimmed ? 1 : 2}
                     strokeOpacity={dimmed ? 0.25 : 1} connectNulls />
                 );
