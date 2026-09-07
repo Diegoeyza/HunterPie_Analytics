@@ -16,11 +16,14 @@ interface CurveQuest {
   quest_id: number | null; stars: number | null; level: number | null;
   max_hp: number | null; variant: number | null; crown: number | null;
 }
+interface CurveHpPoint { t: number; hp: number; }
+interface CurveHpSeries { hunt_id: number; monster: string; points: CurveHpPoint[]; }
 interface CurveData {
   hunt_id: number; monster: string; started_at: string;
   clear_s: number | null; quest: CurveQuest;
   players: CurvePlayer[]; events: CurveEvent[];
-  hp_curve: { t: number; hp: number }[];
+  hp_curve: CurveHpPoint[];
+  quest_hp?: CurveHpSeries[];
 }
 
 type Metric = "damage" | "dps" | "burst";
@@ -62,12 +65,15 @@ function computeBurst(points: CurvePoint[]): { t: number; dps: number }[] {
   });
 }
 
-/** Merge n players' series + monster HP onto one time grid.
- *  Event boundary times (enrage start/end) are injected so that
- *  Recharts <ReferenceArea> has exact x-values to anchor to. */
-function mergeSeries(players: CurvePlayer[], hp: { t: number; hp: number }[],
-                     events: CurveEvent[], metric: Metric) {
-  const deathT = hp.length > 0 ? hp[hp.length - 1].t : Infinity;
+/** Merge n players' series + one HP series per quest monster onto one time
+ *  grid. hpSeries[0] is the selected hunt's own HP (drives the DPS death
+ *  cutoff); the rest are sibling monsters from the same quest. Event
+ *  boundary times (enrage start/end) are injected so that Recharts
+ *  <ReferenceArea> has exact x-values to anchor to. */
+function mergeSeries(players: CurvePlayer[], hpSeries: { key: string; points: { t: number; hp: number }[] }[],
+                      events: CurveEvent[], metric: Metric) {
+  const deathT = hpSeries.length > 0 && hpSeries[0].points.length > 0
+    ? hpSeries[0].points[hpSeries[0].points.length - 1].t : Infinity;
   const smoothed = new Map(
     players.map((p) => [p.player, smoothDps(computeDps(p.points, deathT))])
   );
@@ -78,11 +84,13 @@ function mergeSeries(players: CurvePlayer[], hp: { t: number; hp: number }[],
   const times = Array.from(
     new Set([
       ...players.flatMap((p) => p.points.map((q) => q.t)),
-      ...hp.map((q) => q.t),
+      ...hpSeries.flatMap((s) => s.points.map((q) => q.t)),
       ...eventTimes,
     ])
   ).sort((a, b) => a - b);
-  const hpSorted = [...hp].sort((a, b) => a.t - b.t);
+  const hpSorted = hpSeries.map((s) => ({
+    key: s.key, points: [...s.points].sort((a, b) => a.t - b.t),
+  }));
   return times.map((t) => {
     const row: Record<string, number> = { t };
     for (const p of players) {
@@ -101,18 +109,23 @@ function mergeSeries(players: CurvePlayer[], hp: { t: number; hp: number }[],
         if (hit) row[p.player] = Math.round(hit.dps * 10) / 10;
       }
     }
-    let hv: number | null = null;
     for (const q of hpSorted) {
-      if (q.t <= t + 1e-9) hv = q.hp;
-      else break;
+      let v: number | null = null;
+      for (const p of q.points) {
+        if (p.t <= t + 1e-9) v = p.hp;
+        else break;
+      }
+      if (v !== null) row[q.key] = v;
     }
-    if (hv !== null) row["hp"] = hv;
     return row;
   });
 }
 
+const HP_COLORS = ["#e05c5c", "#ef8354", "#c94f7c", "#e8b64c"];
+
 export default function CurveView({ scope }: { scope: number[] }) {
   const [hunts, setHunts] = useState<HuntSummary[] | null>(null);
+  const [questKey, setQuestKey] = useState<string | null>(null);
   const [huntId, setHuntId] = useState<number | null>(null);
   const [curve, setCurve] = useState<CurveData | null>(null);
   const [showHp, setShowHp] = useState(true);
@@ -130,22 +143,70 @@ export default function CurveView({ scope }: { scope: number[] }) {
     apiGet<{ hunts: HuntSummary[] }>("/hunts", { limit: 200 })
       .then((d) => {
         setHunts(d.hunts);
-        if (d.hunts.length > 0) setHuntId(d.hunts[0].id);
+        if (d.hunts.length > 0) {
+          // Sibling hunts from one quest share started_at: default to the
+          // latest quest and its first hunt.
+          setQuestKey(d.hunts[0].started_at);
+          const first = d.hunts.filter((h) => h.started_at === d.hunts[0].started_at)[0];
+          setHuntId((first ?? d.hunts[0]).id);
+        }
       })
       .catch((e: Error) => setError(e.message));
   }, []);
 
   useEffect(() => {
     if (huntId === null) return;
-    apiGet<CurveData>(`/hunts/${huntId}/curve`)
+    apiGet<CurveData>(`/hunts/${huntId}/curve`, { quest_hp: 1 })
       .then(setCurve)
       .catch((e: Error) => setError(e.message));
   }, [huntId]);
 
-  const merged = useMemo(
-    () => (curve ? mergeSeries(curve.players, showHp ? curve.hp_curve : [], curve.events, metric) : []),
-    [curve, showHp, metric]
+  /** Quests in hunt-list order (latest first), grouped by started_at. */
+  const quests = useMemo(() => {
+    const groups = new Map<string, HuntSummary[]>();
+    for (const h of hunts ?? []) {
+      const g = groups.get(h.started_at);
+      if (g) g.push(h);
+      else groups.set(h.started_at, [h]);
+    }
+    return [...groups.entries()].map(([started_at, hs]) => ({
+      started_at,
+      hunts: hs,
+      label: `${started_at.slice(0, 10)} ${started_at.slice(11, 16)} · ` +
+        `${[...new Set(hs.map((h) => h.monster))].join(" + ")} · ${hs[0].players}p`,
+    }));
+  }, [hunts]);
+  const questHunts = useMemo(
+    () => quests.find((q) => q.started_at === questKey)?.hunts ?? hunts ?? [],
+    [quests, questKey, hunts]
   );
+
+  /** HP series for every monster in the quest; the selected hunt first.
+   *  Falls back to the single hp_curve when quest_hp is absent. */
+  const hpSeries = useMemo(() => {
+    if (!curve) return [];
+    const list = curve.quest_hp && curve.quest_hp.length > 0
+      ? [...curve.quest_hp].sort((a, b) =>
+          (a.hunt_id === curve.hunt_id ? -1 : b.hunt_id === curve.hunt_id ? 1 : a.hunt_id - b.hunt_id))
+      : [{ hunt_id: curve.hunt_id, monster: curve.monster, points: curve.hp_curve }];
+    return list.map((s) => ({
+      key: `hp_${s.monster}`,
+      label: `${s.monster} HP`,
+      color: HP_COLORS[list.findIndex((x) => x.monster === s.monster) % HP_COLORS.length],
+      points: s.points,
+    }));
+  }, [curve]);
+
+  const merged = useMemo(
+    () => (curve ? mergeSeries(curve.players, showHp ? hpSeries : [], curve.events, metric) : []),
+    [curve, hpSeries, showHp, metric]
+  );
+
+  const selectQuest = (started_at: string) => {
+    setQuestKey(started_at);
+    const first = quests.find((q) => q.started_at === started_at)?.hunts[0];
+    if (first) setHuntId(first.id);
+  };
 
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!hunts) return <p>Loading…</p>;
@@ -161,9 +222,15 @@ export default function CurveView({ scope }: { scope: number[] }) {
     <div className="card">
       <div className="filters">
         <SearchSelect
+          label="Quest"
+          value={questKey ?? ""}
+          options={quests.map((q) => ({ value: q.started_at, label: q.label }))}
+          onChange={selectQuest}
+        />
+        <SearchSelect
           label="Hunt"
           value={huntId === null ? "" : String(huntId)}
-          options={(hunts ?? []).map((h) => ({
+          options={questHunts.map((h) => ({
             value: String(h.id),
             label: `#${h.id} ${h.monster} · ${h.started_at.slice(0, 10)} · ${h.players}p`,
           }))}
@@ -185,6 +252,9 @@ export default function CurveView({ scope }: { scope: number[] }) {
         <>
           <h2>
             #{curve.hunt_id} {curve.monster}
+            {hpSeries.length > 1
+              ? ` + ${hpSeries.filter((s) => s.label !== `${curve.monster} HP`).map((s) => s.label.replace(/ HP$/, "")).join(" + ")}`
+              : ""}
             {curve.quest.stars ? ` · ${curve.quest.stars}★` : ""}
             {curve.quest.quest_id ? ` · quest #${curve.quest.quest_id}` : ""}
             {curve.quest.max_hp ? ` · ${Math.round(curve.quest.max_hp).toLocaleString()} HP` : ""}
@@ -210,7 +280,8 @@ export default function CurveView({ scope }: { scope: number[] }) {
                 contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }}
                 labelFormatter={(v) => `${typeof v === "number" ? v.toFixed(1) : v}s`}
                 formatter={(value, name) => {
-                  if (name === "monster HP") return [`${((value as number) * 100).toFixed(1)}%`, name];
+                  if (typeof name === "string" && name.endsWith(" HP"))
+                    return [`${((value as number) * 100).toFixed(1)}%`, name];
                   if (typeof value !== "number") return [value, name];
                   return metric === "damage"
                     ? [Math.round(value).toLocaleString(), name]
@@ -233,11 +304,11 @@ export default function CurveView({ scope }: { scope: number[] }) {
                     strokeOpacity={dimmed ? 0.25 : 1} connectNulls />
                 );
               })}
-              {showHp && curve.hp_curve.length > 0 && (
-                <Line type="monotone" dataKey="hp"
-                  yAxisId="hp" name="monster HP" stroke="#e05c5c"
+              {showHp && hpSeries.map((s) => (
+                <Line key={s.key} type="monotone" dataKey={s.key}
+                  yAxisId="hp" name={s.label} stroke={s.color}
                   strokeDasharray="6 3" dot={false} strokeWidth={1.5} connectNulls />
-              )}
+              ))}
             </LineChart>
           </ResponsiveContainer>
         </>
