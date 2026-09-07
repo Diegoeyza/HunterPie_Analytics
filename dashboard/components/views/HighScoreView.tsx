@@ -12,6 +12,7 @@ import EmptyState from "../EmptyState";
 interface PartyMember {
   player: string;
   weapon: string;
+  variant: string | null;
   dps: number;
 }
 
@@ -24,6 +25,7 @@ interface HighScore {
   clear_s: number | null;
   player: string;
   weapon: string;
+  variant: string | null;
   dps: number;
   party: PartyMember[];
 }
@@ -56,7 +58,16 @@ const columns: ColumnDef<HighScore>[] = [
   },
   { id: "date", accessorKey: "date", header: "Date" },
   { id: "player", accessorKey: "player", header: "Player" },
-  { id: "weapon", accessorKey: "weapon", header: "Weapon" },
+  {
+    id: "weapon",
+    accessorFn: (r) => r.variant ?? r.weapon,
+    header: "Weapon",
+    cell: ({ row }) => (
+      <>{row.original.weapon}
+        {row.original.variant ? ` · ${row.original.variant}` : ""}
+      </>
+    ),
+  },
   {
     id: "dps",
     accessorKey: "dps",
@@ -72,14 +83,14 @@ const columns: ColumnDef<HighScore>[] = [
     cell: ({ row }) => (
       row.original.party.length === 0 ? "solo" : row.original.party.map((m) => (
         <span key={m.player} className="party">
-          {m.player} ({m.weapon}) {fmtDps(m.dps)}
+          {m.player} ({m.weapon}{m.variant ? ` · ${m.variant}` : ""}) {fmtDps(m.dps)}
         </span>
       ))
     ),
   },
 ];
 
-export default function HighScoreView({ scope }: { scope: number[] }) {
+export default function HighScoreView({ scope, variantId }: { scope: number[]; variantId: number | null }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -93,6 +104,7 @@ export default function HighScoreView({ scope }: { scope: number[] }) {
     setError(null);
     apiGet<{ scores: HighScore[] }>("/high-scores", {
       ...(scope.length > 0 && { player_ids: scope.join(",") }),
+      ...(variantId !== null && { variant_id: variantId }),
       ...(monster && { monster_id: Number(monster) }),
       ...(weapon && { weapon_id: Number(weapon) }),
       ...(stars && { stars: Number(stars) }),
@@ -100,7 +112,7 @@ export default function HighScoreView({ scope }: { scope: number[] }) {
       ...(topN && { limit: Number(topN) }),
     }).then((d) => setRows(d.scores)).catch((e: Error) => setError(e.message));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope.join(","), monster, weapon, stars, sortBy, topN]);
+  }, [scope.join(","), variantId, monster, weapon, stars, sortBy, topN]);
 
   const starOptions = useMemo(
     () => (monster ? (opts?.monster_stars[Number(monster)] ?? []) : opts?.stars ?? []),

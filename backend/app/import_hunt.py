@@ -127,7 +127,12 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
     for p in doc.get("players", []):
         name = p.get("name")
         entry = merged.setdefault(name, {"weapon": p.get("weapon"),
+                                         "gear": None,
                                          "damages": [], "abnormalities": []})
+        # Gear fingerprint (fork >= gear build, local player only):
+        # first non-null snapshot wins; stats are taken at quest start.
+        if entry["gear"] is None and p.get("gear"):
+            entry["gear"] = p["gear"]
         entry["damages"].extend(p.get("damages", []))
         entry["abnormalities"].extend(p.get("abnormalities", []))
         entry_total = sum(f.get("damage", 0) for f in p.get("damages", []))
@@ -161,6 +166,7 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
         players.append({
             "display_name": name,
             "_weapon_enum": p.get("weapon"),
+            "gear": p.get("gear"),
             "total_damage": total,
             "peak_dps": peak,  # ~1s sampling: max single-frame damage
             "is_supporter": False,  # dump has no supporter flag; revisit if seen

@@ -42,7 +42,7 @@ const columns: ColumnDef<Pairing>[] = [
   },
 ];
 
-export default function SynergyView({ scope }: { scope: number[] }) {
+export default function SynergyView({ scope, variantId }: { scope: number[]; variantId: number | null }) {
   const [rows, setRows] = useState<Pairing[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const opts = useFilterOptions();
@@ -54,10 +54,11 @@ export default function SynergyView({ scope }: { scope: number[] }) {
       ...(scope.length > 0 && { player_ids: scope.join(",") }),
       ...(monster && { monster_id: Number(monster) }),
       ...(stars && { stars: Number(stars) }),
+      ...(variantId !== null && { variant_id: variantId }),
     })
       .then((d) => setRows(d.pairings))
       .catch((e: Error) => setError(e.message));
-  }, [scope.join(","), monster, stars]);
+  }, [scope.join(","), monster, stars, variantId]);
 
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!rows) return <p>Loading…</p>;

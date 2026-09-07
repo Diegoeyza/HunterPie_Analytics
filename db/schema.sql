@@ -56,7 +56,20 @@ CREATE TABLE hunt_players (
     total_damage  REAL NOT NULL DEFAULT 0,
     peak_dps      REAL NOT NULL DEFAULT 0,
     is_supporter  BOOLEAN NOT NULL DEFAULT 0,      -- NPC/supporter: exclude from synergy stats
+    gear_raw      REAL,  -- fork gear fingerprint (local player only); NULL = pre-gear export
+    gear_element  REAL,
+    gear_affinity REAL,
     PRIMARY KEY (hunt_id, player_id)
+);
+
+CREATE TABLE weapon_identities (
+    id            INTEGER PRIMARY KEY,
+    weapon_type   TEXT NOT NULL,   -- e.g. HuntingHorn
+    gear_raw      REAL NOT NULL,
+    gear_element  REAL NOT NULL,
+    gear_affinity REAL NOT NULL,
+    label         TEXT,            -- user-assigned name, e.g. "Artian Horn III"
+    UNIQUE (weapon_type, gear_raw, gear_element, gear_affinity)
 );
 
 CREATE TABLE dps_snapshots (

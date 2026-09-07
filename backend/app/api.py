@@ -53,15 +53,19 @@ def hunts(limit: int = 200, db: Session = Depends(get_db)):
 def progress(monster_id: int | None = None, weapon_id: int | None = None,
              player_id: int | None = None, quest_id: int | None = None,
              stars: int | None = None, player_ids: str | None = None,
-             window: int = 5, db: Session = Depends(get_db)):
+             window: int = 5, variant_id: int | None = None,
+             db: Session = Depends(get_db)):
     return queries.progress(db, monster_id, weapon_id, player_id,
-                            quest_id, stars, queries._parse_ids(player_ids), window)
+                            quest_id, stars, queries._parse_ids(player_ids),
+                            window, variant_id)
 
 
 @app.get("/api/weapons")
 def weapons(player_ids: str | None = None, monster_id: int | None = None,
-            stars: int | None = None, db: Session = Depends(get_db)):
-    return queries.weapon_matrix(db, queries._parse_ids(player_ids), monster_id, stars)
+            stars: int | None = None, variant_id: int | None = None,
+            db: Session = Depends(get_db)):
+    return queries.weapon_matrix(db, queries._parse_ids(player_ids), monster_id,
+                                 stars, variant_id)
 
 
 @app.get("/api/hunts/{hunt_id}/curve")
@@ -83,8 +87,10 @@ def abnormalities(hunt_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/synergy")
 def synergy(player_ids: str | None = None, monster_id: int | None = None,
-            stars: int | None = None, db: Session = Depends(get_db)):
-    return queries.synergy(db, queries._parse_ids(player_ids), monster_id, stars)
+            stars: int | None = None, variant_id: int | None = None,
+            db: Session = Depends(get_db)):
+    return queries.synergy(db, queries._parse_ids(player_ids), monster_id,
+                           stars, variant_id)
 
 
 @app.get("/api/quests")
@@ -101,9 +107,9 @@ def records(db: Session = Depends(get_db)):
 def high_scores(player_ids: str | None = None, monster_id: int | None = None,
                 weapon_id: int | None = None, stars: int | None = None,
                 sort_by: str = "dps", limit: int | None = None,
-                db: Session = Depends(get_db)):
+                variant_id: int | None = None, db: Session = Depends(get_db)):
     return queries.high_scores(db, queries._parse_ids(player_ids), monster_id,
-                               weapon_id, stars, sort_by, limit)
+                               weapon_id, stars, sort_by, limit, variant_id)
 
 
 @app.get("/api/activity")
@@ -113,8 +119,23 @@ def activity(db: Session = Depends(get_db)):
 
 @app.get("/api/compare")
 def compare(player_ids: str | None = None, window: int = 5,
-            db: Session = Depends(get_db)):
-    return queries.compare(db, queries._parse_ids(player_ids), window)
+            variant_id: int | None = None, db: Session = Depends(get_db)):
+    return queries.compare(db, queries._parse_ids(player_ids), window,
+                           variant_id)
+
+
+@app.get("/api/players/{player_id}/variants")
+def player_variants(player_id: int, db: Session = Depends(get_db)):
+    return queries.player_variants(db, player_id)
+
+
+@app.patch("/api/weapon-identities/{identity_id}")
+def rename_identity(identity_id: int, body: dict,
+                    db: Session = Depends(get_db)):
+    try:
+        return queries.set_identity_label(db, identity_id, body.get("label"))
+    except KeyError:
+        raise HTTPException(404, f"weapon identity {identity_id} not found")
 
 
 @app.get("/api/players/pins")

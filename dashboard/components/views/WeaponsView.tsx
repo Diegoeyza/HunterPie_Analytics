@@ -37,7 +37,7 @@ const columns: ColumnDef<WeaponRow>[] = [
   },
 ];
 
-export default function WeaponsView({ scope }: { scope: number[] }) {
+export default function WeaponsView({ scope, variantId }: { scope: number[]; variantId: number | null }) {
   const [rows, setRows] = useState<WeaponRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const opts = useFilterOptions();
@@ -49,10 +49,11 @@ export default function WeaponsView({ scope }: { scope: number[] }) {
       ...(scope.length > 0 && { player_ids: scope.join(",") }),
       ...(monster && { monster_id: Number(monster) }),
       ...(stars && { stars: Number(stars) }),
+      ...(variantId !== null && { variant_id: variantId }),
     })
       .then((d) => setRows(d.weapons))
       .catch((e: Error) => setError(e.message));
-  }, [scope.join(","), monster, stars]);
+  }, [scope.join(","), monster, stars, variantId]);
 
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!rows) return <p>Loading…</p>;

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .models import DpsSnapshot, Hunt, HuntPlayer, MonsterEvent, MonsterHealthStep, Player, PlayerAbnormality
+from .models import DpsSnapshot, Hunt, HuntPlayer, MonsterEvent, MonsterHealthStep, Player, PlayerAbnormality, Weapon, WeaponIdentity
 
 REQUIRED_HUNT_FIELDS = (
     "monster_id",
@@ -69,6 +69,30 @@ def get_or_create_player(
     session.add(player)
     session.flush()
     return player
+
+
+def get_or_create_identity(session: Session, weapon_type: str,
+                             gear: dict) -> WeaponIdentity:
+    """First sighting of a gear fingerprint auto-creates an unlabeled
+    identity row; the user names it once in the dashboard."""
+    identity = session.execute(
+        select(WeaponIdentity).where(
+            WeaponIdentity.weapon_type == weapon_type,
+            WeaponIdentity.gear_raw == gear["raw"],
+            WeaponIdentity.gear_element == gear["element"],
+            WeaponIdentity.gear_affinity == gear["affinity"],
+        )
+    ).scalar_one_or_none()
+    if identity is None:
+        identity = WeaponIdentity(
+            weapon_type=weapon_type,
+            gear_raw=gear["raw"],
+            gear_element=gear["element"],
+            gear_affinity=gear["affinity"],
+        )
+        session.add(identity)
+        session.flush()
+    return identity
 
 
 def upsert_hunt(session: Session, payload: dict) -> tuple[Hunt, bool, list[str]]:
@@ -129,6 +153,13 @@ def upsert_hunt(session: Session, payload: dict) -> tuple[Hunt, bool, list[str]]
         for p in payload["players"]:
             player = get_or_create_player(session, p["display_name"], now, warnings)
             player_ids[p["display_name"]] = player.id
+            gear = p.get("gear") or {}
+            if gear and {"raw", "element", "affinity"} <= set(gear):
+                weapon = session.get(Weapon, p.get("weapon_id"))
+                get_or_create_identity(
+                    session, weapon.name if weapon else "Unknown", gear)
+            else:
+                gear = {}
             session.add(
                 HuntPlayer(
                     hunt_id=hunt.id,
@@ -137,6 +168,9 @@ def upsert_hunt(session: Session, payload: dict) -> tuple[Hunt, bool, list[str]]
                     total_damage=p.get("total_damage", 0),
                     peak_dps=p.get("peak_dps", 0),
                     is_supporter=bool(p.get("is_supporter", False)),
+                    gear_raw=gear.get("raw"),
+                    gear_element=gear.get("element"),
+                    gear_affinity=gear.get("affinity"),
                 )
             )
         for s in payload.get("snapshots", []):
