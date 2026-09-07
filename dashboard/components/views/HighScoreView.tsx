@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { apiGet, type FilterOptions } from "../../lib/api";
+import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { apiGet } from "../../lib/api";
+import { fmtDps, fmtTime } from "../../lib/format";
+import DataTable from "../DataTable";
+import SearchSelect from "../SearchSelect";
+import { useFilterOptions } from "../useFilterOptions";
 import EmptyState from "../EmptyState";
 
 interface PartyMember {
@@ -23,11 +28,59 @@ interface HighScore {
   party: PartyMember[];
 }
 
-const fmtTime = (s: number | null) =>
-  s === null ? "—" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+const columns: ColumnDef<HighScore>[] = [
+  { id: "rank", accessorKey: "rank", header: "#", enableSorting: false, meta: { cls: "num" } },
+  {
+    id: "monster",
+    accessorFn: (r) => r.monster,
+    header: "Monster",
+    cell: ({ row }) => (
+      <>{row.original.monster}{" "}
+        <span className="num" title={`hunt #${row.original.hunt_id}`}>#{row.original.hunt_id}</span>
+      </>
+    ),
+  },
+  {
+    id: "stars",
+    accessorFn: (r) => r.stars ?? -1,
+    header: "★",
+    meta: { cls: "num" },
+    cell: ({ row }) => (row.original.stars ?? "—"),
+  },
+  {
+    id: "clear_s",
+    accessorFn: (r) => r.clear_s ?? -1,
+    header: "Clear",
+    meta: { cls: "num" },
+    cell: ({ row }) => fmtTime(row.original.clear_s),
+  },
+  { id: "date", accessorKey: "date", header: "Date" },
+  { id: "player", accessorKey: "player", header: "Player" },
+  { id: "weapon", accessorKey: "weapon", header: "Weapon" },
+  {
+    id: "dps",
+    accessorKey: "dps",
+    header: "DPS",
+    meta: { cls: "num" },
+    cell: ({ row }) => fmtDps(row.original.dps),
+  },
+  {
+    id: "party",
+    accessorFn: (r) => r.party.length,
+    header: "Party",
+    enableSorting: false,
+    cell: ({ row }) => (
+      row.original.party.length === 0 ? "solo" : row.original.party.map((m) => (
+        <span key={m.player} className="party">
+          {m.player} ({m.weapon}) {fmtDps(m.dps)}
+        </span>
+      ))
+    ),
+  },
+];
 
 export default function HighScoreView({ scope }: { scope: number[] }) {
-  const [opts, setOpts] = useState<FilterOptions | null>(null);
+  const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
   const [stars, setStars] = useState("");
@@ -35,10 +88,6 @@ export default function HighScoreView({ scope }: { scope: number[] }) {
   const [topN, setTopN] = useState("10");
   const [rows, setRows] = useState<HighScore[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    apiGet<FilterOptions>("/filter-options").then(setOpts).catch(() => {});
-  }, []);
 
   useEffect(() => {
     setError(null);
@@ -53,44 +102,43 @@ export default function HighScoreView({ scope }: { scope: number[] }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope.join(","), monster, weapon, stars, sortBy, topN]);
 
+  const starOptions = useMemo(
+    () => (monster ? (opts?.monster_stars[Number(monster)] ?? []) : opts?.stars ?? []),
+    [opts, monster],
+  );
+
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!rows) return <p>Loading…</p>;
 
   const filters = (
     <div className="filters">
-      {opts && (
-        <>
-          <label>Monster
-            <select value={monster} onChange={(e) => { setMonster(e.target.value); setStars(""); }}>
-              <option value="">All</option>
-              {opts.monsters.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          </label>
-          <label>Weapon
-            <select value={weapon} onChange={(e) => setWeapon(e.target.value)}>
-              <option value="">All</option>
-              {opts.weapons.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
-          </label>
-          <label>Stars
-            <select value={stars} onChange={(e) => setStars(e.target.value)}>
-              <option value="">All</option>
-              {(monster ? (opts.monster_stars[Number(monster)] ?? []) : opts.stars).map((s) => (
-                <option key={s} value={s}>{s}★</option>
-              ))}
-            </select>
-          </label>
-          <label>Top
-            <select value={topN} onChange={(e) => setTopN(e.target.value)}>
-              <option value="3">3</option>
-              <option value="5">5</option>
-              <option value="10">10</option>
-              <option value="25">25</option>
-              <option value="">All</option>
-            </select>
-          </label>
-        </>
-      )}
+      <SearchSelect
+        label="Monster"
+        value={monster}
+        options={(opts?.monsters ?? []).map((m) => ({ value: String(m.id), label: m.name }))}
+        onChange={(v) => { setMonster(v); setStars(""); }}
+      />
+      <SearchSelect
+        label="Weapon"
+        value={weapon}
+        options={(opts?.weapons ?? []).map((w) => ({ value: String(w.id), label: w.name }))}
+        onChange={setWeapon}
+      />
+      <label>Stars
+        <select value={stars} onChange={(e) => setStars(e.target.value)}>
+          <option value="">All</option>
+          {starOptions.map((s) => <option key={s} value={s}>{s}★</option>)}
+        </select>
+      </label>
+      <label>Top
+        <select value={topN} onChange={(e) => setTopN(e.target.value)}>
+          <option value="3">3</option>
+          <option value="5">5</option>
+          <option value="10">10</option>
+          <option value="25">25</option>
+          <option value="">All</option>
+        </select>
+      </label>
       <div className="seg" role="group" aria-label="Sort leaderboard">
         <button type="button" className={sortBy === "time" ? "on" : ""}
           aria-pressed={sortBy === "time"}
@@ -117,42 +165,11 @@ export default function HighScoreView({ scope }: { scope: number[] }) {
     <div className="card">
       {filters}
       <h2>Top {topN || rows.length} hunts by {sortBy === "dps" ? "DPS" : "clear time"}{scope.length > 0 ? " — scoped hunters" : ""} ({rows.length})</h2>
-      <table className="grid">
-        <thead>
-          <tr>
-            <th className="num">#</th>
-            <th>Monster</th>
-            <th className="num">★</th>
-            <th className="num">Clear</th>
-            <th>Date</th>
-            <th>Player</th>
-            <th>Weapon</th>
-            <th className="num">DPS</th>
-            <th>Party</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={`${r.hunt_id}-${r.player}`} className={r.rank === 1 ? "top" : ""}>
-              <td className="num">{r.rank}</td>
-              <td>{r.monster} <span className="num" title={`hunt #${r.hunt_id}`}>#{r.hunt_id}</span></td>
-              <td className="num">{r.stars ?? "—"}</td>
-              <td className="num">{fmtTime(r.clear_s)}</td>
-              <td>{r.date}</td>
-              <td>{r.player}</td>
-              <td>{r.weapon}</td>
-              <td className="num">{r.dps.toFixed(1)}</td>
-              <td>
-                {r.party.length === 0 ? "solo" : r.party.map((m) => (
-                  <span key={m.player} className="party">
-                    {m.player} ({m.weapon}) {m.dps.toFixed(1)}
-                  </span>
-                ))}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable
+        data={rows}
+        columns={columns}
+        getRowId={(r) => `${r.hunt_id}-${r.player}`}
+      />
     </div>
   );
 }

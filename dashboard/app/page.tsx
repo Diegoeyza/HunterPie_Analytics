@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { apiGet, type Health } from "../lib/api";
 import { TABS, type ViewCtx } from "../lib/registry";
 import ScopeBar, { loadScope } from "../components/ScopeBar";
+import ThemeToggle from "../components/ThemeToggle";
 
 const SCOPE_KEY = "hp.scope";
 
@@ -42,6 +43,7 @@ export default function Home() {
             ? `ingestion online · ${health.hunts} hunts`
             : (healthError ?? "connecting…")}
         </span>
+        <ThemeToggle />
       </header>
       {scopeReady && <ScopeBar scope={scope} onScope={changeScope} />}
       <nav className="tabs">

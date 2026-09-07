@@ -25,6 +25,7 @@ export default function ScopeBar({ scope, onScope }: Props) {
   const [players, setPlayers] = useState<Option[]>([]);
   const [pins, setPins] = useState<Pin[]>([]);
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
 
   const refresh = () => {
     apiGet<{ players: Option[] }>("/filter-options")
@@ -51,6 +52,10 @@ export default function ScopeBar({ scope, onScope }: Props) {
     refresh();
   };
 
+  const q = query.trim().toLowerCase();
+  const matches = q ? players.filter((p) => p.name.toLowerCase().includes(q)) : players;
+  const shown = matches.slice(0, 100);
+
   return (
     <div className="scopebar">
       <span className="scope-label">Hunters:</span>
@@ -64,7 +69,13 @@ export default function ScopeBar({ scope, onScope }: Props) {
         <button onClick={() => setOpen(!open)}>+ hunters</button>
         {open && (
           <div className="scope-menu">
-            {players.map((p) => (
+            <input
+              className="scope-search"
+              placeholder="Search hunters…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {shown.map((p) => (
               <div key={p.id} className="scope-row">
                 <button
                   className={scope.includes(p.id) ? "scope-name in" : "scope-name"}
@@ -82,6 +93,10 @@ export default function ScopeBar({ scope, onScope }: Props) {
               </div>
             ))}
             {players.length === 0 && <span className="scope-hint">no hunters yet</span>}
+            {q && matches.length === 0 && <span className="scope-hint">no matches</span>}
+            {matches.length > shown.length && (
+              <span className="scope-hint">{matches.length} matches — keep typing to narrow</span>
+            )}
           </div>
         )}
       </div>
