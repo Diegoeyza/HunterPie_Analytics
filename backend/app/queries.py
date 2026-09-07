@@ -264,8 +264,15 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
     return {"weapons": rows}
 
 
-def hunt_curve(session: Session, hunt_id: int, max_points: int = 500) -> dict:
-    """FR-3.3: per-player cumulative damage series + monster event spans."""
+def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
+               quest_hp: bool = False) -> dict:
+    """FR-3.3: per-player cumulative damage series + monster event spans.
+
+    quest_hp=True also returns the HP steps of every sibling hunt from the
+    same quest (same started_at), so multi-monster quests can draw all
+    monsters' HP on one chart. Snapshots are identical across siblings
+    (full quest damage each); only HP steps and events differ per monster.
+    """
     hunt = session.get(Hunt, hunt_id)
     if hunt is None:
         raise KeyError(hunt_id)
@@ -302,7 +309,7 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500) -> dict:
         select(MonsterHealthStep).where(MonsterHealthStep.hunt_id == hunt_id)
         .order_by(MonsterHealthStep.ts_offset_seconds)
     ).scalars().all()
-    return {
+    out = {
         "hunt_id": hunt.id,
         "monster": hunt.monster.name,
         "started_at": hunt.started_at.isoformat(),
@@ -315,6 +322,25 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500) -> dict:
                     "end": e.end_offset_seconds} for e in events],
         "hp_curve": [{"t": s.ts_offset_seconds, "hp": s.hp_fraction} for s in hp],
     }
+    if quest_hp:
+        siblings = session.execute(
+            select(Hunt).where(Hunt.started_at == hunt.started_at)
+            .order_by(Hunt.id)
+        ).scalars().all()
+        quest_curves = []
+        for sib in siblings:
+            steps = session.execute(
+                select(MonsterHealthStep)
+                .where(MonsterHealthStep.hunt_id == sib.id)
+                .order_by(MonsterHealthStep.ts_offset_seconds)
+            ).scalars().all()
+            quest_curves.append({
+                "hunt_id": sib.id, "monster": sib.monster.name,
+                "points": [{"t": s.ts_offset_seconds, "hp": s.hp_fraction}
+                           for s in steps],
+            })
+        out["quest_hp"] = quest_curves
+    return out
 
 
 def hunt_abnormalities(session: Session, hunt_id: int) -> dict:

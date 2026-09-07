@@ -65,9 +65,10 @@ def weapons(player_ids: str | None = None, monster_id: int | None = None,
 
 
 @app.get("/api/hunts/{hunt_id}/curve")
-def curve(hunt_id: int, max_points: int = 500, db: Session = Depends(get_db)):
+def curve(hunt_id: int, max_points: int = 500, quest_hp: bool = False,
+          db: Session = Depends(get_db)):
     try:
-        return queries.hunt_curve(db, hunt_id, max_points)
+        return queries.hunt_curve(db, hunt_id, max_points, quest_hp)
     except KeyError:
         raise HTTPException(404, f"hunt {hunt_id} not found")
 

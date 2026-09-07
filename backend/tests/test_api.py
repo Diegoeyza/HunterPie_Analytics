@@ -165,6 +165,42 @@ def test_curve_and_404():
     assert client.get("/api/hunts/9999/curve").status_code == 404
 
 
+def test_curve_quest_hp_returns_all_quest_monsters():
+    """Multi-monster quest: quest_hp=1 returns every sibling hunt's HP
+    steps so the curve view can draw all monsters' HP at once."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    client, s = make_client()
+    s.add_all([Monster(id=8, name="Lagiacrus"),
+               Monster(id=1, name="Rathalos"),
+               Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn")])
+    s.flush()
+    start = datetime(2026, 9, 7, 2, 0)
+    for hid, mid, mname in ((1, 8, "Lagiacrus"), (2, 1, "Rathalos")):
+        upsert_hunt(s, {
+            "quest_id_external": f"q{hid}", "dedup_hash": f"qh{hid}",
+            "monster_id": mid, "_monster_name": mname,
+            "started_at": start, "ended_at": datetime(2026, 9, 7, 2, 5),
+            "quest_time_seconds": 300.0, "cart_count": 0, "cleared": True,
+            "hunterpie_version": "t", "game_version": "g",
+            "players": [{"display_name": "Isi", "weapon_id": 6,
+                         "total_damage": 9000.0, "peak_dps": 60.0,
+                         "is_supporter": False}],
+            "snapshots": [{"display_name": "Isi", "ts_offset_seconds": 10.0,
+                           "cumulative_damage": 4500.0, "instant_dps": 40.0}],
+            "hp_steps": [{"ts_offset_seconds": 10.0, "hp_fraction": 0.9},
+                         {"ts_offset_seconds": 20.0, "hp_fraction": 0.8}],
+            "events": [],
+        })
+    hunt_id = client.get("/api/hunts").json()["hunts"][0]["id"]
+    plain = client.get(f"/api/hunts/{hunt_id}/curve").json()
+    assert "quest_hp" not in plain
+    quest = client.get(f"/api/hunts/{hunt_id}/curve", params={"quest_hp": 1}).json()
+    assert {q["monster"] for q in quest["quest_hp"]} == {"Lagiacrus", "Rathalos"}
+    assert all(len(q["points"]) == 2 for q in quest["quest_hp"])
+
+
 def test_quest_star_and_scope_filters():
     from app.ingest import upsert_hunt
 
