@@ -96,9 +96,9 @@ def test_multi_monster_registers_each_monster():
     assert len(payloads) == 2
     assert [p["monster_id"] for p, _ in payloads] == [31, 1]
     assert any("multi-monster" in w for _, ws in payloads for w in ws)
-    # equal HP -> damage split evenly across both hunts
-    assert payloads[0][0]["players"][0]["total_damage"] == 91.5
-    assert payloads[1][0]["players"][0]["total_damage"] == 91.5
+    # each monster hunt carries the full quest damage
+    assert payloads[0][0]["players"][0]["total_damage"] == 183.0
+    assert payloads[1][0]["players"][0]["total_damage"] == 183.0
     # full end-to-end: two hunts, idempotent re-import
     s = make_session()
     results = import_doc(s, doc, {}, "hv", "gv")
