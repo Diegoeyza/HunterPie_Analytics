@@ -831,3 +831,86 @@ def compare(session: Session, player_ids: list[int], window: int = 5,
         select(Player.display_name).where(Player.id.in_(player_ids))
     ).scalars().all()
     return {"points": points, "window": window, "scope": sorted(names)}
+
+
+def progress_improvement(session: Session, player_id: int | None = None, top_n: int = 5,
+                         weapon_id: int | None = None) -> dict:
+    """Analyze player DPS improvement over time, grouped by monster and quest stars (only groups with >1 instance)."""
+    players = session.execute(select(Player)).scalars().all()
+    player_map = {p.id: p.display_name for p in players}
+
+    stmt = (
+        select(Hunt, HuntPlayer, Player, Monster)
+        .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
+        .join(Player, Player.id == HuntPlayer.player_id)
+        .join(Monster, Monster.id == Hunt.monster_id)
+        .where(Hunt.cleared.is_(True), HuntPlayer.is_supporter.is_(False))
+        .order_by(Hunt.started_at)
+    )
+    if player_id is not None:
+        stmt = stmt.where(HuntPlayer.player_id == player_id)
+    if weapon_id is not None:
+        stmt = stmt.where(HuntPlayer.weapon_id == weapon_id)
+
+    player_data: dict[int, dict[tuple[int, str, int | None], list[dict]]] = {}
+    
+    for hunt, hp, player, monster in session.execute(stmt):
+        dur = _player_engagement_s(session, hunt.id, hp.player_id)
+        dps = (hp.total_damage / dur) if dur else 0.0
+        stars = hunt.quest_stars
+        key = (monster.id, monster.name, stars)
+        
+        p_groups = player_data.setdefault(player.id, {})
+        group_hunts = p_groups.setdefault(key, [])
+        group_hunts.append({
+            "hunt_id": hunt.id,
+            "started_at": hunt.started_at.isoformat(),
+            "dps": dps,
+            "clear_s": _hunt_duration_s(hunt),
+        })
+
+    def analyze_player(pid: int, groups_dict: dict) -> dict:
+        p_name = player_map.get(pid, f"Player {pid}")
+        qualifying_groups = []
+        total_pct = 0.0
+
+        for (mid, mname, stars), hunts in groups_dict.items():
+            if len(hunts) > 1:
+                first_dps = hunts[0]["dps"]
+                latest_dps = hunts[-1]["dps"]
+                pct = ((latest_dps - first_dps) / first_dps * 100.0) if first_dps > 0 else 0.0
+                qualifying_groups.append({
+                    "monster_id": mid,
+                    "monster_name": mname,
+                    "stars": stars,
+                    "instances": len(hunts),
+                    "first_dps": round(first_dps, 1),
+                    "latest_dps": round(latest_dps, 1),
+                    "pct_improvement": round(pct, 1),
+                    "hunts": hunts,
+                })
+                total_pct += pct
+
+        overall = (total_pct / len(qualifying_groups)) if qualifying_groups else 0.0
+        qualifying_groups.sort(key=lambda g: g["pct_improvement"], reverse=True)
+        return {
+            "player_id": pid,
+            "player_name": p_name,
+            "overall_pct_improvement": round(overall, 1),
+            "qualifying_groups_count": len(qualifying_groups),
+            "groups": qualifying_groups,
+        }
+
+    if player_id is not None:
+        if player_id not in player_data:
+            return {"player_id": player_id, "player_name": player_map.get(player_id, ""), "overall_pct_improvement": 0.0, "qualifying_groups_count": 0, "groups": []}
+        return analyze_player(player_id, player_data[player_id])
+    else:
+        results = []
+        for pid, groups_dict in player_data.items():
+            res = analyze_player(pid, groups_dict)
+            if res["qualifying_groups_count"] > 0:
+                results.append(res)
+        results.sort(key=lambda r: r["overall_pct_improvement"], reverse=True)
+        return {"top_hunters": results[:top_n]}
+

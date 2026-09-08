@@ -60,6 +60,14 @@ def progress(monster_id: int | None = None, weapon_id: int | None = None,
                             window, variant_id)
 
 
+@app.get("/api/progress/improvement")
+def progress_improvement(player_id: int | None = None, top_n: int = 5,
+                          weapon_id: int | None = None,
+                          db: Session = Depends(get_db)):
+    return queries.progress_improvement(db, player_id, top_n, weapon_id)
+
+
+
 @app.get("/api/weapons")
 def weapons(player_ids: str | None = None, monster_id: int | None = None,
             stars: int | None = None, variant_id: int | None = None,

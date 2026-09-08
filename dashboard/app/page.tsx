@@ -41,7 +41,7 @@ export default function Home() {
   };
 
   const active = TABS.find((t) => t.id === tab) ?? TABS[0];
-  const ctx: ViewCtx = { scope, variantId: scope.length === 1 ? variantId : null, clearScope: () => changeScope([]) };
+  const ctx: ViewCtx = { scope, variantId: scope.length === 1 ? variantId : null, clearScope: () => changeScope([]), setScope: changeScope };
 
   return (
     <>
