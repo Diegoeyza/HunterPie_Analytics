@@ -13,6 +13,9 @@ Known gaps (logged as warnings, not silently dropped):
 - multi-monster quests register one hunt per monster (quest x monster),
   each carrying the FULL quest damage (per-hit damage can't be
   attributed per monster, and a quest's damage belongs to the quest)
+- monsters barely touched (environment bystanders, not quest targets)
+  are skipped: <=2 HP samples and never below 60% HP. Empty HP data is
+  kept (benefit of the doubt for older dumps).
 - dump carries no HunterPie/game versions -> CLI flags with defaults
 """
 from __future__ import annotations
@@ -100,6 +103,19 @@ def ensure_monster(session, monster_id: int, names: dict[int, str]) -> int:
     return row.id
 
 
+def _is_environment_bystander(m: dict) -> bool:
+    """True when the monster was barely touched: incidental environment
+    damage, not a quest target. Requires positive evidence (HP samples
+    showing >=60% HP throughout); empty HP data keeps the monster
+    (benefit of the doubt for older dumps)."""
+    steps = m.get("health_steps") or []
+    if not steps:
+        return False
+    fracs = [s.get("percentage") for s in steps
+             if isinstance(s.get("percentage"), (int, float))]
+    return len(steps) <= 2 and bool(fracs) and min(fracs) >= 0.6
+
+
 def poogie_to_payloads(doc: dict, names: dict[int, str],
                         hunterpie_version: str, game_version: str
                         ) -> list[tuple[dict, list[str]]]:
@@ -146,6 +162,10 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
 
     out = []
     for m in monsters:
+        if len(monsters) > 1 and _is_environment_bystander(m):
+            warnings.append(f"skipping environment monster id={m['id']} "
+                            f"(barely damaged, not a quest target)")
+            continue
         out.append((_monster_payload(doc, m, merged, started, finished,
                                      names, hunterpie_version, game_version),
                     warnings))
@@ -213,6 +233,8 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
     } for s in (m.get("health_steps") or []) if s.get("time")]
 
     quest = doc.get("quest") or {}
+    # stars=0 means "unknown" from the fork (no 0-star quests exist).
+    quest_stars = quest.get("stars") or None
     return {
         "quest_id_external": doc.get("hash"),
         "monster_id": m["id"],
@@ -220,7 +242,7 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
         "quest_id": quest.get("id"),
         "quest_type": quest.get("type"),
         "quest_level": quest.get("level"),
-        "quest_stars": quest.get("stars"),
+        "quest_stars": quest_stars,
         "monster_max_hp": m.get("max_health"),
         "monster_variant": m.get("variant"),
         "monster_crown": m.get("crown"),
@@ -260,8 +282,12 @@ def import_file(db_path: str, file_path: str, hunterpie_version: str,
     doc = json.loads(Path(file_path).read_text(encoding="utf-8-sig"))
     init_db(db_path)
     session = make_session(db_path)
-    for hunt, created, warnings in import_doc(
-            session, doc, names, hunterpie_version, game_version):
+    results = import_doc(session, doc, names, hunterpie_version, game_version)
+    if not results:
+        print(f"skipped {file_path}: no targeted monsters "
+              f"(all environment bystanders)")
+        return
+    for hunt, created, warnings in results:
         print(f"{'imported' if created else 'duplicate-skipped'} hunt id={hunt.id} "
               f"from {file_path}")
         for w in warnings:

@@ -253,6 +253,43 @@ def test_quest_star_and_scope_filters():
     assert client.get("/api/compare").json()["points"] == []
 
 
+def test_multi_monster_quest_reads_as_one_quest():
+    """Same quest_id, two monsters: /quests shows one row with combined
+    names and /filter-options one option (no duplicate values)."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    def seed(s):
+        s.add_all([Monster(id=31, name="Xu Wu"), Monster(id=27, name="Arkveld"),
+                   Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn")])
+        s.flush()
+        base = {
+            "hunterpie_version": "t", "game_version": "g",
+            "cart_count": 0, "cleared": True, "quest_time_seconds": 180.0,
+            "players": [{"display_name": "Isi", "weapon_id": 6,
+                         "total_damage": 9000.0, "peak_dps": 60.0,
+                         "is_supporter": False}],
+            "snapshots": [], "events": [],
+        }
+        upsert_hunt(s, {**base, "dedup_hash": "m1", "monster_id": 31,
+                         "started_at": datetime(2026, 9, 1, 3, 0),
+                         "quest_id": 558, "quest_stars": 10,
+                         "monster_max_hp": 18450.0})
+        upsert_hunt(s, {**base, "dedup_hash": "m2", "monster_id": 27,
+                         "started_at": datetime(2026, 9, 1, 3, 0),
+                         "quest_id": 558, "quest_stars": 10,
+                         "monster_max_hp": 240000.0})
+
+    client, _ = make_client(seed)
+    quests = client.get("/api/quests").json()["quests"]
+    assert len(quests) == 1
+    assert quests[0]["quest_id"] == 558 and quests[0]["hunts"] == 2
+    assert quests[0]["monster"] == "Xu Wu + Arkveld"
+    opts = client.get("/api/filter-options").json()["quests"]
+    assert [o["quest_id"] for o in opts] == [558]
+    assert opts[0]["monster"] == "Xu Wu + Arkveld"
+
+
 def test_high_scores():
     client, _ = make_client(seed_two_hunts)
     # hunt 1 = solo Isi (5.6 dps), hunt 2 = Isi (8.3) + Pal (2.1)

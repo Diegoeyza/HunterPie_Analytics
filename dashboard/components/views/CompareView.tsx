@@ -15,7 +15,7 @@ interface ComparePoint {
 }
 interface CompareData { points: ComparePoint[]; window: number; scope: string[]; }
 
-export default function CompareView({ scope, variantId }: { scope: number[]; variantId: number | null }) {
+export default function CompareView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | null; clearScope: () => void }) {
   const [data, setData] = useState<CompareData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const key = scope.join(",");
@@ -44,6 +44,7 @@ export default function CompareView({ scope, variantId }: { scope: number[]; var
     return (
       <EmptyState what="hunts for this scope">
         <p>No hunts include {data.scope.join(", ") || "these hunters"} yet.</p>
+        <p><button type="button" onClick={clearScope}>Clear hunter scope</button></p>
       </EmptyState>
     );
   }

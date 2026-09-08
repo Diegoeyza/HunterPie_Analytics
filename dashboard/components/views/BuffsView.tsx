@@ -135,11 +135,12 @@ export default function BuffsView({ scope }: { scope: number[] }) {
         <SearchSelect
           label="Hunt"
           value={huntId === null ? "" : String(huntId)}
+          showAll={false}
           options={(hunts ?? []).map((h) => ({
             value: String(h.id),
-            label: `#${h.id} ${h.monster} · ${h.started_at.slice(0, 10)} · ${h.players}p`,
+            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${h.started_at.slice(0, 10)} · ${h.players}p`,
           }))}
-          onChange={(v) => setHuntId(Number(v))}
+          onChange={(v) => { if (v) setHuntId(Number(v)); }}
         />
         <label>Category
           <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)}>

@@ -11,7 +11,7 @@ import { fmtDps, fmtPct } from "../../lib/format";
 import DataTable from "../DataTable";
 import SearchSelect from "../SearchSelect";
 import { useFilterOptions } from "../useFilterOptions";
-import EmptyState from "../EmptyState";
+import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
 
 interface WeaponRow {
   weapon: string; hunts: number; avg_dps: number;
@@ -37,7 +37,7 @@ const columns: ColumnDef<WeaponRow>[] = [
   },
 ];
 
-export default function WeaponsView({ scope, variantId }: { scope: number[]; variantId: number | null }) {
+export default function WeaponsView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | null; clearScope: () => void }) {
   const [rows, setRows] = useState<WeaponRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const opts = useFilterOptions();
@@ -78,6 +78,14 @@ export default function WeaponsView({ scope, variantId }: { scope: number[]; var
   );
 
   if (rows.length === 0) {
+    if (scope.length > 0) {
+      return (
+        <div className="card">
+          {filters}
+          <ScopeEmpty names={scopeNames(scope, opts?.players)} onClear={clearScope} />
+        </div>
+      );
+    }
     return (
       <div className="card">
         {filters}

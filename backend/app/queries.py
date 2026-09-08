@@ -178,14 +178,30 @@ def _player_engagement_s(session: Session, hunt_id: int,
 
 
 def filter_options(session: Session) -> dict:
-    """Dropdown options for dashboard filters (ids + names)."""
-    quests = session.execute(
+    """Dropdown options for dashboard filters (ids + names).
+
+    One row per quest_id: multi-monster quests list every target in
+    `monster` ("Arkveld + Gore Magala") instead of one row per
+    (quest, monster) which duplicated option values downstream."""
+    quest_rows = session.execute(
         select(Hunt.quest_id, Monster.name, Hunt.monster_id, Hunt.quest_stars)
         .join(Monster, Monster.id == Hunt.monster_id)
         .where(Hunt.quest_id.is_not(None))
-        .group_by(Hunt.quest_id, Monster.name, Hunt.monster_id, Hunt.quest_stars)
-        .order_by(Hunt.quest_id)
+        .order_by(Hunt.quest_id, Hunt.started_at)
     ).all()
+    quests: list[dict] = []
+    by_quest: dict[tuple, dict] = {}
+    for q, m, mid, s in quest_rows:
+        # Unknown stars (e.g. field surveys) reuse quest slots across
+        # targets: split those by monster so unrelated hunts don't merge.
+        key = (q,) if s is not None else (q, mid)
+        agg = by_quest.get(key)
+        if agg is None:
+            agg = by_quest[key] = {"quest_id": q, "monsters": [],
+                                   "monster_id": mid, "stars": s}
+            quests.append(agg)
+        if m not in agg["monsters"]:
+            agg["monsters"].append(m)
     stars = session.execute(
         select(Hunt.quest_stars).where(Hunt.quest_stars.is_not(None))
         .group_by(Hunt.quest_stars).order_by(Hunt.quest_stars)
@@ -206,8 +222,10 @@ def filter_options(session: Session) -> dict:
             select(Weapon).order_by(Weapon.name)).scalars()],
         "players": [{"id": p.id, "name": p.display_name} for p in session.execute(
             select(Player).order_by(Player.display_name)).scalars()],
-        "quests": [{"quest_id": q, "monster": m, "monster_id": mid, "stars": s}
-                   for q, m, mid, s in quests],
+        "quests": [{"quest_id": q["quest_id"],
+                    "monster": " + ".join(q["monsters"]),
+                    "monster_id": q["monster_id"], "stars": q["stars"]}
+                   for q in quests],
         "stars": list(stars),
         "monster_stars": monster_stars,
     }
@@ -250,6 +268,7 @@ def hunt_list(session: Session, limit: int = 200) -> dict:
     ).all()
     return {"hunts": [
         {"id": h.id, "monster": m.name, "started_at": h.started_at.isoformat(),
+         "quest_id": h.quest_id, "quest_stars": h.quest_stars,
          "clear_s": _hunt_duration_s(h), "cleared": bool(h.cleared),
          "carts": h.cart_count, "players": h.player_count}
         for h, m in rows
@@ -554,14 +573,24 @@ def quest_stats(session: Session) -> dict:
         .join(Monster, Monster.id == Hunt.monster_id)
         .order_by(Hunt.quest_id, Hunt.started_at)
     ).all()
-    by_quest: dict[int, dict] = {}
+    by_quest: dict[tuple, dict] = {}
     for hunt, monster_name in hunts:
-        qid = hunt.quest_id if hunt.quest_id is not None else -hunt.id
-        agg = by_quest.setdefault(qid, {
-            "quest_id": hunt.quest_id, "monster": monster_name,
+        # Real quests group by quest_id. Unknown-star slots (e.g. field
+        # surveys) reuse ids across targets, so split those by monster;
+        # untracked hunts stay one row per hunt.
+        if hunt.quest_id is None:
+            key = ("hunt", hunt.id)
+        elif hunt.quest_stars is None:
+            key = ("survey", hunt.quest_id, hunt.monster_id)
+        else:
+            key = ("quest", hunt.quest_id)
+        agg = by_quest.setdefault(key, {
+            "quest_id": hunt.quest_id, "monsters": [],
             "stars": hunt.quest_stars, "max_hp": hunt.monster_max_hp,
             "hunts": 0, "clears": 0, "clear_ss": [], "best": None,
             "best_dps": 0.0, "carts": 0})
+        if monster_name not in agg["monsters"]:
+            agg["monsters"].append(monster_name)
         agg["hunts"] += 1
         agg["carts"] += hunt.cart_count
         if hunt.monster_max_hp:
@@ -573,8 +602,15 @@ def quest_stats(session: Session) -> dict:
             agg["clear_ss"].append(dur)
             if hunt.cleared and (agg["best"] is None or dur < agg["best"][1]):
                 agg["best"] = (hunt.id, dur)
-    for qid, agg in by_quest.items():
-        id_filter = (Hunt.quest_id == qid) if qid > 0 else (Hunt.id == -qid)
+    for key, agg in by_quest.items():
+        kind = key[0]
+        if kind == "quest":
+            id_filter = (Hunt.quest_id == agg["quest_id"])
+        elif kind == "survey":
+            id_filter = ((Hunt.quest_id == agg["quest_id"]) &
+                         (Hunt.monster_id == key[2]))
+        else:
+            id_filter = (Hunt.id == key[1])
         for dmg, pid, hunt in session.execute(
             select(HuntPlayer.total_damage, HuntPlayer.player_id, Hunt)
             .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
@@ -592,7 +628,7 @@ def quest_stats(session: Session) -> dict:
         total_span = sum((e - s) for s, e, _ in spans if s is not None and e is not None)
         agg["enrage_uptime"] = (total_span / sum(agg["clear_ss"])) if agg["clear_ss"] else 0.0
     rows = [{
-        "quest_id": a["quest_id"], "monster": a["monster"], "stars": a["stars"],
+        "quest_id": a["quest_id"], "monster": " + ".join(a["monsters"]), "stars": a["stars"],
         "max_hp": a["max_hp"], "hunts": a["hunts"], "carts": a["carts"],
         "clear_rate": a["clears"] / a["hunts"] if a["hunts"] else 0.0,
         "avg_clear_s": (sum(a["clear_ss"]) / len(a["clear_ss"]) if a["clear_ss"] else None),

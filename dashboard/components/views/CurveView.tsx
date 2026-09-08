@@ -144,11 +144,20 @@ export default function CurveView({ scope }: { scope: number[] }) {
       .then((d) => {
         setHunts(d.hunts);
         if (d.hunts.length > 0) {
-          // Sibling hunts from one quest share started_at: default to the
-          // latest quest and its first hunt.
-          setQuestKey(d.hunts[0].started_at);
-          const first = d.hunts.filter((h) => h.started_at === d.hunts[0].started_at)[0];
-          setHuntId((first ?? d.hunts[0]).id);
+          // Hunts sharing a quest_id collapse into one entry: default to
+          // the latest quest and its first hunt.
+          const h0 = d.hunts[0];
+          const key = h0.quest_id != null && h0.quest_stars != null ? `q:${h0.quest_id}`
+            : h0.quest_id != null ? `s:${h0.quest_id}:${h0.monster}`
+            : `t:${h0.started_at}`;
+          setQuestKey(key);
+          const first = d.hunts.filter((h) => {
+            const k = h.quest_id != null && h.quest_stars != null ? `q:${h.quest_id}`
+              : h.quest_id != null ? `s:${h.quest_id}:${h.monster}`
+              : `t:${h.started_at}`;
+            return k === key;
+          })[0];
+          setHuntId((first ?? h0).id);
         }
       })
       .catch((e: Error) => setError(e.message));
@@ -161,23 +170,35 @@ export default function CurveView({ scope }: { scope: number[] }) {
       .catch((e: Error) => setError(e.message));
   }, [huntId]);
 
-  /** Quests in hunt-list order (latest first), grouped by started_at. */
+  /** Quests in hunt-list order (latest first), grouped by quest_id so
+   *  repeat runs of the same quest (e.g. #558) collapse into one entry.
+   *  Unknown-star slots (e.g. field surveys) reuse ids across targets, so
+   *  those split by monster; hunts without a quest id stay per-session. */
   const quests = useMemo(() => {
     const groups = new Map<string, HuntSummary[]>();
+    const keyOf = (h: HuntSummary) =>
+      h.quest_id != null && h.quest_stars != null ? `q:${h.quest_id}`
+      : h.quest_id != null ? `s:${h.quest_id}:${h.monster}`
+      : `t:${h.started_at}`;
     for (const h of hunts ?? []) {
-      const g = groups.get(h.started_at);
+      const key = keyOf(h);
+      const g = groups.get(key);
       if (g) g.push(h);
-      else groups.set(h.started_at, [h]);
+      else groups.set(key, [h]);
     }
-    return [...groups.entries()].map(([started_at, hs]) => ({
-      started_at,
-      hunts: hs,
-      label: `${started_at.slice(0, 10)} ${started_at.slice(11, 16)} · ` +
-        `${[...new Set(hs.map((h) => h.monster))].join(" + ")} · ${hs[0].players}p`,
-    }));
+    return [...groups.entries()].map(([key, hs]) => {
+      const qid = hs[0].quest_id;
+      const stars = hs[0].quest_stars;
+      const label = qid != null
+        ? `#${qid}${stars ? ` ${stars}★` : ""} · ` +
+          `${[...new Set(hs.map((h) => h.monster))].join(" + ")} · ${hs.length} hunt${hs.length === 1 ? "" : "s"}`
+        : `${hs[0].started_at.slice(0, 10)} ${hs[0].started_at.slice(11, 16)} · ` +
+          `${[...new Set(hs.map((h) => h.monster))].join(" + ")} · ${hs[0].players}p`;
+      return { key, hunts: hs, label };
+    });
   }, [hunts]);
   const questHunts = useMemo(
-    () => quests.find((q) => q.started_at === questKey)?.hunts ?? hunts ?? [],
+    () => quests.find((q) => q.key === questKey)?.hunts ?? hunts ?? [],
     [quests, questKey, hunts]
   );
 
@@ -202,9 +223,9 @@ export default function CurveView({ scope }: { scope: number[] }) {
     [curve, hpSeries, showHp, metric]
   );
 
-  const selectQuest = (started_at: string) => {
-    setQuestKey(started_at);
-    const first = quests.find((q) => q.started_at === started_at)?.hunts[0];
+  const selectQuest = (key: string) => {
+    setQuestKey(key);
+    const first = quests.find((q) => q.key === key)?.hunts[0];
     if (first) setHuntId(first.id);
   };
 
@@ -224,17 +245,18 @@ export default function CurveView({ scope }: { scope: number[] }) {
         <SearchSelect
           label="Quest"
           value={questKey ?? ""}
-          options={quests.map((q) => ({ value: q.started_at, label: q.label }))}
+          options={quests.map((q) => ({ value: q.key, label: q.label }))}
           onChange={selectQuest}
         />
         <SearchSelect
           label="Hunt"
           value={huntId === null ? "" : String(huntId)}
+          showAll={false}
           options={questHunts.map((h) => ({
             value: String(h.id),
-            label: `#${h.id} ${h.monster} · ${h.started_at.slice(0, 10)} · ${h.players}p`,
+            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${h.started_at.slice(0, 10)} · ${h.players}p`,
           }))}
-          onChange={(v) => setHuntId(Number(v))}
+          onChange={(v) => { if (v) setHuntId(Number(v)); }}
         />
         <label>
           <input type="checkbox" checked={showHp} onChange={(e) => setShowHp(e.target.checked)} />

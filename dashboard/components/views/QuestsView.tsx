@@ -91,7 +91,9 @@ export default function QuestsView() {
         data={rows}
         columns={columns}
         initialSort={[{ id: "hunts", desc: true }]}
-        getRowId={(r) => String(r.quest_id)}
+        // quest_id is null for untracked hunts (one row per hunt), so the
+        // index keeps ids unique where quest_id alone would collide.
+        getRowId={(r, i) => `${r.quest_id ?? "none"}-${r.monster}-${r.stars ?? "x"}-${i}`}
       />
     </div>
   );
