@@ -475,3 +475,47 @@ def test_variant_filter_narrows_scoped_queries():
         "/api/high-scores",
         params={"player_ids": f"{isi_id},999",
                 "variant_id": identity_id}).json()["scores"]) == 2
+
+
+def test_progress_improvement():
+    client, s = make_client(seed_two_hunts)
+    res = client.get("/api/progress/improvement").json()
+    assert "top_hunters" in res
+    from app.models import Player
+    from sqlalchemy import select
+    isi_id = s.execute(select(Player.id).where(Player.display_name == "Isi")).scalar_one()
+    p_res = client.get(f"/api/progress/improvement?player_id={isi_id}").json()
+    assert p_res["player_id"] == isi_id
+    assert "groups" in p_res
+
+
+def test_progress_improvement_weapon_filter():
+    """Weapon filter on /progress/improvement narrows results to hunts with that weapon."""
+    client, s = make_client(seed_two_hunts)
+    # Isi uses HuntingHorn (id=6) in both hunts; Pal uses GreatSword (id=1) in hunt 2.
+    # Without filter: top_hunters should include Isi (qualifying groups with >1 instance).
+    res_all = client.get("/api/progress/improvement").json()
+    assert "top_hunters" in res_all
+    assert any(h["player_name"] == "Isi" for h in res_all["top_hunters"])
+
+    # Filter to GreatSword (id=1): only Pal's hunts, but Pal has only 1 instance → no qualifying groups.
+    res_gs = client.get("/api/progress/improvement", params={"weapon_id": 1}).json()
+    assert "top_hunters" in res_gs
+    assert all(h["player_name"] != "Isi" for h in res_gs["top_hunters"])
+
+    # Filter to HuntingHorn (id=6): Isi's 2 hunts on Xu Wu qualify (same monster, >1 instance).
+    res_hh = client.get("/api/progress/improvement", params={"weapon_id": 6}).json()
+    assert "top_hunters" in res_hh
+    isi_hh = [h for h in res_hh["top_hunters"] if h["player_name"] == "Isi"]
+    assert len(isi_hh) == 1
+    assert isi_hh[0]["qualifying_groups_count"] >= 1
+
+    # Scoped to Isi + weapon filter still returns player data.
+    from app.models import Player
+    from sqlalchemy import select
+    isi_id = s.execute(select(Player.id).where(Player.display_name == "Isi")).scalar_one()
+    p_res = client.get(f"/api/progress/improvement?player_id={isi_id}&weapon_id=6").json()
+    assert p_res["player_id"] == isi_id
+    assert "groups" in p_res
+
+
