@@ -7,7 +7,7 @@ import { fmtDps, fmtTime } from "../../lib/format";
 import DataTable from "../DataTable";
 import SearchSelect from "../SearchSelect";
 import { useFilterOptions } from "../useFilterOptions";
-import EmptyState from "../EmptyState";
+import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
 
 interface PartyMember {
   player: string;
@@ -90,7 +90,7 @@ const columns: ColumnDef<HighScore>[] = [
   },
 ];
 
-export default function HighScoreView({ scope, variantId }: { scope: number[]; variantId: number | null }) {
+export default function HighScoreView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | null; clearScope: () => void }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -163,6 +163,16 @@ export default function HighScoreView({ scope, variantId }: { scope: number[]; v
   );
 
   if (rows.length === 0) {
+    if (scope.length > 0) {
+      return (
+        <div className="card">
+          {filters}
+          <ScopeEmpty names={scopeNames(scope, opts?.players)} onClear={clearScope}>
+            <p>Try a different filter combination or a hunt they joined.</p>
+          </ScopeEmpty>
+        </div>
+      );
+    }
     return (
       <div className="card">
         {filters}

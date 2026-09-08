@@ -16,6 +16,8 @@ export interface ViewCtx {
   /** Weapon-variant scope (WeaponIdentity id, 0 = unknown-gear hunts).
    *  Only set with exactly one scoped hunter. Null = all variants. */
   variantId: number | null;
+  /** Reset the hunter scope (passed to views for scope-aware empty states). */
+  clearScope: () => void;
 }
 
 export interface TabDef {
@@ -31,13 +33,13 @@ export const TABS: TabDef[] = [
     id: "progress",
     title: "Progress",
     blurb: "FR-3.1 — rolling DPS and clear time per hunt, filterable by monster, quest, stars, weapon, hunter.",
-    render: (ctx) => <ProgressView scope={ctx.scope} variantId={ctx.variantId} />,
+    render: (ctx) => <ProgressView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} />,
   },
   {
     id: "weapons",
     title: "Weapons",
     blurb: "FR-3.2 — avg/peak DPS, hunt count and clear rate by weapon type.",
-    render: (ctx) => <WeaponsView scope={ctx.scope} variantId={ctx.variantId} />,
+    render: (ctx) => <WeaponsView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} />,
   },
   {
     id: "curves",
@@ -61,13 +63,13 @@ export const TABS: TabDef[] = [
     id: "high-scores",
     title: "High Scores",
     blurb: "One row per cleared hunt, ranked by top DPS or fastest clear. Scoped to the hunters bar above; filterable by monster, weapon and stars.",
-    render: (ctx) => <HighScoreView scope={ctx.scope} variantId={ctx.variantId} />,
+    render: (ctx) => <HighScoreView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} />,
   },
   {
     id: "compare",
     title: "Compare",
     blurb: "Your scoped hunters vs the whole party, hunt by hunt. Star yourself in the hunters bar above.",
-    render: (ctx) => <CompareView scope={ctx.scope} variantId={ctx.variantId} />,
+    render: (ctx) => <CompareView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} />,
   },
   {
     id: "activity",
@@ -79,7 +81,7 @@ export const TABS: TabDef[] = [
     id: "synergy",
     title: "Synergy",
     blurb: "FR-3.4 — clear time and damage share by teammate pairing (supporters excluded).",
-    render: (ctx) => <SynergyView scope={ctx.scope} variantId={ctx.variantId} />,
+    render: (ctx) => <SynergyView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} />,
   },
   {
     id: "buffs",

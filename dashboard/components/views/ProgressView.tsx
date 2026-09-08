@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid, ComposedChart, Line, Bar, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
@@ -8,7 +8,7 @@ import {
 import { apiGet } from "../../lib/api";
 import SearchSelect from "../SearchSelect";
 import { useFilterOptions } from "../useFilterOptions";
-import EmptyState from "../EmptyState";
+import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
 
 interface Point {
   hunt_id: number; started_at: string; monster: string;
@@ -18,7 +18,7 @@ interface Point {
 }
 interface ProgressData { points: Point[]; rolling: { hunt_id: number; avg_dps: number }[]; window: number; }
 
-export default function ProgressView({ scope, variantId }: { scope: number[]; variantId: number | null }) {
+export default function ProgressView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | null; clearScope: () => void }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -31,11 +31,14 @@ export default function ProgressView({ scope, variantId }: { scope: number[]; va
 
   useEffect(() => {
     setError(null);
+    // Survey quest values carry the target (`391@m10`); an explicit
+    // monster pick by the user takes precedence over the suffix.
+    const [qid, qmid] = quest.includes("@m") ? quest.split("@m") : [quest, ""];
     apiGet<ProgressData>("/progress", {
-      ...(monster && { monster_id: Number(monster) }),
+      ...((monster || qmid) && { monster_id: Number(monster || qmid) }),
       ...(weapon && { weapon_id: Number(weapon) }),
       ...(player && { player_id: Number(player) }),
-      ...(quest && { quest_id: Number(quest) }),
+      ...(qid && { quest_id: Number(qid) }),
       ...(stars && { stars: Number(stars) }),
       ...(scope.length > 0 && { player_ids: scope.join(",") }),
       ...(variantId !== null && { variant_id: variantId }),
@@ -43,9 +46,39 @@ export default function ProgressView({ scope, variantId }: { scope: number[]; va
     }).then(setData).catch((e: Error) => setError(e.message));
   }, [monster, weapon, player, quest, stars, windowSize, scope.join(","), variantId]);
 
+  // One option per quest group: real quests collapse multi-monster runs
+  // into one entry, while unknown-star slots (field surveys) stay split
+  // by target — keyed by both so unrelated hunts never merge. Survey
+  // values carry the target monster (`391@m10`) so the filter below can
+  // narrow to it; real quests filter by quest_id alone.
+  const questOptions = useMemo(() => {
+    const byId = new Map<string, { id: number; mid: number; monsters: string[]; stars: number | null }>();
+    for (const q of opts?.quests ?? []) {
+      if (q.quest_id == null) continue;
+      const key = `${q.quest_id}|${q.monster}`;
+      const g = byId.get(key);
+      if (g) {
+        if (!g.monsters.includes(q.monster)) g.monsters.push(q.monster);
+      } else {
+        byId.set(key, { id: q.quest_id, mid: q.monster_id, monsters: [q.monster], stars: q.stars });
+      }
+    }
+    return [...byId.values()].map((g) => ({
+      value: g.stars != null ? String(g.id) : `${g.id}@m${g.mid}`,
+      label: `#${g.id} ${g.monsters.join(" + ")}${g.stars ? ` ${g.stars}★` : ""}`,
+    }));
+  }, [opts]);
+
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (!data) return <p>Loading…</p>;
   if (data.points.length === 0) {
+    if (scope.length > 0) {
+      return (
+        <ScopeEmpty names={scopeNames(scope, opts?.players)} onClear={clearScope}>
+          <p>They aren't in these hunts — pick something they joined.</p>
+        </ScopeEmpty>
+      );
+    }
     return (
       <EmptyState what="hunts match these filters">
         <p>Import one with <code>python -m app.import_hunt --db hunts.db --file hunt.json</code></p>
@@ -75,10 +108,7 @@ export default function ProgressView({ scope, variantId }: { scope: number[]; va
         <SearchSelect
           label="Quest"
           value={quest}
-          options={(opts?.quests ?? []).map((q) => ({
-            value: String(q.quest_id ?? ""),
-            label: `#${q.quest_id} ${q.monster}${q.stars ? ` ${q.stars}★` : ""}`,
-          }))}
+          options={questOptions}
           onChange={setQuest}
         />
         <label>Stars

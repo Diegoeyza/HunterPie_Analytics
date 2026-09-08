@@ -109,6 +109,44 @@ def test_multi_monster_registers_each_monster():
     assert len(s.execute(select(Hunt)).scalars().all()) == 2
 
 
+def test_environment_bystander_skipped():
+    """A barely-touched second monster (1 HP sample at ~99% HP) is an
+    environment bystander, not a quest target: only the real target
+    registers. Empty HP data keeps the monster (older dumps)."""
+    from app.import_hunt import import_doc
+    doc = sample_doc()
+    target = {**doc["monsters"][0], "health_steps": [
+        {"percentage": 0.99, "time": "2026-09-06T03:33:30.7334751Z"},
+        {"percentage": 0.12, "time": "2026-09-06T03:36:12.4631848Z"},
+    ]}
+    bystander = {**doc["monsters"][0], "id": 2, "health_steps": [
+        {"percentage": 0.996, "time": "2026-09-06T03:34:00.0000000Z"},
+    ]}
+    # lightly damaged (never below 60%) also counts as a bystander
+    grazed = {**doc["monsters"][0], "id": 8, "health_steps": [
+        {"percentage": 0.99, "time": "2026-09-06T03:34:00.0000000Z"},
+        {"percentage": 0.70, "time": "2026-09-06T03:35:00.0000000Z"},
+    ]}
+    doc["monsters"] = [target, bystander, grazed]
+    payloads = poogie_to_payloads(doc, {}, "hv", "gv")
+    assert len(payloads) == 1
+    assert payloads[0][0]["monster_id"] == 31
+    assert any("environment" in w for _, ws in payloads for w in ws)
+    s = make_session()
+    results = import_doc(s, doc, {}, "hv", "gv")
+    assert len(results) == 1
+    assert len(s.execute(select(Hunt)).scalars().all()) == 1
+
+
+def test_zero_stars_means_unknown():
+    """The fork reports stars=0 when it doesn't know; no 0-star quests
+    exist, so coerce to None instead of polluting filters."""
+    doc = sample_doc()
+    doc["quest"]["stars"] = 0
+    [(payload, _)] = poogie_to_payloads(doc, {}, "hv", "gv")
+    assert payload["quest_stars"] is None
+
+
 def test_reference_helpers():
     s = make_session()
     assert ensure_weapon(s, 5) == 6

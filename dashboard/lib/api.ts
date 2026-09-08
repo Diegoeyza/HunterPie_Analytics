@@ -56,6 +56,7 @@ export const variantLabel = (v: VariantOption): string =>
   v.label ?? `${v.weapon_type} · ${Math.round(v.raw)} raw / ${Math.round(v.element)} el / ${Math.round(v.affinity)}%`;
 export interface HuntSummary {
   id: number; monster: string; started_at: string;
+  quest_id: number | null; quest_stars: number | null;
   clear_s: number | null; cleared: boolean; carts: number; players: number;
 }
 

@@ -15,12 +15,14 @@ interface Props {
   value: string;
   options: ComboOption[];
   placeholder?: string;
+  /** Hide the "All" row (for selectors where empty is invalid, e.g. Hunt). */
+  showAll?: boolean;
   onChange: (value: string) => void;
 }
 
 /** Searchable combobox: substring filter, keyboard navigable, safe with
  *  thousands of options (renders at most RENDER_CAP rows). Empty value = All. */
-export default function SearchSelect({ label, value, options, placeholder, onChange }: Props) {
+export default function SearchSelect({ label, value, options, placeholder, showAll = true, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(-1);
@@ -64,7 +66,7 @@ export default function SearchSelect({ label, value, options, placeholder, onCha
       if (!open) {
         setOpen(true);
       } else if (highlight === -1) {
-        commit("");
+        if (showAll) commit("");
       } else {
         const pick = capped[highlight];
         if (pick) commit(pick.value);
@@ -91,6 +93,7 @@ export default function SearchSelect({ label, value, options, placeholder, onCha
         />
         {open && (
           <ul className="combo-list" id={listId} role="listbox">
+            {showAll && (
             <li
               role="option"
               aria-selected={value === ""}
@@ -99,9 +102,10 @@ export default function SearchSelect({ label, value, options, placeholder, onCha
             >
               All
             </li>
+            )}
             {capped.map((o, i) => (
               <li
-                key={o.value}
+                key={`${o.value}-${i}`}
                 role="option"
                 aria-selected={i === highlight || o.value === value}
                 onMouseDown={(e) => { e.preventDefault(); commit(o.value); }}
