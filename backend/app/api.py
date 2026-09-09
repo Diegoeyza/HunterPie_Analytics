@@ -14,6 +14,13 @@ from sqlalchemy.orm import Session
 
 from . import queries
 from .db import DEFAULT_DB_PATH, make_session
+from .import_hunt import (
+    DEFAULT_EXPORTS_DIR,
+    DEFAULT_GAME_VERSION,
+    DEFAULT_HUNTERPIE_VERSION,
+    import_doc,
+    load_monster_names,
+)
 
 DB_PATH = Path(os.environ.get("HUNTS_DB", DEFAULT_DB_PATH))
 
@@ -45,8 +52,9 @@ def health(db: Session = Depends(get_db)):
 
 
 @app.get("/api/hunts")
-def hunts(limit: int = 200, db: Session = Depends(get_db)):
-    return queries.hunt_list(db, limit)
+def hunts(limit: int = 200, include_ignored: bool = False,
+          db: Session = Depends(get_db)):
+    return queries.hunt_list(db, limit, include_ignored)
 
 
 @app.get("/api/progress")
@@ -62,9 +70,15 @@ def progress(monster_id: int | None = None, weapon_id: int | None = None,
 
 @app.get("/api/progress/improvement")
 def progress_improvement(player_id: int | None = None, top_n: int = 5,
-                          weapon_id: int | None = None,
-                          db: Session = Depends(get_db)):
-    return queries.progress_improvement(db, player_id, top_n, weapon_id)
+                         weapon_id: int | None = None,
+                         player_ids: str | None = None,
+                         monster_id: int | None = None,
+                         stars: int | None = None,
+                         variant_id: int | None = None,
+                         db: Session = Depends(get_db)):
+    return queries.progress_improvement(db, player_id, top_n, weapon_id,
+                                        queries._parse_ids(player_ids),
+                                        monster_id, stars, variant_id)
 
 
 
@@ -115,9 +129,20 @@ def records(db: Session = Depends(get_db)):
 def high_scores(player_ids: str | None = None, monster_id: int | None = None,
                 weapon_id: int | None = None, stars: int | None = None,
                 sort_by: str = "dps", limit: int | None = None,
-                variant_id: int | None = None, db: Session = Depends(get_db)):
+                variant_id: int | None = None,
+                include_ignored: bool = False, db: Session = Depends(get_db)):
     return queries.high_scores(db, queries._parse_ids(player_ids), monster_id,
-                               weapon_id, stars, sort_by, limit, variant_id)
+                               weapon_id, stars, sort_by, limit, variant_id,
+                               include_ignored)
+
+
+@app.patch("/api/hunts/{hunt_id}/ignore")
+def ignore_hunt(hunt_id: int, body: dict, db: Session = Depends(get_db)):
+    """Hide (ignored=true) or restore a hunt from every stat view."""
+    try:
+        return queries.set_hunt_ignored(db, hunt_id, bool(body.get("ignored", True)))
+    except KeyError:
+        raise HTTPException(404, f"hunt {hunt_id} not found")
 
 
 @app.get("/api/activity")
@@ -144,6 +169,46 @@ def rename_identity(identity_id: int, body: dict,
         return queries.set_identity_label(db, identity_id, body.get("label"))
     except KeyError:
         raise HTTPException(404, f"weapon identity {identity_id} not found")
+
+
+@app.post("/api/import")
+def import_hunts(db: Session = Depends(get_db)):
+    """Import HuntExports JSON dumps (dedup-safe: re-imports skip).
+
+    Source dir: $HUNT_EXPORTS or the HunterPie default. Powers the
+    dashboard Import button so hunts can be pulled without the CLI.
+    """
+    import json
+
+    src = Path(os.environ.get("HUNT_EXPORTS", str(DEFAULT_EXPORTS_DIR)))
+    if not src.is_dir():
+        raise HTTPException(404, f"hunt exports dir not found: {src}")
+    names = load_monster_names(None)
+    imported_ids: list[int] = []
+    duplicates = 0
+    errors: list[dict] = []
+    for path in sorted(src.glob("*.json")):
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError) as e:
+            errors.append({"file": path.name, "error": str(e)})
+            continue
+        try:
+            for hunt, created, _warnings in import_doc(
+                    db, doc, names,
+                    DEFAULT_HUNTERPIE_VERSION, DEFAULT_GAME_VERSION):
+                if created:
+                    imported_ids.append(hunt.id)
+                else:
+                    duplicates += 1
+        except (ValueError, KeyError) as e:
+            db.rollback()
+            errors.append({"file": path.name, "error": str(e)})
+    return {"scanned": len(list(src.glob('*.json'))),
+            "imported": len(imported_ids),
+            "imported_ids": imported_ids,
+            "duplicates": duplicates,
+            "errors": errors}
 
 
 @app.get("/api/players/pins")

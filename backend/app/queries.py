@@ -29,6 +29,21 @@ def _parse_ids(raw: str | None) -> list[int]:
     return [int(x) for x in raw.split(",") if x.strip().isdigit()]
 
 
+def _visible():
+    """Filter for user-visible hunts (NULL-safe: pre-flag rows are NULL)."""
+    return Hunt.ignored.isnot(True)
+
+
+def set_hunt_ignored(session: Session, hunt_id: int, ignored: bool) -> dict:
+    """Hide (or restore) a hunt from every stat view. Reversible."""
+    hunt = session.get(Hunt, hunt_id)
+    if hunt is None:
+        raise KeyError(hunt_id)
+    hunt.ignored = bool(ignored)
+    session.commit()
+    return {"id": hunt.id, "ignored": bool(hunt.ignored)}
+
+
 UNKNOWN_VARIANT_ID = 0
 """Pseudo variant id for hunts with no gear data (pre-gear fork exports)."""
 
@@ -52,6 +67,7 @@ def _variant_hunt_ids(session: Session, player_id: int,
             HuntPlayer.gear_element == identity.gear_element,
             HuntPlayer.gear_affinity == identity.gear_affinity,
         )
+    stmt = stmt.join(Hunt, Hunt.id == HuntPlayer.hunt_id).where(_visible())
     return set(session.execute(stmt).scalars())
 
 
@@ -89,8 +105,9 @@ def player_variants(session: Session, player_id: int) -> dict:
                HuntPlayer.gear_affinity,
                func.count(func.distinct(HuntPlayer.hunt_id)))
         .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
+        .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
         .where(HuntPlayer.player_id == player_id,
-               HuntPlayer.gear_raw.is_not(None))
+               HuntPlayer.gear_raw.is_not(None), _visible())
         .group_by(Weapon.name, HuntPlayer.gear_raw, HuntPlayer.gear_element,
                   HuntPlayer.gear_affinity)
     ).all()
@@ -108,8 +125,9 @@ def player_variants(session: Session, player_id: int) -> dict:
         })
     unknown = session.execute(
         select(func.count(func.distinct(HuntPlayer.hunt_id)))
+        .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
         .where(HuntPlayer.player_id == player_id,
-               HuntPlayer.gear_raw.is_(None))
+               HuntPlayer.gear_raw.is_(None), _visible())
     ).scalar_one()
     return {"player_id": player_id, "variants": variants, "unknown_hunts": unknown}
 
@@ -186,7 +204,7 @@ def filter_options(session: Session) -> dict:
     quest_rows = session.execute(
         select(Hunt.quest_id, Monster.name, Hunt.monster_id, Hunt.quest_stars)
         .join(Monster, Monster.id == Hunt.monster_id)
-        .where(Hunt.quest_id.is_not(None))
+        .where(Hunt.quest_id.is_not(None), _visible())
         .order_by(Hunt.quest_id, Hunt.started_at)
     ).all()
     quests: list[dict] = []
@@ -203,12 +221,12 @@ def filter_options(session: Session) -> dict:
         if m not in agg["monsters"]:
             agg["monsters"].append(m)
     stars = session.execute(
-        select(Hunt.quest_stars).where(Hunt.quest_stars.is_not(None))
+        select(Hunt.quest_stars).where(Hunt.quest_stars.is_not(None), _visible())
         .group_by(Hunt.quest_stars).order_by(Hunt.quest_stars)
     ).scalars().all()
     monster_stars_rows = session.execute(
         select(Hunt.monster_id, Hunt.quest_stars)
-        .where(Hunt.quest_stars.is_not(None))
+        .where(Hunt.quest_stars.is_not(None), _visible())
         .group_by(Hunt.monster_id, Hunt.quest_stars)
         .order_by(Hunt.monster_id, Hunt.quest_stars)
     ).all()
@@ -258,19 +276,25 @@ def set_pin(session: Session, player_id: int, pinned: bool) -> dict:
 
 
 def health(session: Session) -> dict:
-    hunts = session.execute(select(func.count(Hunt.id))).scalar_one()
+    hunts = session.execute(
+        select(func.count(Hunt.id)).where(_visible())).scalar_one()
     return {"status": "ok", "hunts": hunts}
 
 
-def hunt_list(session: Session, limit: int = 200) -> dict:
+def hunt_list(session: Session, limit: int = 200,
+              include_ignored: bool = False) -> dict:
+    stmt = select(Hunt, Monster).join(Monster)
+    if not include_ignored:
+        stmt = stmt.where(_visible())
     rows = session.execute(
-        select(Hunt, Monster).join(Monster).order_by(Hunt.started_at.desc()).limit(limit)
+        stmt.order_by(Hunt.started_at.desc()).limit(limit)
     ).all()
     return {"hunts": [
         {"id": h.id, "monster": m.name, "started_at": h.started_at.isoformat(),
          "quest_id": h.quest_id, "quest_stars": h.quest_stars,
          "clear_s": _hunt_duration_s(h), "cleared": bool(h.cleared),
-         "carts": h.cart_count, "players": h.player_count}
+         "carts": h.cart_count, "players": h.player_count,
+         "ignored": bool(h.ignored)}
         for h, m in rows
     ]}
 
@@ -287,7 +311,7 @@ def progress(session: Session, monster_id: int | None = None,
         .join(Player, Player.id == HuntPlayer.player_id)
         .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
         .join(Monster, Monster.id == Hunt.monster_id)
-        .where(HuntPlayer.is_supporter.is_(False))
+        .where(HuntPlayer.is_supporter.is_(False), _visible())
         .order_by(Hunt.started_at)
     )
     if monster_id is not None:
@@ -344,7 +368,7 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
         select(Weapon.name, HuntPlayer.weapon_id, Hunt, HuntPlayer)
         .join(HuntPlayer, HuntPlayer.weapon_id == Weapon.id)
         .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
-        .where(HuntPlayer.is_supporter.is_(False))
+        .where(HuntPlayer.is_supporter.is_(False), _visible())
     )
     if player_ids:
         stmt = stmt.where(HuntPlayer.player_id.in_(player_ids))
@@ -371,7 +395,7 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
         select(func.count(func.distinct(HuntPlayer.hunt_id)))
         .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
         .where(HuntPlayer.weapon_id.is_(None),
-               HuntPlayer.is_supporter.is_(False))
+               HuntPlayer.is_supporter.is_(False), _visible())
     )
     if monster_id is not None:
         unk_stmt = unk_stmt.where(Hunt.monster_id == monster_id)
@@ -462,7 +486,7 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
     }
     if quest_hp:
         siblings = session.execute(
-            select(Hunt).where(Hunt.started_at == hunt.started_at)
+            select(Hunt).where(Hunt.started_at == hunt.started_at, _visible())
             .order_by(Hunt.id)
         ).scalars().all()
         quest_curves = []
@@ -523,7 +547,7 @@ def synergy(session: Session, player_ids: list[int] | None = None,
         select(Hunt, Player.display_name, HuntPlayer.total_damage, HuntPlayer.player_id)
         .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
         .join(Player, Player.id == HuntPlayer.player_id)
-        .where(HuntPlayer.is_supporter.is_(False))
+        .where(HuntPlayer.is_supporter.is_(False), _visible())
         .order_by(Hunt.started_at)
     )
     if monster_id is not None:
@@ -571,6 +595,7 @@ def quest_stats(session: Session) -> dict:
     hunts = session.execute(
         select(Hunt, Monster.name)
         .join(Monster, Monster.id == Hunt.monster_id)
+        .where(_visible())
         .order_by(Hunt.quest_id, Hunt.started_at)
     ).all()
     by_quest: dict[tuple, dict] = {}
@@ -614,7 +639,7 @@ def quest_stats(session: Session) -> dict:
         for dmg, pid, hunt in session.execute(
             select(HuntPlayer.total_damage, HuntPlayer.player_id, Hunt)
             .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
-            .where(id_filter, HuntPlayer.is_supporter.is_(False))
+            .where(id_filter, HuntPlayer.is_supporter.is_(False), _visible())
         ).all():
             eng = _player_engagement_s(session, hunt.id, pid)
             if eng:
@@ -623,7 +648,7 @@ def quest_stats(session: Session) -> dict:
             select(MonsterEvent.start_offset_seconds,
                    MonsterEvent.end_offset_seconds, MonsterEvent.hunt_id)
             .join(Hunt, Hunt.id == MonsterEvent.hunt_id)
-            .where(id_filter, MonsterEvent.event_type == "enrage")
+            .where(id_filter, MonsterEvent.event_type == "enrage", _visible())
         ).all()
         total_span = sum((e - s) for s, e, _ in spans if s is not None and e is not None)
         agg["enrage_uptime"] = (total_span / sum(agg["clear_ss"])) if agg["clear_ss"] else 0.0
@@ -649,7 +674,7 @@ def records(session: Session) -> dict:
         .join(Player, Player.id == HuntPlayer.player_id)
         .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
         .join(Monster, Monster.id == Hunt.monster_id)
-        .where(HuntPlayer.is_supporter.is_(False))
+        .where(HuntPlayer.is_supporter.is_(False), _visible())
     ).all()
     by_monster: dict[str, dict] = {}
     for hunt, hp, pname, wname, mname in rows:
@@ -679,17 +704,19 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
                 monster_id: int | None = None, weapon_id: int | None = None,
                 stars: int | None = None, sort_by: str = "dps",
                 limit: int | None = None,
-                variant_id: int | None = None) -> dict:
+                variant_id: int | None = None,
+                include_ignored: bool = False) -> dict:
     """Cleared-hunt leaderboard: one row per hunt, ranked.
 
     ``player_ids`` (global hunter scope) narrows to hunts including ANY of
     those hunters; the featured DPS is the best among the scoped members
-    present (or the party top DPS when no scope). ``weapon_id`` applies to
-    the featured player. ``variant_id`` (with exactly one scoped hunter)
+    present (or the party top DPS when no scope). ``weapon_id`` narrows the
+    pool to members using that weapon first, so the featured row is the best
+    weapon-user in the hunt (scoped or not). ``variant_id`` (with exactly one scoped hunter)
     narrows to hunts where that hunter used the weapon variant.
     ``sort_by`` is ``"dps"`` (highest featured DPS first) or ``"time"``
     (fastest clear first). ``limit`` keeps only the top N rows (client
-    Top-N filter).
+    Top-N filter). Ignored hunts are excluded unless ``include_ignored``.
     """
     sort_by = "time" if sort_by == "time" else "dps"
     stmt = (
@@ -701,6 +728,8 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
         .join(Monster, Monster.id == Hunt.monster_id)
         .where(Hunt.cleared.is_(True), HuntPlayer.is_supporter.is_(False))
     )
+    if not include_ignored:
+        stmt = stmt.where(_visible())
     if monster_id is not None:
         stmt = stmt.where(Hunt.monster_id == monster_id)
     if stars is not None:
@@ -732,9 +761,11 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
             continue
         pool = ([m for m in members if m["player_id"] in player_ids]
                 if player_ids else members)
-        featured = max(pool, key=lambda m: (m["dps"], m["player"]))
-        if weapon_id is not None and featured["weapon_id"] != weapon_id:
+        if weapon_id is not None:
+            pool = [m for m in pool if m["weapon_id"] == weapon_id]
+        if not pool:
             continue
+        featured = max(pool, key=lambda m: (m["dps"], m["player"]))
         clear_s = _hunt_duration_s(h["hunt"])
         party = sorted((m for m in members if m["player"] != featured["player"]),
                        key=lambda m: (-m["dps"], m["player"]))
@@ -748,6 +779,7 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
             "weapon": featured["weapon"],
             "variant": featured["variant"],
             "dps": featured["dps"],
+            "ignored": bool(h["hunt"].ignored),
             "party": [{"player": m["player"], "weapon": m["weapon"],
                        "variant": m["variant"],
                        "dps": m["dps"]} for m in party],
@@ -771,7 +803,8 @@ def activity(session: Session) -> dict:
     rows = session.execute(
         select(Hunt, HuntPlayer.total_damage, HuntPlayer.player_id)
         .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
-        .where(HuntPlayer.is_supporter.is_(False))
+        .where(HuntPlayer.is_supporter.is_(False), _visible())
+        .order_by(Hunt.started_at)
     ).all()
     by_day: dict[str, dict] = {}
     for hunt, dmg, pid in rows:
@@ -802,7 +835,7 @@ def compare(session: Session, player_ids: list[int], window: int = 5,
     rows = session.execute(
         select(Hunt, HuntPlayer)
         .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
-        .where(HuntPlayer.is_supporter.is_(False))
+        .where(HuntPlayer.is_supporter.is_(False), _visible())
         .order_by(Hunt.started_at)
     ).all()
     hunts: dict[int, dict] = {}
@@ -833,33 +866,92 @@ def compare(session: Session, player_ids: list[int], window: int = 5,
     return {"points": points, "window": window, "scope": sorted(names)}
 
 
+def _median(vals: list[float]) -> float:
+    s = sorted(vals)
+    n = len(s)
+    if n == 0:
+        return 0.0
+    mid = n // 2
+    return s[mid] if n % 2 else (s[mid - 1] + s[mid]) / 2.0
+
+
+def _slope_per_hunt(vals: list[float]) -> float:
+    """Least-squares slope of DPS over hunt index (DPS gained per hunt)."""
+    n = len(vals)
+    if n < 2:
+        return 0.0
+    mean_x = (n - 1) / 2.0
+    mean_y = sum(vals) / n
+    denom = sum((i - mean_x) ** 2 for i in range(n))
+    if not denom:
+        return 0.0
+    return sum((i - mean_x) * (y - mean_y) for i, y in enumerate(vals)) / denom
+
+
 def progress_improvement(session: Session, player_id: int | None = None, top_n: int = 5,
-                         weapon_id: int | None = None) -> dict:
-    """Analyze player DPS improvement over time, grouped by monster and quest stars (only groups with >1 instance)."""
+                         weapon_id: int | None = None,
+                         player_ids: list[int] | None = None,
+                         monster_id: int | None = None,
+                         stars: int | None = None,
+                         variant_id: int | None = None) -> dict:
+    """Analyze player DPS improvement over time, grouped by monster and quest stars (only groups with >1 instance).
+
+    Single-hunter mode (``player_id`` set, no ``player_ids``) returns one
+    player dict with ``groups``. Otherwise returns ``{"top_hunters": [...]}``
+    ranked by instance-weighted overall improvement. ``player_ids`` narrows
+    the ranking (multi-hunter scope); ``monster_id``/``stars``/``weapon_id``/
+    ``variant_id`` narrow the hunts considered.
+    """
+    top_n = max(1, min(int(top_n or 5), 25))
     players = session.execute(select(Player)).scalars().all()
     player_map = {p.id: p.display_name for p in players}
+
+    # Single-hunter detail vs ranked list.
+    single_id = player_id if not player_ids else None
 
     stmt = (
         select(Hunt, HuntPlayer, Player, Monster)
         .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
         .join(Player, Player.id == HuntPlayer.player_id)
         .join(Monster, Monster.id == Hunt.monster_id)
-        .where(Hunt.cleared.is_(True), HuntPlayer.is_supporter.is_(False))
+        .where(Hunt.cleared.is_(True), HuntPlayer.is_supporter.is_(False), _visible())
         .order_by(Hunt.started_at)
     )
-    if player_id is not None:
-        stmt = stmt.where(HuntPlayer.player_id == player_id)
+    if single_id is not None:
+        stmt = stmt.where(HuntPlayer.player_id == single_id)
+    elif player_ids:
+        stmt = stmt.where(HuntPlayer.player_id.in_(player_ids))
     if weapon_id is not None:
         stmt = stmt.where(HuntPlayer.weapon_id == weapon_id)
+    if monster_id is not None:
+        stmt = stmt.where(Hunt.monster_id == monster_id)
+    if stars is not None:
+        stmt = stmt.where(Hunt.quest_stars == stars)
+
+    # Variant narrowing only applies with an explicit hunter scope
+    # (mirrors _resolve_variant_filter semantics).
+    scope_for_variant = ([single_id] if single_id is not None
+                         else list(player_ids or []))
+    variant_hunts = _resolve_variant_filter(session, scope_for_variant or None,
+                                            variant_id)
+    if variant_hunts is not None:
+        if not variant_hunts:
+            if single_id is not None:
+                name = player_map.get(single_id, f"Player {single_id}")
+                return {"player_id": single_id, "player_name": name,
+                        "overall_pct_improvement": 0.0,
+                        "qualifying_groups_count": 0, "groups": []}
+            return {"top_hunters": []}
+        stmt = stmt.where(Hunt.id.in_(variant_hunts))
 
     player_data: dict[int, dict[tuple[int, str, int | None], list[dict]]] = {}
-    
+
     for hunt, hp, player, monster in session.execute(stmt):
         dur = _player_engagement_s(session, hunt.id, hp.player_id)
         dps = (hp.total_damage / dur) if dur else 0.0
-        stars = hunt.quest_stars
-        key = (monster.id, monster.name, stars)
-        
+        stars_val = hunt.quest_stars
+        key = (monster.id, monster.name, stars_val)
+
         p_groups = player_data.setdefault(player.id, {})
         group_hunts = p_groups.setdefault(key, [])
         group_hunts.append({
@@ -872,26 +964,39 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
     def analyze_player(pid: int, groups_dict: dict) -> dict:
         p_name = player_map.get(pid, f"Player {pid}")
         qualifying_groups = []
-        total_pct = 0.0
+        weighted_sum = 0.0
+        weighted_n = 0
 
-        for (mid, mname, stars), hunts in groups_dict.items():
+        for (mid, mname, st), hunts in groups_dict.items():
             if len(hunts) > 1:
-                first_dps = hunts[0]["dps"]
-                latest_dps = hunts[-1]["dps"]
+                dps_vals = [h["dps"] for h in hunts]
+                first_dps = dps_vals[0]
+                latest_dps = dps_vals[-1]
                 pct = ((latest_dps - first_dps) / first_dps * 100.0) if first_dps > 0 else 0.0
+                first_clear = hunts[0]["clear_s"]
+                latest_clear = hunts[-1]["clear_s"]
+                clear_pct = (((first_clear - latest_clear) / first_clear * 100.0)
+                             if first_clear and latest_clear and first_clear > 0 else 0.0)
                 qualifying_groups.append({
                     "monster_id": mid,
                     "monster_name": mname,
-                    "stars": stars,
+                    "stars": st,
                     "instances": len(hunts),
                     "first_dps": round(first_dps, 1),
                     "latest_dps": round(latest_dps, 1),
+                    "median_dps": round(_median(dps_vals), 1),
+                    "best_dps": round(max(dps_vals), 1),
+                    "slope_per_hunt": round(_slope_per_hunt(dps_vals), 2),
                     "pct_improvement": round(pct, 1),
+                    "first_clear_s": round(first_clear) if first_clear else None,
+                    "latest_clear_s": round(latest_clear) if latest_clear else None,
+                    "clear_pct_improvement": round(clear_pct, 1),
                     "hunts": hunts,
                 })
-                total_pct += pct
+                weighted_sum += pct * len(hunts)
+                weighted_n += len(hunts)
 
-        overall = (total_pct / len(qualifying_groups)) if qualifying_groups else 0.0
+        overall = (weighted_sum / weighted_n) if weighted_n else 0.0
         qualifying_groups.sort(key=lambda g: g["pct_improvement"], reverse=True)
         return {
             "player_id": pid,
@@ -901,10 +1006,13 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
             "groups": qualifying_groups,
         }
 
-    if player_id is not None:
-        if player_id not in player_data:
-            return {"player_id": player_id, "player_name": player_map.get(player_id, ""), "overall_pct_improvement": 0.0, "qualifying_groups_count": 0, "groups": []}
-        return analyze_player(player_id, player_data[player_id])
+    if single_id is not None:
+        if single_id not in player_data:
+            return {"player_id": single_id,
+                    "player_name": player_map.get(single_id, f"Player {single_id}"),
+                    "overall_pct_improvement": 0.0,
+                    "qualifying_groups_count": 0, "groups": []}
+        return analyze_player(single_id, player_data[single_id])
     else:
         results = []
         for pid, groups_dict in player_data.items():

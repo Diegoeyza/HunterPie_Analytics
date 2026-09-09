@@ -67,6 +67,7 @@ class Hunt(Base):
     real_hunt_time_seconds: Mapped[float | None] = mapped_column(Float)
     cart_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cleared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ignored: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     player_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_sos: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     joined_mid_hunt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
