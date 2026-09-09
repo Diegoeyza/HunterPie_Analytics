@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import ProgressView from "../components/views/ProgressView";
+import GrowthView from "../components/views/GrowthView";
 import WeaponsView from "../components/views/WeaponsView";
 import CurveView from "../components/views/CurveView";
 import QuestsView from "../components/views/QuestsView";
@@ -18,6 +19,8 @@ export interface ViewCtx {
   variantId: number | null;
   /** Reset the hunter scope (passed to views for scope-aware empty states). */
   clearScope: () => void;
+  /** Set the hunter scope to the given player ids. */
+  setScope: (ids: number[]) => void;
 }
 
 export interface TabDef {
@@ -34,6 +37,12 @@ export const TABS: TabDef[] = [
     title: "Progress",
     blurb: "FR-3.1 — rolling DPS and clear time per hunt, filterable by monster, quest, stars, weapon, hunter.",
     render: (ctx) => <ProgressView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} />,
+  },
+  {
+    id: "growth",
+    title: "Growth",
+    blurb: "Instance-weighted DPS change with per-group trends (median, best, slope, clear time). Single hunter drill-down, multi-hunter scope, monster/star/weapon/variant filters.",
+    render: (ctx) => <GrowthView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} setScope={ctx.setScope} />,
   },
   {
     id: "weapons",
