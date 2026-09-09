@@ -122,7 +122,7 @@ def test_environment_bystander_skipped():
     bystander = {**doc["monsters"][0], "id": 2, "health_steps": [
         {"percentage": 0.996, "time": "2026-09-06T03:34:00.0000000Z"},
     ]}
-    # lightly damaged (never below 60%) also counts as a bystander
+    # lightly damaged (never below 40%) also counts as a bystander
     grazed = {**doc["monsters"][0], "id": 8, "health_steps": [
         {"percentage": 0.99, "time": "2026-09-06T03:34:00.0000000Z"},
         {"percentage": 0.70, "time": "2026-09-06T03:35:00.0000000Z"},
@@ -136,6 +136,49 @@ def test_environment_bystander_skipped():
     results = import_doc(s, doc, {}, "hv", "gv")
     assert len(results) == 1
     assert len(s.execute(select(Hunt)).scalars().all()) == 1
+
+
+def test_bystander_threshold_is_40_percent():
+    """HP floor: a monster scratched to 45% is a bystander, one down to 20%
+    is a target. Sample count no longer matters (3 samples at 68% — the
+    Guardian Anjanath case — is skipped)."""
+    from app.import_hunt import import_doc
+    doc = sample_doc()
+    base = doc["monsters"][0]
+    step = lambda frac: {"percentage": frac, "time": "2026-09-06T03:34:00.0000000Z"}
+    scratched = {**base, "id": 8, "health_steps": [step(0.99), step(0.45)]}
+    engaged = {**base, "id": 9, "health_steps": [step(0.99), step(0.20)]}
+    splash = {**base, "id": 14, "health_steps": [step(0.997), step(0.85), step(0.685)]}
+    doc["monsters"] = [scratched, engaged, splash]
+    payloads = poogie_to_payloads(doc, {}, "hv", "gv")
+    assert [p["monster_id"] for p, _ in payloads] == [9]
+
+
+def test_quest_with_no_engagement_registers_nothing():
+    """No monster HP below 40% (walked past everything): the quest is
+    skipped entirely."""
+    doc = sample_doc()
+    base = doc["monsters"][0]
+    step = lambda frac: {"percentage": frac, "time": "2026-09-06T03:34:00.0000000Z"}
+    doc["monsters"] = [{**base, "id": 8, "health_steps": [step(0.99), step(0.80)]}]
+    assert poogie_to_payloads(doc, {}, "hv", "gv") == []
+
+
+def test_failed_quest_registers_despite_no_engagement():
+    """Carted out (deaths >= max): the attempt registers even though no
+    monster HP fell below 40%, stored with cleared=False."""
+    from app.import_hunt import import_doc
+    doc = sample_doc()
+    doc["quest"] = {**doc["quest"], "deaths": 3, "max_deaths": 3}
+    base = doc["monsters"][0]
+    step = lambda frac: {"percentage": frac, "time": "2026-09-06T03:34:00.0000000Z"}
+    doc["monsters"] = [{**base, "health_steps": [step(0.99), step(0.80)]}]
+    [(payload, warnings)] = poogie_to_payloads(doc, {}, "hv", "gv")
+    assert payload["cleared"] is False
+    assert any("failed" in w for w in warnings)
+    s = make_session()
+    [(hunt, created, _)] = import_doc(s, doc, {}, "hv", "gv")
+    assert created and hunt.cleared is False
 
 
 def test_zero_stars_means_unknown():

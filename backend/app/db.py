@@ -23,6 +23,7 @@ EXTRA_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("monster_max_hp", "REAL"),
         ("monster_variant", "INTEGER"),
         ("monster_crown", "INTEGER"),
+        ("ignored", "INTEGER NOT NULL DEFAULT 0"),
     ],
     "hunt_players": [
         ("gear_raw", "REAL"),

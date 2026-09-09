@@ -14,8 +14,11 @@ Known gaps (logged as warnings, not silently dropped):
   each carrying the FULL quest damage (per-hit damage can't be
   attributed per monster, and a quest's damage belongs to the quest)
 - monsters barely touched (environment bystanders, not quest targets)
-  are skipped: <=2 HP samples and never below 60% HP. Empty HP data is
+  are skipped: HP never falls below 40%. Empty HP data is
   kept (benefit of the doubt for older dumps).
+- quests where no monster's HP fell below 40% register nothing (nothing
+  was really fought) — unless the quest was failed (carts), which always
+  registers; failed hunts are stored with cleared=False.
 - dump carries no HunterPie/game versions -> CLI flags with defaults
 """
 from __future__ import annotations
@@ -39,6 +42,9 @@ WEAPONS = [
 
 DEFAULT_HUNTERPIE_VERSION = "2.14.0.466-analytics"
 DEFAULT_GAME_VERSION = "1.042.00.02"
+DEFAULT_EXPORTS_DIR = Path("/mnt/c/Program Files/HunterPie/HuntExports")
+"""Default HuntExports location (also the import.sh default and the
+dashboard Import button source). Override with $HUNT_EXPORTS."""
 DEFAULT_NAMES_XML = Path("/mnt/c/Program Files/HunterPie/Languages/en-us.xml")
 # Bundled Wilds names so `seeds/` import without a HunterPie install.
 BUNDLED_NAMES_JSON = Path(__file__).resolve().parent / "data" / "wilds_monster_names.json"
@@ -103,17 +109,38 @@ def ensure_monster(session, monster_id: int, names: dict[int, str]) -> int:
     return row.id
 
 
+ENGAGEMENT_FLOOR = 0.40
+"""A monster counts as fought when its HP falls below this fraction.
+
+HP tracking can't tell player damage from monster-vs-monster damage, so a
+bystander that loses a quarter of its HP to a turf war (or your splash
+damage) is treated as a target. Tighten only with per-hit attribution.
+"""
+
+
+def _min_hp_frac(m: dict) -> float | None:
+    """Lowest sampled HP fraction, or None when the monster has no HP data."""
+    fracs = [s.get("percentage") for s in (m.get("health_steps") or [])
+             if isinstance(s.get("percentage"), (int, float))]
+    return min(fracs) if fracs else None
+
+
+def _quest_failed(doc: dict) -> bool:
+    """Carted out: deaths reached the quest's cart limit."""
+    quest = doc.get("quest") or {}
+    max_deaths = quest.get("max_deaths") or 0
+    return bool(max_deaths and (quest.get("deaths") or 0) >= max_deaths)
+
+
 def _is_environment_bystander(m: dict) -> bool:
     """True when the monster was barely touched: incidental environment
     damage, not a quest target. Requires positive evidence (HP samples
-    showing >=60% HP throughout); empty HP data keeps the monster
+    never falling below 40% HP); empty HP data keeps the monster
     (benefit of the doubt for older dumps)."""
-    steps = m.get("health_steps") or []
-    if not steps:
+    low = _min_hp_frac(m)
+    if low is None:
         return False
-    fracs = [s.get("percentage") for s in steps
-             if isinstance(s.get("percentage"), (int, float))]
-    return len(steps) <= 2 and bool(fracs) and min(fracs) >= 0.6
+    return low >= ENGAGEMENT_FLOOR
 
 
 def poogie_to_payloads(doc: dict, names: dict[int, str],
@@ -161,13 +188,27 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
                         f"(disconnect/rejoin)")
 
     out = []
+    failed = _quest_failed(doc)
+    if failed:
+        warnings.append("quest failed (carts): registering all "
+                        f"{len(monsters)} monsters")
+    else:
+        tracked = [(m, _min_hp_frac(m)) for m in monsters]
+        tracked = [(m, low) for m, low in tracked if low is not None]
+        if tracked and all(low >= ENGAGEMENT_FLOOR for _, low in tracked):
+            warnings.append("no monster HP fell below "
+                            f"{ENGAGEMENT_FLOOR:.0%}: nothing targeted, "
+                            "quest skipped")
+            return []
     for m in monsters:
-        if len(monsters) > 1 and _is_environment_bystander(m):
+        if not failed and len(monsters) > 1 and _is_environment_bystander(m):
             warnings.append(f"skipping environment monster id={m['id']} "
-                            f"(barely damaged, not a quest target)")
+                            f"(HP never below {ENGAGEMENT_FLOOR:.0%}, "
+                            f"not a quest target)")
             continue
         out.append((_monster_payload(doc, m, merged, started, finished,
-                                     names, hunterpie_version, game_version),
+                                     names, hunterpie_version, game_version,
+                                     cleared=not failed),
                     warnings))
     return out
 
@@ -175,7 +216,8 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
 def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
                      started: datetime, finished: datetime | None,
                      names: dict[int, str],
-                     hunterpie_version: str, game_version: str) -> dict:
+                     hunterpie_version: str, game_version: str,
+                     cleared: bool = True) -> dict:
     players = []
     snapshots = []
     abnormalities = []
@@ -251,7 +293,7 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
         "quest_time_seconds": (finished - started).total_seconds() if finished else None,
         "real_hunt_time_seconds": None,
         "cart_count": quest.get("deaths") or 0,
-        "cleared": True,  # dump only written on QuestStatus.Success
+        "cleared": cleared,
         "players": players,
         "snapshots": snapshots,
         "abnormalities": abnormalities,
@@ -285,7 +327,7 @@ def import_file(db_path: str, file_path: str, hunterpie_version: str,
     results = import_doc(session, doc, names, hunterpie_version, game_version)
     if not results:
         print(f"skipped {file_path}: no targeted monsters "
-              f"(all environment bystanders)")
+              f"(no HP below {ENGAGEMENT_FLOOR:.0%})")
         return
     for hunt, created, warnings in results:
         print(f"{'imported' if created else 'duplicate-skipped'} hunt id={hunt.id} "

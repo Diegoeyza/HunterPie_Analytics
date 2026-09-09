@@ -57,6 +57,21 @@ header.topbar h1 { font-size: 18px; margin: 0; }
   padding: 4px 10px; cursor: pointer; font-size: 13px;
 }
 
+/* Hunt import button (header) — pushes itself + theme toggle right */
+.import-wrap {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.import-wrap + .theme-toggle { margin-left: 0; }
+.import-button {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--accent); border-radius: 6px;
+  padding: 4px 10px; cursor: pointer; font-size: 13px;
+}
+.import-button:disabled { opacity: 0.5; cursor: wait; }
+.import-button:not(:disabled):hover { background: var(--accent); color: var(--bg); }
+.import-wrap .status-text { font-size: 12px; }
+
 .scopebar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 10px 20px 0; font-size: 13px;
@@ -217,6 +232,47 @@ table.grid thead th:hover { color: var(--text); }
 table.grid thead th .sort-ind { color: var(--accent); margin-left: 4px; }
 table.grid tbody tr:hover td { background: var(--row-hover); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+.row-action {
+  background: none; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 2px 8px; cursor: pointer; font-size: 12px; white-space: nowrap;
+}
+.row-action:hover { color: var(--text); border-color: var(--accent); }
+
+/* Hunts manager modal (header) */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; justify-content: center; align-items: flex-start;
+  padding: 48px 16px; overflow-y: auto;
+}
+.modal {
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  width: min(640px, 100%); max-height: calc(100vh - 96px);
+  display: flex; flex-direction: column; padding: 16px;
+}
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px;
+}
+.modal-head h2 { margin: 0; font-size: 16px; }
+.modal-search {
+  background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 7px 10px; font-size: 14px; margin-bottom: 12px;
+}
+.hunt-list { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.hunt-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 10px; font-size: 13px;
+}
+.hunt-row.is-ignored { opacity: 0.55; }
+.hunt-id { color: var(--muted); min-width: 44px; font-variant-numeric: tabular-nums; }
+.hunt-main { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.hunt-sub { color: var(--muted); font-size: 12px; }
+.hunt-empty { color: var(--muted); text-align: center; }
 .party + .party::before { content: " · "; color: var(--muted); }
 
 .pager {

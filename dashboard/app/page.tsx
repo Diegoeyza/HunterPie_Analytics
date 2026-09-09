@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { apiGet, type Health } from "../lib/api";
 import { TABS, type ViewCtx } from "../lib/registry";
 import ScopeBar, { loadScope, loadVariant, storeVariant } from "../components/ScopeBar";
+import HuntsManager from "../components/HuntsManager";
+import ImportButton from "../components/ImportButton";
 import ThemeToggle from "../components/ThemeToggle";
 
 const SCOPE_KEY = "hp.scope";
@@ -41,7 +43,7 @@ export default function Home() {
   };
 
   const active = TABS.find((t) => t.id === tab) ?? TABS[0];
-  const ctx: ViewCtx = { scope, variantId: scope.length === 1 ? variantId : null, clearScope: () => changeScope([]) };
+  const ctx: ViewCtx = { scope, variantId: scope.length === 1 ? variantId : null, clearScope: () => changeScope([]), setScope: changeScope };
 
   return (
     <>
@@ -53,6 +55,8 @@ export default function Home() {
             ? `ingestion online · ${health.hunts} hunts`
             : (healthError ?? "connecting…")}
         </span>
+        <ImportButton onImported={setHealth} />
+        <HuntsManager />
         <ThemeToggle />
       </header>
       {scopeReady && (

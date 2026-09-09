@@ -58,6 +58,7 @@ export interface HuntSummary {
   id: number; monster: string; started_at: string;
   quest_id: number | null; quest_stars: number | null;
   clear_s: number | null; cleared: boolean; carts: number; players: number;
+  ignored: boolean;
 }
 
 export const PALETTE = [

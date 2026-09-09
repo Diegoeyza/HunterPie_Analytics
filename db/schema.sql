@@ -39,6 +39,7 @@ CREATE TABLE hunts (
     real_hunt_time_seconds  REAL,            -- HunterPie "real hunt time" (may differ)
     cart_count              INTEGER NOT NULL DEFAULT 0,
     cleared                 BOOLEAN NOT NULL DEFAULT 0,
+    ignored                 BOOLEAN NOT NULL DEFAULT 0,  -- user-hidden: excluded from all stats
     player_count            INTEGER NOT NULL DEFAULT 1,
     is_sos                  BOOLEAN NOT NULL DEFAULT 0,  -- upstream: SOS data is inaccurate
     joined_mid_hunt         BOOLEAN NOT NULL DEFAULT 0,  -- upstream: mid-join not tracked properly
