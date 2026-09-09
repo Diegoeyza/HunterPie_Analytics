@@ -41,7 +41,7 @@ export const TABS: TabDef[] = [
   {
     id: "growth",
     title: "Growth",
-    blurb: "% DPS improvement over monster & star groups with >1 instance (per hunter), or top hunters ranked by improvement.",
+    blurb: "Instance-weighted DPS change with per-group trends (median, best, slope, clear time). Single hunter drill-down, multi-hunter scope, monster/star/weapon/variant filters.",
     render: (ctx) => <GrowthView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} setScope={ctx.setScope} />,
   },
   {

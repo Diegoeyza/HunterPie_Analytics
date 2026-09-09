@@ -325,10 +325,11 @@ def test_high_scores():
     assert len(scoped) == 1 and scoped[0]["player"] == "Pal"
     assert [m["player"] for m in scoped[0]["party"]] == ["Isi"]
 
-    # weapon filter applies to the featured player: GreatSword (id 1)
-    # is Pal's, not the party top — empty unscoped, hit when scoped to Pal
-    assert client.get("/api/high-scores",
-                      params={"weapon_id": 1}).json()["scores"] == []
+    # weapon filter narrows the pool to weapon users, then features the best
+    # of them: GreatSword (id 1) is Pal's — hunt 2 lists Pal even unscoped
+    unscoped_gs = client.get("/api/high-scores",
+                             params={"weapon_id": 1}).json()["scores"]
+    assert len(unscoped_gs) == 1 and unscoped_gs[0]["player"] == "Pal"
     scoped_gs = client.get("/api/high-scores",
                            params={"weapon_id": 1,
                                    "player_ids": str(pal_id)}).json()["scores"]
@@ -477,6 +478,26 @@ def test_variant_filter_narrows_scoped_queries():
                 "variant_id": identity_id}).json()["scores"]) == 2
 
 
+def test_high_scores_weapon_filter_features_weapon_user():
+    """Weapon filter narrows the pool to weapon users, scoped or not.
+
+    Regression: unscoped, the filter was checked against the party top-DPS
+    player, so hunts where a non-top player used the weapon vanished — while
+    scoping to that hunter showed them (adding a filter widened results).
+    """
+    client, _ = make_client(seed_two_hunts)
+    # Hunt 2: Isi (HuntingHorn) tops DPS, Pal (GreatSword) does not.
+    # Unscoped GreatSword filter must still list hunt 2, featuring Pal.
+    scores = client.get("/api/high-scores", params={"weapon_id": 1}).json()["scores"]
+    assert len(scores) == 1
+    assert scores[0]["hunt_id"] == 2
+    assert scores[0]["player"] == "Pal"
+    # HuntingHorn filter lists both hunts, featuring Isi each time.
+    scores = client.get("/api/high-scores", params={"weapon_id": 6}).json()["scores"]
+    assert {s["hunt_id"] for s in scores} == {1, 2}
+    assert {s["player"] for s in scores} == {"Isi"}
+
+
 def test_progress_improvement():
     client, s = make_client(seed_two_hunts)
     res = client.get("/api/progress/improvement").json()
@@ -517,5 +538,132 @@ def test_progress_improvement_weapon_filter():
     p_res = client.get(f"/api/progress/improvement?player_id={isi_id}&weapon_id=6").json()
     assert p_res["player_id"] == isi_id
     assert "groups" in p_res
+
+
+def test_progress_improvement_unknown_player_fallback():
+    """Unknown player_id returns a named empty payload, not player_name=''."""
+    client, _ = make_client(seed_two_hunts)
+    res = client.get("/api/progress/improvement", params={"player_id": 99999}).json()
+    assert res["player_id"] == 99999
+    assert res["groups"] == []
+    assert res["player_name"] == "Player 99999"
+
+
+def test_progress_improvement_multi_scope_and_filters():
+    """player_ids narrows the ranking; monster filter + top_n clamp work."""
+    from app.models import Player
+    from sqlalchemy import select
+    client, s = make_client(seed_two_hunts)
+    isi_id = s.execute(select(Player.id).where(Player.display_name == "Isi")).scalar_one()
+    pal_id = s.execute(select(Player.id).where(Player.display_name == "Pal")).scalar_one()
+
+    scoped = client.get("/api/progress/improvement",
+                        params={"player_ids": f"{isi_id},{pal_id}"}).json()
+    assert "top_hunters" in scoped
+    assert {h["player_id"] for h in scoped["top_hunters"]} <= {isi_id, pal_id}
+
+    # Monster filter to Xu Wu (31) keeps Isi; bogus monster empties ranking.
+    assert any(h["player_name"] == "Isi" for h in client.get(
+        "/api/progress/improvement", params={"monster_id": 31}).json()["top_hunters"])
+    assert client.get("/api/progress/improvement",
+                      params={"monster_id": 9999}).json() == {"top_hunters": []}
+
+    # top_n clamps to >=1 (0 becomes 1) and returns at most that many.
+    one = client.get("/api/progress/improvement", params={"top_n": 0}).json()
+    assert len(one["top_hunters"]) <= 1
+
+    # Trend stats present on qualifying groups.
+    detail = client.get("/api/progress/improvement",
+                        params={"player_id": isi_id}).json()
+    assert detail["groups"], "Isi should have a qualifying Xu Wu group"
+    g = detail["groups"][0]
+    for key in ("median_dps", "best_dps", "slope_per_hunt",
+                "first_clear_s", "latest_clear_s", "clear_pct_improvement"):
+        assert key in g
+
+
+def _export_doc(hash_: str = "IMPORTOK"):
+    """Minimal HuntExports-schema doc (mirrors tests/test_import_hunt)."""
+    return {
+        "game_type": 2,
+        "started_at": "2026-09-06T03:33:06.0749492Z",
+        "finished_at": "2026-09-06T03:36:02.3393534Z",
+        "uploaded_at": "2026-09-06T03:36:02.3393534Z",
+        "quest": {"id": 543, "type": 0, "deaths": 0, "max_deaths": 3,
+                  "level": 1, "stars": 6},
+        "players": [{
+            "name": "Isi", "weapon": 5, "is_hunterpie_user": True,
+            "damages": [
+                {"damage": 57.0, "dealt_at": "2026-09-06T03:33:30.7341915Z"},
+                {"damage": 126.0, "dealt_at": "2026-09-06T03:36:12.4542845Z"},
+            ],
+            "abnormalities": [],
+        }],
+        "monsters": [{
+            "id": 31, "variant": 5, "max_health": 18450.0, "crown": 0,
+            "enrage": {"activations": []},
+            "hunt_started_at": "2026-09-06T03:33:30.7334751Z",
+            "hunt_finished_at": "2026-09-06T03:36:12.4631848Z",
+            "hunt_type": 1, "health_steps": [],
+        }],
+        "hash": hash_,
+    }
+
+
+def test_import_endpoint(tmp_path, monkeypatch):
+    import json
+    (tmp_path / "a.json").write_text(json.dumps(_export_doc()))
+    (tmp_path / "bad.json").write_text("{not json")
+    monkeypatch.setenv("HUNT_EXPORTS", str(tmp_path))
+    client, _ = make_client()
+    assert client.get("/api/health").json()["hunts"] == 0
+
+    res = client.post("/api/import").json()
+    assert res["scanned"] == 2
+    assert res["imported"] == 1 and len(res["imported_ids"]) == 1
+    assert len(res["errors"]) == 1 and res["errors"][0]["file"] == "bad.json"
+    assert client.get("/api/health").json()["hunts"] == 1
+
+    # second call is a dedup no-op
+    res2 = client.post("/api/import").json()
+    assert res2["imported"] == 0 and res2["duplicates"] == 1
+
+    # missing dir -> 404
+    monkeypatch.setenv("HUNT_EXPORTS", str(tmp_path / "nope"))
+    assert client.post("/api/import").status_code == 404
+
+
+def test_ignore_hunt_hides_everywhere_and_restores():
+    """PATCH /hunts/{id}/ignore hides the hunt from every stat view;
+    include_ignored=1 reveals it with the flag; un-ignoring restores."""
+    client, _ = make_client(seed_two_hunts)
+    assert client.get("/api/health").json()["hunts"] == 2
+    assert client.patch("/api/hunts/9999/ignore",
+                        json={"ignored": True}).status_code == 404
+
+    body = client.patch("/api/hunts/2/ignore", json={"ignored": True}).json()
+    assert body == {"id": 2, "ignored": True}
+
+    assert client.get("/api/health").json()["hunts"] == 1
+    assert [s["hunt_id"] for s in client.get(
+        "/api/high-scores").json()["scores"]] == [1]
+    assert client.get("/api/progress").json()["points"] == [
+        p for p in client.get("/api/progress").json()["points"]
+        if p["hunt_id"] == 1]
+    assert all(h["id"] == 1 for h in client.get("/api/hunts").json()["hunts"])
+
+    # hidden by default, visible with flag + ignored marker
+    assert client.get("/api/hunts").json()["hunts"][0]["ignored"] is False
+    shown = client.get("/api/high-scores",
+                       params={"include_ignored": 1}).json()["scores"]
+    assert {s["hunt_id"] for s in shown} == {1, 2}
+    assert [s["ignored"] for s in shown if s["hunt_id"] == 2] == [True]
+
+    # restore
+    assert client.patch("/api/hunts/2/ignore",
+                        json={"ignored": False}).json()["ignored"] is False
+    assert client.get("/api/health").json()["hunts"] == 2
+    assert [s["hunt_id"] for s in client.get(
+        "/api/high-scores").json()["scores"]] == [2, 1]
 
 

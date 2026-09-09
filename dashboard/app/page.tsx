@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { apiGet, type Health } from "../lib/api";
 import { TABS, type ViewCtx } from "../lib/registry";
 import ScopeBar, { loadScope, loadVariant, storeVariant } from "../components/ScopeBar";
+import HuntsManager from "../components/HuntsManager";
+import ImportButton from "../components/ImportButton";
 import ThemeToggle from "../components/ThemeToggle";
 
 const SCOPE_KEY = "hp.scope";
@@ -53,6 +55,8 @@ export default function Home() {
             ? `ingestion online · ${health.hunts} hunts`
             : (healthError ?? "connecting…")}
         </span>
+        <ImportButton onImported={setHealth} />
+        <HuntsManager />
         <ThemeToggle />
       </header>
       {scopeReady && (
