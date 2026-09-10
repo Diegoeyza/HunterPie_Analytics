@@ -21,6 +21,56 @@ export async function apiSend<T>(method: string, path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Cached GET: 60s TTL + in-flight dedupe.
+ *
+ *  Every tab switch remounts its view and refires /filter-options; without
+ *  caching that's a full round-trip per switch. Import/ignore actions
+ *  hard-reload the page, and pin toggles call apiInvalidate(), so a short
+ *  TTL is safe.
+ */
+const _cache = new Map<string, { at: number; data: unknown }>();
+const _inflight = new Map<string, Promise<unknown>>();
+const CACHE_TTL_MS = 60_000;
+
+function cacheKey(path: string, params?: Record<string, string | number>): string {
+  const url = new URL(`/api${path}`, BASE);
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== "" && v !== undefined) url.searchParams.set(k, String(v));
+    }
+  }
+  return url.toString();
+}
+
+export async function apiGetCached<T>(path: string, params?: Record<string, string | number>): Promise<T> {
+  const key = cacheKey(path, params);
+  const hit = _cache.get(key);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data as T;
+  const ongoing = _inflight.get(key);
+  if (ongoing) return ongoing as Promise<T>;
+  const p = apiGet<T>(path, params).then((d) => {
+    _cache.set(key, { at: Date.now(), data: d });
+    _inflight.delete(key);
+    return d;
+  }).catch((e) => {
+    _inflight.delete(key);
+    throw e;
+  });
+  _inflight.set(key, p);
+  return p;
+}
+
+/** Drop cached entries; call after mutations (pin/unpin). No arg = all. */
+export function apiInvalidate(pathSubstring?: string): void {
+  if (!pathSubstring) {
+    _cache.clear();
+    return;
+  }
+  for (const k of [..._cache.keys()]) {
+    if (k.includes(pathSubstring)) _cache.delete(k);
+  }
+}
+
 export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(new URL(`/api${path}`, BASE).toString(), {
     method: "PATCH",

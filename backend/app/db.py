@@ -46,6 +46,12 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
             for name, ddl in columns:
                 if name not in existing:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+        # Backfill composite index for per-player engagement lookups
+        # (filters on hunt_id + player_id). create_all covers fresh DBs;
+        # this covers pre-index DBs like the 200-hunt bench file.
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_snapshots_hunt_player "
+            "ON dps_snapshots (hunt_id, player_id)"))
     engine.dispose()
 
 

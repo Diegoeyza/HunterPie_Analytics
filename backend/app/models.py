@@ -131,7 +131,10 @@ class DpsSnapshot(Base):
     cumulative_damage: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     instant_dps: Mapped[float] = mapped_column(Float, nullable=False, default=0)
 
-    __table_args__ = (Index("idx_snapshots_hunt_ts", "hunt_id", "ts_offset_seconds"),)
+    __table_args__ = (
+        Index("idx_snapshots_hunt_ts", "hunt_id", "ts_offset_seconds"),
+        Index("idx_snapshots_hunt_player", "hunt_id", "player_id"),
+    )
 
 
 class MonsterEvent(Base):

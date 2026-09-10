@@ -24,10 +24,16 @@ from .import_hunt import (
 
 DB_PATH = Path(os.environ.get("HUNTS_DB", DEFAULT_DB_PATH))
 
+# Local dev serves the dashboard on varying ports (:3000 dev, :3001 prod
+# preview). Extra origins can be appended via $CORS_ORIGINS (comma-sep).
+# NOTE: this Starlette version rejects allow_origins=None — always pass a
+# real list and use allow_origin_regex for the localhost range.
+_extra = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
 app = FastAPI(title="HunterPie Analytics")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", *dict.fromkeys(_extra)],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -62,10 +68,11 @@ def progress(monster_id: int | None = None, weapon_id: int | None = None,
              player_id: int | None = None, quest_id: int | None = None,
              stars: int | None = None, player_ids: str | None = None,
              window: int = 5, variant_id: int | None = None,
+             limit: int | None = None,
              db: Session = Depends(get_db)):
     return queries.progress(db, monster_id, weapon_id, player_id,
                             quest_id, stars, queries._parse_ids(player_ids),
-                            window, variant_id)
+                            window, variant_id, limit)
 
 
 @app.get("/api/progress/improvement")

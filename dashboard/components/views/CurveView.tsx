@@ -5,7 +5,7 @@ import {
   CartesianGrid, Legend, Line, LineChart, ReferenceArea,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { apiGet, seriesColor, type FilterOptions, type HuntSummary } from "../../lib/api";
+import { apiGet, apiGetCached, seriesColor, type FilterOptions, type HuntSummary } from "../../lib/api";
 import SearchSelect from "../SearchSelect";
 import EmptyState from "../EmptyState";
 
@@ -134,7 +134,7 @@ export default function CurveView({ scope }: { scope: number[] }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiGet<FilterOptions>("/filter-options")
+    apiGetCached<FilterOptions>("/filter-options")
       .then((d) => setNameToId(new Map(d.players.map((p) => [p.name, p.id]))))
       .catch(() => {});
   }, []);
