@@ -922,6 +922,64 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
     return {"scores": scores}
 
 
+def leaderboard(session: Session, player_ids: list[int] | None = None,
+                monster_id: int | None = None, stars: int | None = None,
+                weapon_id: int | None = None,
+                variant_id: int | None = None,
+                min_hunts: int = 1) -> dict:
+    """Best-players ranking: per-hunter aggregates over cleared hunts.
+
+    ``player_ids`` (global hunter scope): empty = rank everyone, otherwise
+    rank only the scoped hunters. ``monster_id``/``stars`` narrow the hunt
+    pool; ``weapon_id`` counts only rows where the hunter used that weapon.
+    ``variant_id`` (with exactly one scoped hunter) narrows to hunts where
+    that hunter used the weapon variant. ``min_hunts`` gates one-off
+    performances (1 = no gate).
+    """
+    min_hunts = max(1, int(min_hunts or 1))
+    stmt = (
+        select(Hunt, HuntPlayer, Player.display_name)
+        .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
+        .join(Player, Player.id == HuntPlayer.player_id)
+        .where(Hunt.cleared.is_(True), HuntPlayer.is_supporter.is_(False),
+               _visible())
+    )
+    if monster_id is not None:
+        stmt = stmt.where(Hunt.monster_id == monster_id)
+    if stars is not None:
+        stmt = stmt.where(Hunt.quest_stars == stars)
+    if weapon_id is not None:
+        stmt = stmt.where(HuntPlayer.weapon_id == weapon_id)
+    variant_hunts = _resolve_variant_filter(session, player_ids, variant_id)
+    if variant_hunts is not None:
+        stmt = stmt.where(Hunt.id.in_(variant_hunts))
+    rows = list(session.execute(stmt))
+    hunts_by_id = {h.id: h for h, _hp, _n in rows}
+    eng = _batch_engagement_s(
+        session, hunts_by_id, [(h.id, hp.player_id) for h, hp, _n in rows])
+    by_player: dict[int, dict] = {}
+    for hunt, hp, pname in rows:
+        agg = by_player.setdefault(hp.player_id, {
+            "player_id": hp.player_id, "player": pname,
+            "hunts": set(), "dps": [], "best": 0.0})
+        agg["hunts"].add(hunt.id)
+        e = eng.get((hunt.id, hp.player_id))
+        dps = ((hp.total_damage or 0.0) / e) if e else 0.0
+        agg["dps"].append(dps)
+        agg["best"] = max(agg["best"], dps)
+    want = set(player_ids or [])
+    leaders = [{
+        "player_id": a["player_id"],
+        "player": a["player"],
+        "hunts": len(a["hunts"]),
+        "avg_dps": sum(a["dps"]) / len(a["dps"]) if a["dps"] else 0.0,
+        "best_dps": a["best"],
+    } for a in by_player.values()
+        if len(a["hunts"]) >= min_hunts and (not want or a["player_id"] in want)]
+    leaders.sort(key=lambda r: (-r["avg_dps"], r["player"]))
+    return {"leaders": leaders}
+
+
 def activity(session: Session) -> dict:
     """Hunts per day + clear rate + avg DPS (heatmap fuel)."""
     rows = session.execute(

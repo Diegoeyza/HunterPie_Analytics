@@ -4,7 +4,7 @@ import GrowthView from "../components/views/GrowthView";
 import WeaponsView from "../components/views/WeaponsView";
 import CurveView from "../components/views/CurveView";
 import QuestsView from "../components/views/QuestsView";
-import RecordsView from "../components/views/RecordsView";
+import LeaderboardView from "../components/views/LeaderboardView";
 import CompareView from "../components/views/CompareView";
 import ActivityView from "../components/views/ActivityView";
 import SynergyView from "../components/views/SynergyView";
@@ -63,10 +63,10 @@ export const TABS: TabDef[] = [
     render: () => <QuestsView />,
   },
   {
-    id: "records",
-    title: "Records",
-    blurb: "Personal bests per monster: fastest clear and highest single-hunt DPS.",
-    render: () => <RecordsView />,
+    id: "leaderboard",
+    title: "Leaderboard",
+    blurb: "Best players by DPS over cleared hunts — filterable by monster, stars, weapon and min hunts.",
+    render: (ctx) => <LeaderboardView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} />,
   },
   {
     id: "high-scores",

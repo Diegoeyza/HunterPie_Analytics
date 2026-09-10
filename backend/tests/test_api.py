@@ -336,6 +336,60 @@ def test_high_scores():
     assert len(scoped_gs) == 1 and scoped_gs[0]["player"] == "Pal"
 
 
+def test_leaderboard():
+    """Per-hunter ranking over cleared hunts: filters, min_hunts gate,
+    scope narrows to scoped hunters only."""
+    from app.ingest import upsert_hunt
+
+    client, s = make_client(seed_two_hunts)
+    # Uncleared hunt for a third hunter: must not appear (cleared-only).
+    # (Monster 31 + HuntingHorn already seeded by seed_two_hunts.)
+    upsert_hunt(s, {
+        "quest_id_external": "q9", "dedup_hash": "h9",
+        "monster_id": 31, "_monster_name": "Xu Wu",
+        "started_at": datetime(2026, 9, 8, 3, 0),
+        "ended_at": datetime(2026, 9, 8, 3, 3),
+        "quest_time_seconds": 180.0, "cart_count": 3, "cleared": False,
+        "hunterpie_version": "t", "game_version": "g",
+        "players": [{"display_name": "Quitter", "weapon_id": 6,
+                     "total_damage": 50000.0, "peak_dps": 500.0,
+                     "is_supporter": False}],
+        "snapshots": [{"display_name": "Quitter", "ts_offset_seconds": 10.0,
+                       "cumulative_damage": 25000.0, "instant_dps": 400.0}],
+        "events": [],
+    })
+
+    leaders = client.get("/api/leaderboard").json()["leaders"]
+    assert {r["player"] for r in leaders} == {"Isi", "Pal"}
+    isi = next(r for r in leaders if r["player"] == "Isi")
+    assert isi["hunts"] == 2 and isi["avg_dps"] > 0
+    assert isi["best_dps"] >= isi["avg_dps"]
+    # default sort: avg DPS desc
+    assert [r["player"] for r in leaders] == sorted(
+        [r["player"] for r in leaders],
+        key=lambda n: -next(r["avg_dps"] for r in leaders if r["player"] == n))
+
+    # min_hunts gate drops one-off Pal
+    gated = client.get("/api/leaderboard", params={"min_hunts": 2}).json()["leaders"]
+    assert [r["player"] for r in gated] == ["Isi"]
+
+    # filters narrow the pool
+    assert len(client.get("/api/leaderboard",
+                          params={"monster_id": 31}).json()["leaders"]) == 2
+    assert client.get("/api/leaderboard",
+                      params={"monster_id": 999}).json()["leaders"] == []
+    assert {r["player"] for r in client.get(
+        "/api/leaderboard", params={"weapon_id": 1}).json()["leaders"]} == {"Pal"}
+
+    # scope ranks only scoped hunters
+    pal_id = next(p["id"] for p in
+                  client.get("/api/filter-options").json()["players"]
+                  if p["name"] == "Pal")
+    scoped = client.get("/api/leaderboard",
+                        params={"player_ids": str(pal_id)}).json()["leaders"]
+    assert [r["player"] for r in scoped] == ["Pal"]
+
+
 def test_pins():
     client, _ = make_client(seed_two_hunts)
     assert client.get("/api/players/pins").json() == {"pins": []}
