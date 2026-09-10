@@ -26,6 +26,7 @@ export default function ProgressView({ scope, variantId, clearScope }: { scope: 
   const [quest, setQuest] = useState("");
   const [stars, setStars] = useState("");
   const [windowSize, setWindowSize] = useState(5);
+  const [huntLimit, setHuntLimit] = useState("100");
   const [data, setData] = useState<ProgressData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,9 +43,10 @@ export default function ProgressView({ scope, variantId, clearScope }: { scope: 
       ...(stars && { stars: Number(stars) }),
       ...(scope.length > 0 && { player_ids: scope.join(",") }),
       ...(variantId !== null && { variant_id: variantId }),
+      ...(huntLimit !== "all" && { limit: Number(huntLimit) }),
       window: windowSize,
     }).then(setData).catch((e: Error) => setError(e.message));
-  }, [monster, weapon, player, quest, stars, windowSize, scope.join(","), variantId]);
+  }, [monster, weapon, player, quest, stars, windowSize, huntLimit, scope.join(","), variantId]);
 
   // One option per quest group: real quests collapse multi-monster runs
   // into one entry, while unknown-star slots (field surveys) stay split
@@ -96,6 +98,10 @@ export default function ProgressView({ scope, variantId, clearScope }: { scope: 
     weapon: p.variant ? `${p.weapon} · ${p.variant}` : p.weapon,
   }));
 
+  // 200+ hunts = 400+ SVG bar nodes; a line (single path) renders ~2x
+  // faster and stays readable. Bars return under 60 points.
+  const dense = rows.length > 60;
+
   return (
     <div className="card">
       <div className="filters">
@@ -133,6 +139,14 @@ export default function ProgressView({ scope, variantId, clearScope }: { scope: 
           <input type="number" min={1} max={50} value={windowSize}
             onChange={(e) => setWindowSize(Number(e.target.value) || 5)} />
         </label>
+        <label>Hunts
+          <select value={huntLimit} onChange={(e) => setHuntLimit(e.target.value)}>
+            <option value="50">Last 50</option>
+            <option value="100">Last 100</option>
+            <option value="200">Last 200</option>
+            <option value="all">All</option>
+          </select>
+        </label>
       </div>
       <h2>DPS per hunt + {data.window}-hunt rolling average</h2>
       <ResponsiveContainer width="100%" height={340}>
@@ -144,9 +158,15 @@ export default function ProgressView({ scope, variantId, clearScope }: { scope: 
           <YAxis yAxisId="time" orientation="right" tick={{ fill: "#9aa1b2", fontSize: 11 }}
             label={{ value: "clear time (s)", fill: "#9aa1b2", fontSize: 11, angle: 90, position: "insideRight" }} />
           <Tooltip contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }} />
-          <Bar yAxisId="dps" dataKey="dps" name="DPS" fill="#e8b64c" />
-          <Line yAxisId="dps" type="monotone" dataKey="avg" name="rolling avg" stroke="#5aa9e6" dot={false} />
-          <Line yAxisId="time" type="monotone" dataKey="clear_s" name="clear (s)" stroke="#58b368" dot={false} />
+          {dense ? (
+            <Line yAxisId="dps" type="monotone" dataKey="dps" name="DPS"
+              stroke="#e8b64c" dot={false} isAnimationActive={false} />
+          ) : (
+            <Bar yAxisId="dps" dataKey="dps" name="DPS" fill="#e8b64c"
+              isAnimationActive={false} />
+          )}
+          <Line yAxisId="dps" type="monotone" dataKey="avg" name="rolling avg" stroke="#5aa9e6" dot={false} isAnimationActive={false} />
+          <Line yAxisId="time" type="monotone" dataKey="clear_s" name="clear (s)" stroke="#58b368" dot={false} isAnimationActive={false} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>

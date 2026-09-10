@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiGet, type FilterOptions } from "../lib/api";
+import { apiGetCached, type FilterOptions } from "../lib/api";
 
-/** Fetch /filter-options once; shared by all filter bars. */
+/** Fetch /filter-options once; shared by all filter bars (60s cache). */
 export function useFilterOptions(): FilterOptions | null {
   const [opts, setOpts] = useState<FilterOptions | null>(null);
   useEffect(() => {
-    apiGet<FilterOptions>("/filter-options").then(setOpts).catch(() => {});
+    apiGetCached<FilterOptions>("/filter-options").then(setOpts).catch(() => {});
   }, []);
   return opts;
 }

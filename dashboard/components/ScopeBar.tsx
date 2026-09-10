@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  apiGet, apiSend, variantLabel, UNKNOWN_VARIANT_ID,
+  apiGetCached, apiInvalidate, apiSend, variantLabel, UNKNOWN_VARIANT_ID,
   type Option, type Pin, type PlayerVariants,
 } from "../lib/api";
 import SearchSelect from "./SearchSelect";
@@ -57,14 +57,14 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant }: Props
   const [query, setQuery] = useState("");
 
   const refresh = () => {
-    apiGet<{ players: Option[] }>("/filter-options")
+    apiGetCached<{ players: Option[] }>("/filter-options")
       .then((d) => setPlayers(d.players)).catch(() => {});
-    apiGet<{ pins: Pin[] }>("/players/pins").then((d) => setPins(d.pins)).catch(() => {});
+    apiGetCached<{ pins: Pin[] }>("/players/pins").then((d) => setPins(d.pins)).catch(() => {});
   };
   useEffect(refresh, []);
 
   const loadVariants = (playerId: number) => {
-    apiGet<PlayerVariants>(`/players/${playerId}/variants`)
+    apiGetCached<PlayerVariants>(`/players/${playerId}/variants`)
       .then(setVariants).catch(() => {});
   };
 
@@ -105,6 +105,7 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant }: Props
       if (!scope.includes(id)) onScope([...scope, id]);
     }
     setOpen(false);
+    apiInvalidate();
     refresh();
   };
 
@@ -210,7 +211,7 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant }: Props
           {variantMenu && (
             <div className="scope-variant-menu">
               <WeaponVariantManager playerId={scope[0]}
-                onChanged={() => loadVariants(scope[0])} />
+                onChanged={() => { apiInvalidate(); loadVariants(scope[0]); }} />
             </div>
           )}
         </div>
