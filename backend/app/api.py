@@ -152,6 +152,15 @@ def ignore_hunt(hunt_id: int, body: dict, db: Session = Depends(get_db)):
         raise HTTPException(404, f"hunt {hunt_id} not found")
 
 
+@app.get("/api/leaderboard")
+def leaderboard(player_ids: str | None = None,
+                monster_id: int | None = None, stars: int | None = None,
+                weapon_id: int | None = None, variant_id: int | None = None,
+                min_hunts: int = 1, db: Session = Depends(get_db)):
+    return queries.leaderboard(db, queries._parse_ids(player_ids), monster_id,
+                               stars, weapon_id, variant_id, min_hunts)
+
+
 @app.get("/api/activity")
 def activity(db: Session = Depends(get_db)):
     return queries.activity(db)
