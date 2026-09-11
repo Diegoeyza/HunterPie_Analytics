@@ -90,7 +90,7 @@ const columns: ColumnDef<HighScore>[] = [
   },
 ];
 
-export default function HighScoreView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | null; clearScope: () => void }) {
+export default function HighScoreView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | string | null; clearScope: () => void }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");

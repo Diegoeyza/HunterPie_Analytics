@@ -15,7 +15,7 @@ interface ComparePoint {
 }
 interface CompareData { points: ComparePoint[]; window: number; scope: string[]; }
 
-export default function CompareView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | null; clearScope: () => void }) {
+export default function CompareView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | string | null; clearScope: () => void }) {
   const [data, setData] = useState<CompareData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const key = scope.join(",");

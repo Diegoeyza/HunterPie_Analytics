@@ -15,7 +15,7 @@ export default function Home() {
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
   const [scope, setScope] = useState<number[]>([]);
-  const [variantId, setVariantId] = useState<number | null>(null);
+  const [variantId, setVariantId] = useState<number | string | null>(null);
   const [scopeReady, setScopeReady] = useState(false);
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export default function Home() {
     } catch { /* private mode: scope just won't persist */ }
   };
 
-  const changeVariant = (id: number | null) => {
+  const changeVariant = (id: number | string | null) => {
     setVariantId(id);
     storeVariant(id);
   };

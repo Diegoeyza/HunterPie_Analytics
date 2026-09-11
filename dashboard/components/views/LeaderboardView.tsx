@@ -36,7 +36,7 @@ const columns: ColumnDef<Leader>[] = [
   },
 ];
 
-export default function LeaderboardView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | null; clearScope: () => void }) {
+export default function LeaderboardView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | string | null; clearScope: () => void }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");

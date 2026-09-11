@@ -47,18 +47,144 @@ def set_hunt_ignored(session: Session, hunt_id: int, ignored: bool) -> dict:
 UNKNOWN_VARIANT_ID = 0
 """Pseudo variant id for hunts with no gear data (pre-gear fork exports)."""
 
+VARIANT_GROUP_RAW_TOL = 0.10
+"""Max relative raw gap inside one weapon group (Balanced)."""
+VARIANT_GROUP_ELE_TOL = 0.15
+"""Max relative element gap inside one weapon group (element swings more)."""
+VARIANT_GROUP_ELE_FLOOR = 50.0
+"""Absolute element gap always tolerated below this (negligible element)."""
+VARIANT_GROUP_AFF_TOL = 10.0
+"""Max affinity-points gap inside one weapon group."""
+
+
+def _variant_stats_similar(a: dict, b: dict) -> bool:
+    """True when two fingerprints of the same weapon type fight alike.
+
+    Raw within 10% relative; element within 15% relative (or a negligible
+    absolute gap), with raw-vs-elemental (one side zero) never similar;
+    affinity within 10 points.
+    """
+    raw_lo, raw_hi = sorted((a["raw"], b["raw"]))
+    if raw_hi <= 0 or (raw_hi - raw_lo) / raw_hi > VARIANT_GROUP_RAW_TOL:
+        return False
+    ea, eb = a["element"], b["element"]
+    if (ea == 0) != (eb == 0):
+        return False
+    if ea or eb:
+        elo, ehi = sorted((ea, eb))
+        if (ehi - elo) > VARIANT_GROUP_ELE_FLOOR and \
+                (ehi - elo) / ehi > VARIANT_GROUP_ELE_TOL:
+            return False
+    if abs(a["affinity"] - b["affinity"]) > VARIANT_GROUP_AFF_TOL:
+        return False
+    return True
+
+
+def cluster_weapon_variants(fps: list[dict]) -> list[list[dict]]:
+    """Group fingerprints into similar-stat builds (complete linkage).
+
+    Clustering runs per weapon type over (raw, element, affinity); each
+    fingerprint joins the first group whose every member is similar, else
+    it starts a new one. Input order is normalized first, so group
+    assignment is deterministic for the same rows. Returns non-empty
+    groups, each with 1+ members.
+    """
+    by_type: dict[str, list[dict]] = {}
+    for fp in sorted(fps, key=lambda f: (f["weapon_type"], f["raw"],
+                                         f["element"], f["affinity"])):
+        by_type.setdefault(fp["weapon_type"], []).append(fp)
+    out = []
+    for wtype in sorted(by_type):
+        groups: list[list[dict]] = []
+        for fp in by_type[wtype]:
+            for g in groups:
+                if all(_variant_stats_similar(fp, m) for m in g):
+                    g.append(fp)
+                    break
+            else:
+                groups.append([fp])
+        out.extend(sorted(groups, key=lambda g: (g[0]["raw"], g[0]["element"],
+                                                 g[0]["affinity"])))
+    return out
+
+
+def variant_group_key(weapon_type: str, index: int) -> str:
+    """Stable selector key for the ``index``-th group of a weapon type."""
+    return f"g:{weapon_type}:{index}"
+
+
+def group_player_variants(fps: list[dict]) -> dict[int, str]:
+    """Map each fingerprint's position to its group key.
+
+    ``fps`` carries an ``_pos`` field; split of cluster_weapon_variants
+    output back onto the caller's rows.
+    """
+    key_by_pos: dict[int, str] = {}
+    counters: dict[str, int] = {}
+    for group in cluster_weapon_variants(fps):
+        wtype = group[0]["weapon_type"]
+        key = variant_group_key(wtype, counters.get(wtype, 0))
+        counters[wtype] = counters.get(wtype, 0) + 1
+        for fp in group:
+            key_by_pos[fp["_pos"]] = key
+    return key_by_pos
+
+
+def _player_variant_rows(session: Session, player_id: int) -> list[dict]:
+    """Player's distinct gear fingerprints as plain dicts (positioned)."""
+    rows = session.execute(
+        select(Weapon.name, HuntPlayer.gear_raw, HuntPlayer.gear_element,
+               HuntPlayer.gear_affinity,
+               func.count(func.distinct(HuntPlayer.hunt_id)))
+        .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
+        .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
+        .where(HuntPlayer.player_id == player_id,
+               HuntPlayer.gear_raw.is_not(None), _visible())
+        .group_by(Weapon.name, HuntPlayer.gear_raw, HuntPlayer.gear_element,
+                  HuntPlayer.gear_affinity)
+    ).all()
+    fps = []
+    for pos, (wname, raw, element, affinity, hunts) in enumerate(rows):
+        fps.append({"_pos": pos, "weapon_type": wname or "Unknown",
+                    "raw": raw, "element": element, "affinity": affinity,
+                    "hunts": hunts})
+    groups = group_player_variants(fps)
+    for fp in fps:
+        fp["group"] = groups[fp["_pos"]]
+    return fps
+
 
 def _variant_hunt_ids(session: Session, player_id: int,
-                      variant_id: int) -> set[int]:
+                      variant_id: int | str) -> set[int]:
     """Hunt ids where ``player_id`` fought with the given weapon variant.
 
-    ``variant_id`` is a WeaponIdentity id, or UNKNOWN_VARIANT_ID for hunts
-    with NULL gear columns. Unknown identity ids yield the empty set.
+    ``variant_id`` is a WeaponIdentity id, a ``g:<type>:<n>`` group key
+    (union over the group's fingerprints), or UNKNOWN_VARIANT_ID for hunts
+    with NULL gear columns. Unknown ids/keys yield the empty set.
     """
-    stmt = select(HuntPlayer.hunt_id).where(HuntPlayer.player_id == player_id)
-    if variant_id == UNKNOWN_VARIANT_ID:
-        stmt = stmt.where(HuntPlayer.gear_raw.is_(None))
+    if isinstance(variant_id, str) and variant_id.startswith("g:"):
+        fps = [fp for fp in _player_variant_rows(session, player_id)
+               if fp["group"] == variant_id]
+        if not fps:
+            return set()
+        from sqlalchemy import and_ as _and
+        from sqlalchemy import or_ as _or
+        stmt = (select(HuntPlayer.hunt_id)
+                .where(HuntPlayer.player_id == player_id)
+                .where(_or(*[_and(HuntPlayer.gear_raw == fp["raw"],
+                                  HuntPlayer.gear_element == fp["element"],
+                                  HuntPlayer.gear_affinity == fp["affinity"])
+                             for fp in fps])))
     else:
+        try:
+            variant_id = int(variant_id)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return set()
+        stmt = select(HuntPlayer.hunt_id).where(HuntPlayer.player_id == player_id)
+        if variant_id == UNKNOWN_VARIANT_ID:
+            stmt = stmt.where(HuntPlayer.gear_raw.is_(None))
+            stmt = stmt.join(Hunt, Hunt.id == HuntPlayer.hunt_id).where(_visible())
+            return set(session.execute(stmt).scalars())
         identity = session.get(WeaponIdentity, variant_id)
         if identity is None:
             return set()
@@ -73,7 +199,7 @@ def _variant_hunt_ids(session: Session, player_id: int,
 
 def _resolve_variant_filter(session: Session,
                             player_ids: list[int] | None,
-                            variant_id: int | None) -> set[int] | None:
+                            variant_id: int | str | None) -> set[int] | None:
     """Shared variant narrowing for scoped queries.
 
     Only applies with exactly one scoped hunter (the dashboard only offers
@@ -99,29 +225,27 @@ def _gear_variant_label(label_map: dict[tuple, str | None], weapon_name: str | N
 
 
 def player_variants(session: Session, player_id: int) -> dict:
-    """Distinct gear fingerprints used by one hunter, with hunt counts."""
-    rows = session.execute(
-        select(Weapon.name, HuntPlayer.gear_raw, HuntPlayer.gear_element,
-               HuntPlayer.gear_affinity,
-               func.count(func.distinct(HuntPlayer.hunt_id)))
-        .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
-        .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
-        .where(HuntPlayer.player_id == player_id,
-               HuntPlayer.gear_raw.is_not(None), _visible())
-        .group_by(Weapon.name, HuntPlayer.gear_raw, HuntPlayer.gear_element,
-                  HuntPlayer.gear_affinity)
-    ).all()
+    """Distinct gear fingerprints used by one hunter, with hunt counts.
+
+    Each variant carries its similarity ``group`` key (``g:<type>:<n>``);
+    fingerprints with near-identical stats share a group so the dashboard
+    can offer them as one selectable build.
+    """
+    fps = _player_variant_rows(session, player_id)
     identities = {(i.weapon_type, i.gear_raw, i.gear_element, i.gear_affinity): i
                   for i in session.execute(select(WeaponIdentity)).scalars()}
     variants = []
-    for wname, raw, element, affinity, hunts in rows:
-        identity = identities.get((wname or "Unknown", raw, element, affinity))
+    for fp in fps:
+        identity = identities.get((fp["weapon_type"], fp["raw"],
+                                   fp["element"], fp["affinity"]))
         variants.append({
             "id": identity.id if identity else None,
-            "weapon_type": wname or "Unknown",
-            "raw": raw, "element": element, "affinity": affinity,
+            "weapon_type": fp["weapon_type"],
+            "raw": fp["raw"], "element": fp["element"],
+            "affinity": fp["affinity"],
             "label": identity.label if identity else None,
-            "hunts": hunts,
+            "hunts": fp["hunts"],
+            "group": fp["group"],
         })
     unknown = session.execute(
         select(func.count(func.distinct(HuntPlayer.hunt_id)))
@@ -348,10 +472,15 @@ def health(session: Session) -> dict:
 
 
 def hunt_list(session: Session, limit: int = 200,
-              include_ignored: bool = False) -> dict:
+              include_ignored: bool = False,
+              player_ids: list[int] | None = None) -> dict:
     stmt = select(Hunt, Monster).join(Monster)
     if not include_ignored:
         stmt = stmt.where(_visible())
+    if player_ids:
+        stmt = (stmt.join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
+                .where(HuntPlayer.player_id.in_(player_ids))
+                .distinct())
     rows = session.execute(
         stmt.order_by(Hunt.started_at.desc()).limit(limit)
     ).all()
@@ -369,7 +498,7 @@ def progress(session: Session, monster_id: int | None = None,
              weapon_id: int | None = None, player_id: int | None = None,
              quest_id: int | None = None, stars: int | None = None,
              player_ids: list[int] | None = None,
-             window: int = 5, variant_id: int | None = None,
+             window: int = 5, variant_id: int | str | None = None,
              limit: int | None = None) -> dict:
     """FR-3.1: per-hunt DPS + clear time series with rolling average.
 
@@ -455,7 +584,7 @@ def progress(session: Session, monster_id: int | None = None,
 
 def weapon_matrix(session: Session, player_ids: list[int] | None = None,
                    monster_id: int | None = None, stars: int | None = None,
-                   variant_id: int | None = None) -> dict:
+                   variant_id: int | str | None = None) -> dict:
     """FR-3.2: per-weapon aggregates (supporters excluded)."""
     stmt = (
         select(Weapon.name, HuntPlayer.weapon_id, Hunt, HuntPlayer)
@@ -518,8 +647,10 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
 
     quest_hp=True also returns the HP steps of every sibling hunt from the
     same quest (same started_at), so multi-monster quests can draw all
-    monsters' HP on one chart. Snapshots are identical across siblings
-    (full quest damage each); only HP steps and events differ per monster.
+    monsters' HP on one chart, plus the enrage/abnormality spans of every
+    sibling hunt (any number of monsters). Snapshots are identical across
+    siblings (full quest damage each); only HP steps and events differ per
+    monster.
     """
     hunt = session.get(Hunt, hunt_id)
     if hunt is None:
@@ -560,14 +691,44 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
             stride = len(pts) / max_points
             s["points"] = [pts[int(i * stride)] for i in range(max_points)]
             s["points"].append(pts[-1])
-    events = session.execute(
-        select(MonsterEvent).where(MonsterEvent.hunt_id == hunt_id)
-        .order_by(MonsterEvent.start_offset_seconds)
-    ).scalars().all()
     hp = session.execute(
         select(MonsterHealthStep).where(MonsterHealthStep.hunt_id == hunt_id)
         .order_by(MonsterHealthStep.ts_offset_seconds)
     ).scalars().all()
+    # Sibling hunts = all (visible) hunts sharing this quest's started_at.
+    # One row per monster, any number. Resolved once so both quest_hp curves
+    # and quest-wide events use the same set.
+    siblings = session.execute(
+        select(Hunt).where(Hunt.started_at == hunt.started_at, _visible())
+        .order_by(Hunt.id)
+    ).scalars().all()
+    if not siblings:
+        siblings = [hunt]
+    sibling_ids = [s.id for s in siblings]
+    sibling_monster = {s.id: s.monster.name for s in siblings}
+    own_name = sibling_monster.get(hunt.id, hunt.monster.name)
+
+    def _event_dict(hunt_id_val: int, monster_name: str | None,
+                    e: MonsterEvent) -> dict:
+        return {"type": e.event_type, "start": e.start_offset_seconds,
+                "end": e.end_offset_seconds, "monster": monster_name,
+                "hunt_id": hunt_id_val}
+
+    if quest_hp:
+        quest_events = session.execute(
+            select(MonsterEvent, Monster.name)
+            .join(Monster, Monster.id == MonsterEvent.monster_id)
+            .where(MonsterEvent.hunt_id.in_(sibling_ids))
+            .order_by(MonsterEvent.start_offset_seconds)
+        ).all()
+        events_out = [_event_dict(e.hunt_id, mname, e)
+                      for e, mname in quest_events]
+    else:
+        own_events = session.execute(
+            select(MonsterEvent).where(MonsterEvent.hunt_id == hunt_id)
+            .order_by(MonsterEvent.start_offset_seconds)
+        ).scalars().all()
+        events_out = [_event_dict(hunt_id, own_name, e) for e in own_events]
     out = {
         "hunt_id": hunt.id,
         "monster": hunt.monster.name,
@@ -577,15 +738,10 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
                   "level": hunt.quest_level, "max_hp": hunt.monster_max_hp,
                   "variant": hunt.monster_variant, "crown": hunt.monster_crown},
         "players": list(series.values()),
-        "events": [{"type": e.event_type, "start": e.start_offset_seconds,
-                    "end": e.end_offset_seconds} for e in events],
+        "events": events_out,
         "hp_curve": [{"t": s.ts_offset_seconds, "hp": s.hp_fraction} for s in hp],
     }
     if quest_hp:
-        siblings = session.execute(
-            select(Hunt).where(Hunt.started_at == hunt.started_at, _visible())
-            .order_by(Hunt.id)
-        ).scalars().all()
         quest_curves = []
         for sib in siblings:
             steps = session.execute(
@@ -636,7 +792,7 @@ def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
 
 def synergy(session: Session, player_ids: list[int] | None = None,
             monster_id: int | None = None, stars: int | None = None,
-            variant_id: int | None = None) -> dict:
+            variant_id: int | str | None = None) -> dict:
     """FR-3.4: aggregate stats keyed by non-supporter teammate pairing.
 
     player_ids narrows to hunts including ALL of those hunters."""
@@ -823,7 +979,7 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
                 monster_id: int | None = None, weapon_id: int | None = None,
                 stars: int | None = None, sort_by: str = "dps",
                 limit: int | None = None,
-                variant_id: int | None = None,
+                variant_id: int | str | None = None,
                 include_ignored: bool = False) -> dict:
     """Cleared-hunt leaderboard: one row per hunt, ranked.
 
@@ -925,7 +1081,7 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
 def leaderboard(session: Session, player_ids: list[int] | None = None,
                 monster_id: int | None = None, stars: int | None = None,
                 weapon_id: int | None = None,
-                variant_id: int | None = None,
+                variant_id: int | str | None = None,
                 min_hunts: int = 1) -> dict:
     """Best-players ranking: per-hunter aggregates over cleared hunts.
 
@@ -1012,7 +1168,7 @@ def activity(session: Session) -> dict:
 
 
 def compare(session: Session, player_ids: list[int], window: int = 5,
-              variant_id: int | None = None) -> dict:
+              variant_id: int | str | None = None) -> dict:
     """Scoped hunters' DPS vs whole-party DPS per hunt (needs a scope)."""
     if not player_ids:
         return {"points": [], "window": window, "scope": []}
@@ -1081,7 +1237,7 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
                          player_ids: list[int] | None = None,
                          monster_id: int | None = None,
                          stars: int | None = None,
-                         variant_id: int | None = None) -> dict:
+                         variant_id: int | str | None = None) -> dict:
     """Analyze player DPS improvement over time, grouped by monster and quest stars (only groups with >1 instance).
 
     Single-hunter mode (``player_id`` set, no ``player_ids``) returns one

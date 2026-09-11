@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   apiGetCached, apiInvalidate, apiSend, variantLabel, UNKNOWN_VARIANT_ID,
-  type Option, type Pin, type PlayerVariants,
+  type Option, type Pin, type PlayerVariants, type VariantOption,
 } from "../lib/api";
 import SearchSelect from "./SearchSelect";
 import WeaponVariantManager from "./WeaponVariantManager";
@@ -21,17 +21,17 @@ export function loadScope(): number[] {
   }
 }
 
-export function loadVariant(): number | null {
+export function loadVariant(): number | string | null {
   try {
     const raw = localStorage.getItem(VARIANT_KEY);
     const v = raw ? (JSON.parse(raw) as unknown) : null;
-    return typeof v === "number" ? v : null;
+    return typeof v === "number" || typeof v === "string" ? v : null;
   } catch {
     return null;
   }
 }
 
-export function storeVariant(id: number | null) {
+export function storeVariant(id: number | string | null) {
   try {
     localStorage.setItem(VARIANT_KEY, JSON.stringify(id));
   } catch { /* private mode: variant just won't persist */ }
@@ -40,8 +40,24 @@ export function storeVariant(id: number | null) {
 interface Props {
   scope: number[];
   onScope: (ids: number[]) => void;
-  variantId: number | null;
-  onVariant: (id: number | null) => void;
+  variantId: number | string | null;
+  onVariant: (id: number | string | null) => void;
+}
+
+/** One dropdown row for a multi-build group: stat ranges + build count. */
+function groupLabel(members: { weapon_type: string; raw: number; element: number; affinity: number; hunts: number }[]): string {
+  const byRaw = [...members].sort((a, b) => a.raw - b.raw);
+  const lo = byRaw[0], hi = byRaw[byRaw.length - 1];
+  const r = (a: number, b: number, unit: string) =>
+    Math.round(a) === Math.round(b) ? `${Math.round(a)}${unit}` : `${Math.round(a)}–${Math.round(b)}${unit}`;
+  const eles = members.map((m) => m.element);
+  const affs = members.map((m) => m.affinity);
+  const aff = Math.round(Math.min(...affs)) === Math.round(Math.max(...affs))
+    ? ` / ${Math.round(affs[0])}%`
+    : ` / ${Math.round(Math.min(...affs))}–${Math.round(Math.max(...affs))}%`;
+  const hunts = members.reduce((a, m) => a + m.hunts, 0);
+  return `${lo.weapon_type} · ${r(lo.raw, hi.raw, "")} raw / ${r(Math.min(...eles), Math.max(...eles), "")} el${aff}` +
+    ` · ${members.length} builds · ${hunts} hunt${hunts === 1 ? "" : "s"}`;
 }
 
 /** Hunter scope bar: star (pin) hunters, toggle who's in scope. Persisted.
@@ -85,7 +101,9 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant }: Props
     if (variantId === null || variants === null) return;
     const ok = variantId === UNKNOWN_VARIANT_ID
       ? variants.unknown_hunts > 0
-      : variants.variants.some((v) => v.id === variantId);
+      : typeof variantId === "string"
+        ? variants.variants.some((v) => v.group === variantId)
+        : variants.variants.some((v) => v.id === variantId);
     if (!ok) onVariant(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variants]);
@@ -124,12 +142,24 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant }: Props
 
   // The filter only appears once the hunter has real fingerprint data;
   // "Unknown (pre-gear hunts)" joins the options when those exist too.
+  // Same-stat builds collapse into one group row (stat ranges + build
+  // count); lone builds keep their exact row.
   const hasVariants = variants !== null && variants.variants.length > 0;
+  const variantGroups = new Map<string, VariantOption[]>();
+  for (const v of variants?.variants ?? []) {
+    const g = variantGroups.get(v.group);
+    if (g) g.push(v);
+    else variantGroups.set(v.group, [v]);
+  }
   const variantOptions = [
-    ...(variants?.variants ?? []).map((v) => ({
-      value: String(v.id ?? `fp:${v.weapon_type}:${v.raw}:${v.element}:${v.affinity}`),
-      label: `${variantLabel(v)} · ${v.hunts} hunt${v.hunts === 1 ? "" : "s"}`,
-    })),
+    ...[...variantGroups.entries()].map(([key, members]) => (
+      members.length > 1
+        ? { value: key, label: groupLabel(members) }
+        : {
+            value: String(members[0].id ?? `fp:${members[0].weapon_type}:${members[0].raw}:${members[0].element}:${members[0].affinity}`),
+            label: `${variantLabel(members[0])} · ${members[0].hunts} hunt${members[0].hunts === 1 ? "" : "s"}`,
+          }
+    )),
     ...((variants?.unknown_hunts ?? 0) > 0 ? [{
       value: String(UNKNOWN_VARIANT_ID),
       label: `Unknown (pre-gear hunts) · ${variants!.unknown_hunts} hunt${variants!.unknown_hunts === 1 ? "" : "s"}`,
@@ -202,8 +232,10 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant }: Props
             onChange={(v) => {
               // Unlabeled fingerprints without an identity row (shouldn't
               // happen — ingest auto-creates them) can't filter server-side.
-              if (v !== "" && (v.startsWith("fp:") || Number.isNaN(Number(v)))) return;
-              onVariant(v === "" ? null : Number(v));
+              // Group keys pass through as strings; ids as numbers.
+              if (v.startsWith("fp:")) return;
+              if (v !== "" && !v.startsWith("g:") && Number.isNaN(Number(v))) return;
+              onVariant(v === "" ? null : (v.startsWith("g:") ? v : Number(v)));
             }}
           />
           <button className="scope-edit" title="Name your weapons"
