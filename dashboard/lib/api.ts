@@ -94,6 +94,8 @@ export interface VariantOption {
   id: number | null; weapon_type: string;
   raw: number; element: number; affinity: number;
   label: string | null; hunts: number;
+  /** Similarity group key (`g:<type>:<n>`); same-stat builds share one. */
+  group: string;
 }
 export interface PlayerVariants {
   player_id: number; variants: VariantOption[]; unknown_hunts: number;

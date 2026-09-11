@@ -16,7 +16,7 @@ export interface ViewCtx {
   scope: number[];
   /** Weapon-variant scope (WeaponIdentity id, 0 = unknown-gear hunts).
    *  Only set with exactly one scoped hunter. Null = all variants. */
-  variantId: number | null;
+  variantId: number | string | null;
   /** Reset the hunter scope (passed to views for scope-aware empty states). */
   clearScope: () => void;
   /** Set the hunter scope to the given player ids. */

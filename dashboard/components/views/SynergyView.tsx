@@ -42,7 +42,7 @@ const columns: ColumnDef<Pairing>[] = [
   },
 ];
 
-export default function SynergyView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | null; clearScope: () => void }) {
+export default function SynergyView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | string | null; clearScope: () => void }) {
   const [rows, setRows] = useState<Pairing[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const opts = useFilterOptions();

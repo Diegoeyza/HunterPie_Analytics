@@ -37,7 +37,7 @@ const columns: ColumnDef<WeaponRow>[] = [
   },
 ];
 
-export default function WeaponsView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | null; clearScope: () => void }) {
+export default function WeaponsView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | string | null; clearScope: () => void }) {
   const [rows, setRows] = useState<WeaponRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const opts = useFilterOptions();

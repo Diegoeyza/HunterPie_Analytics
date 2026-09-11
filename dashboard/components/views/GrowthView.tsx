@@ -111,7 +111,7 @@ function GrowthFilters({
   );
 }
 
-export default function GrowthView({ scope, variantId, clearScope, setScope }: { scope: number[]; variantId: number | null; clearScope: () => void; setScope: (ids: number[]) => void }) {
+export default function GrowthView({ scope, variantId, clearScope, setScope }: { scope: number[]; variantId: number | string | null; clearScope: () => void; setScope: (ids: number[]) => void }) {
   const opts = useFilterOptions();
   const [weapon, setWeapon] = useState("");
   const [monster, setMonster] = useState("");

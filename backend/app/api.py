@@ -59,15 +59,17 @@ def health(db: Session = Depends(get_db)):
 
 @app.get("/api/hunts")
 def hunts(limit: int = 200, include_ignored: bool = False,
+          player_ids: str | None = None,
           db: Session = Depends(get_db)):
-    return queries.hunt_list(db, limit, include_ignored)
+    return queries.hunt_list(db, limit, include_ignored,
+                             queries._parse_ids(player_ids))
 
 
 @app.get("/api/progress")
 def progress(monster_id: int | None = None, weapon_id: int | None = None,
              player_id: int | None = None, quest_id: int | None = None,
              stars: int | None = None, player_ids: str | None = None,
-             window: int = 5, variant_id: int | None = None,
+             window: int = 5, variant_id: str | None = None,
              limit: int | None = None,
              db: Session = Depends(get_db)):
     return queries.progress(db, monster_id, weapon_id, player_id,
@@ -81,7 +83,7 @@ def progress_improvement(player_id: int | None = None, top_n: int = 5,
                          player_ids: str | None = None,
                          monster_id: int | None = None,
                          stars: int | None = None,
-                         variant_id: int | None = None,
+                         variant_id: str | None = None,
                          db: Session = Depends(get_db)):
     return queries.progress_improvement(db, player_id, top_n, weapon_id,
                                         queries._parse_ids(player_ids),
@@ -91,7 +93,7 @@ def progress_improvement(player_id: int | None = None, top_n: int = 5,
 
 @app.get("/api/weapons")
 def weapons(player_ids: str | None = None, monster_id: int | None = None,
-            stars: int | None = None, variant_id: int | None = None,
+            stars: int | None = None, variant_id: str | None = None,
             db: Session = Depends(get_db)):
     return queries.weapon_matrix(db, queries._parse_ids(player_ids), monster_id,
                                  stars, variant_id)
@@ -116,7 +118,7 @@ def abnormalities(hunt_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/synergy")
 def synergy(player_ids: str | None = None, monster_id: int | None = None,
-            stars: int | None = None, variant_id: int | None = None,
+            stars: int | None = None, variant_id: str | None = None,
             db: Session = Depends(get_db)):
     return queries.synergy(db, queries._parse_ids(player_ids), monster_id,
                            stars, variant_id)
@@ -136,7 +138,7 @@ def records(db: Session = Depends(get_db)):
 def high_scores(player_ids: str | None = None, monster_id: int | None = None,
                 weapon_id: int | None = None, stars: int | None = None,
                 sort_by: str = "dps", limit: int | None = None,
-                variant_id: int | None = None,
+                variant_id: str | None = None,
                 include_ignored: bool = False, db: Session = Depends(get_db)):
     return queries.high_scores(db, queries._parse_ids(player_ids), monster_id,
                                weapon_id, stars, sort_by, limit, variant_id,
@@ -155,7 +157,7 @@ def ignore_hunt(hunt_id: int, body: dict, db: Session = Depends(get_db)):
 @app.get("/api/leaderboard")
 def leaderboard(player_ids: str | None = None,
                 monster_id: int | None = None, stars: int | None = None,
-                weapon_id: int | None = None, variant_id: int | None = None,
+                weapon_id: int | None = None, variant_id: str | None = None,
                 min_hunts: int = 1, db: Session = Depends(get_db)):
     return queries.leaderboard(db, queries._parse_ids(player_ids), monster_id,
                                stars, weapon_id, variant_id, min_hunts)
@@ -168,7 +170,7 @@ def activity(db: Session = Depends(get_db)):
 
 @app.get("/api/compare")
 def compare(player_ids: str | None = None, window: int = 5,
-            variant_id: int | None = None, db: Session = Depends(get_db)):
+            variant_id: str | None = None, db: Session = Depends(get_db)):
     return queries.compare(db, queries._parse_ids(player_ids), window,
                            variant_id)
 

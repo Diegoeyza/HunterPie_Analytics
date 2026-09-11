@@ -66,6 +66,28 @@ def seed_two_hunts(s):
                            datetime(2026, 9, 7, 3, 0), datetime(2026, 9, 7, 3, 4)))
 
 
+def test_hunts_player_filter():
+    """GET /hunts narrows to hunts the given hunter(s) fought in (any-of);
+    unfiltered returns everything (curve quest list follows the scope)."""
+    from app.models import Player
+    from sqlalchemy import select
+
+    client, s = make_client(seed_two_hunts)
+    ids = {name: s.execute(select(Player.id).where(
+        Player.display_name == name)).scalar_one() for name in ("Isi", "Pal")}
+    assert len(client.get("/api/hunts").json()["hunts"]) == 2
+    assert len(client.get("/api/hunts",
+                          params={"player_ids": str(ids["Isi"])}).json()["hunts"]) == 2
+    pal_only = client.get("/api/hunts",
+                           params={"player_ids": str(ids["Pal"])}).json()["hunts"]
+    assert len(pal_only) == 1
+    both = client.get("/api/hunts",
+                      params={"player_ids": f"{ids['Isi']},{ids['Pal']}"}).json()["hunts"]
+    assert len(both) == 2
+    assert client.get("/api/hunts",
+                      params={"player_ids": "9999"}).json()["hunts"] == []
+
+
 def test_sos_join_dps_uses_own_window():
     """Late (SOS) joiner: DPS = own damage / own tracked window, not the
     party-wide first-hit→death window (regression: showed ~2x real DPS)."""
@@ -199,6 +221,56 @@ def test_curve_quest_hp_returns_all_quest_monsters():
     quest = client.get(f"/api/hunts/{hunt_id}/curve", params={"quest_hp": 1}).json()
     assert {q["monster"] for q in quest["quest_hp"]} == {"Lagiacrus", "Rathalos"}
     assert all(len(q["points"]) == 2 for q in quest["quest_hp"])
+
+
+def test_curve_quest_hp_returns_all_monsters_events():
+    """Multi-monster quest (N monsters): quest_hp=1 returns every sibling's
+    enrage spans with monster attribution; plain curve returns only its own."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    client, s = make_client()
+    s.add_all([Monster(id=8, name="Lagiacrus"),
+               Monster(id=1, name="Rathalos"),
+               Monster(id=2, name="Ajarakan"),
+               Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn")])
+    s.flush()
+    start = datetime(2026, 9, 7, 3, 0)
+    monsters = ((1, 8, "Lagiacrus", 100.0), (2, 1, "Rathalos", 200.0),
+                (3, 2, "Ajarakan", 300.0))
+    for hid, mid, mname, estart in monsters:
+        upsert_hunt(s, {
+            "quest_id_external": f"qe{hid}", "dedup_hash": f"qeh{hid}",
+            "monster_id": mid, "_monster_name": mname,
+            "started_at": start, "ended_at": datetime(2026, 9, 7, 3, 5),
+            "quest_time_seconds": 300.0, "cart_count": 0, "cleared": True,
+            "hunterpie_version": "t", "game_version": "g",
+            "players": [{"display_name": "Isi", "weapon_id": 6,
+                         "total_damage": 9000.0, "peak_dps": 60.0,
+                         "is_supporter": False}],
+            "snapshots": [{"display_name": "Isi", "ts_offset_seconds": 10.0,
+                           "cumulative_damage": 4500.0, "instant_dps": 40.0}],
+            "hp_steps": [{"ts_offset_seconds": 10.0, "hp_fraction": 0.9}],
+            "events": [{"event_type": "enrage",
+                        "start_offset_seconds": estart,
+                        "end_offset_seconds": estart + 50.0}],
+        })
+    hunts = {h["monster"]: h["id"] for h in client.get("/api/hunts").json()["hunts"]}
+    lagia_id = hunts["Lagiacrus"]
+    plain = client.get(f"/api/hunts/{lagia_id}/curve").json()
+    assert len(plain["events"]) == 1
+    assert plain["events"][0]["monster"] == "Lagiacrus"
+    assert plain["events"][0]["start"] == 100.0
+    quest = client.get(f"/api/hunts/{lagia_id}/curve", params={"quest_hp": 1}).json()
+    assert {e["monster"] for e in quest["events"]} == {
+        "Lagiacrus", "Rathalos", "Ajarakan"}
+    assert sorted(e["start"] for e in quest["events"]) == [100.0, 200.0, 300.0]
+    assert all("hunt_id" in e for e in quest["events"])
+    # Same quest-wide set regardless of which sibling is selected.
+    other = client.get(
+        f"/api/hunts/{hunts['Ajarakan']}/curve", params={"quest_hp": 1}).json()
+    assert sorted((e["monster"], e["start"]) for e in other["events"]) == \
+        sorted((e["monster"], e["start"]) for e in quest["events"])
 
 
 def test_quest_star_and_scope_filters():
@@ -530,6 +602,96 @@ def test_variant_filter_narrows_scoped_queries():
         "/api/high-scores",
         params={"player_ids": f"{isi_id},999",
                 "variant_id": identity_id}).json()["scores"]) == 2
+
+
+def test_variant_groups_cluster_similar_stats():
+    """Unit: near-identical builds group; distant, raw-vs-elemental,
+    affinity-split and cross-weapon pairs never do."""
+    from app.queries import cluster_weapon_variants
+
+    def fp(w, raw, ele, aff, pos=0):
+        return {"_pos": pos, "weapon_type": w, "raw": raw,
+                "element": ele, "affinity": aff}
+
+    # user's example: 500/300 vs 520/325 (4% raw, 8% ele) -> one group
+    groups = cluster_weapon_variants(
+        [fp("Hammer", 500.0, 300.0, 0.0, 0),
+         fp("Hammer", 520.0, 325.0, 5.0, 1)])
+    assert len(groups) == 1 and len(groups[0]) == 2
+    # distant stats split
+    groups = cluster_weapon_variants(
+        [fp("Hammer", 500.0, 300.0, 0.0, 0),
+         fp("Hammer", 900.0, 100.0, 0.0, 1)])
+    assert len(groups) == 2
+    # raw (0 ele) vs elemental never groups
+    groups = cluster_weapon_variants(
+        [fp("Hammer", 510.0, 0.0, 0.0, 0),
+         fp("Hammer", 500.0, 300.0, 0.0, 1)])
+    assert len(groups) == 2
+    # affinity 25 points apart splits
+    groups = cluster_weapon_variants(
+        [fp("Hammer", 500.0, 300.0, 0.0, 0),
+         fp("Hammer", 505.0, 305.0, 25.0, 1)])
+    assert len(groups) == 2
+    # same stats, different weapon types never group
+    groups = cluster_weapon_variants(
+        [fp("Hammer", 500.0, 300.0, 0.0, 0),
+         fp("Greatsword", 500.0, 300.0, 0.0, 1)])
+    assert len(groups) == 2
+
+
+def test_variant_group_filter_unions_group_hunts():
+    """Group key narrows scoped queries to the union of the group's hunts;
+    single-identity filtering stays exact."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    client, s = make_client()
+    s.add_all([Monster(id=8, name="Lagiacrus"),
+               Weapon(id=9, name="Hammer", weapon_type="Hammer")])
+    s.flush()
+    gears = [{"raw": 500.0, "element": 300.0, "affinity": 0.0},
+             {"raw": 520.0, "element": 325.0, "affinity": 5.0},
+             {"raw": 900.0, "element": 100.0, "affinity": 0.0}]
+    hunt_ids = []
+    for i, gear in enumerate(gears):
+        hunt, _, _ = upsert_hunt(s, {
+            "quest_id_external": f"vg{i}", "dedup_hash": f"vgh{i}",
+            "monster_id": 8, "_monster_name": "Lagiacrus",
+            "started_at": datetime(2026, 9, 7, 6 + i, 0),
+            "ended_at": datetime(2026, 9, 7, 6 + i, 5),
+            "quest_time_seconds": 300.0, "cart_count": 0, "cleared": True,
+            "hunterpie_version": "t", "game_version": "g",
+            "players": [{"display_name": "Isi", "weapon_id": 9, "gear": gear,
+                         "total_damage": 9000.0, "peak_dps": 60.0,
+                         "is_supporter": False}],
+            "snapshots": [{"display_name": "Isi", "ts_offset_seconds": 10.0,
+                           "cumulative_damage": 4500.0, "instant_dps": 40.0}],
+            "events": [],
+        })
+        hunt_ids.append(hunt.id)
+    from app.models import Player
+    from sqlalchemy import select
+    isi_id = s.execute(select(Player.id).where(
+        Player.display_name == "Isi")).scalar_one()
+    body = client.get(f"/api/players/{isi_id}/variants").json()
+    assert len(body["variants"]) == 3
+    by_raw = {v["raw"]: v for v in body["variants"]}
+    assert by_raw[500.0]["group"] == by_raw[520.0]["group"] != \
+        by_raw[900.0]["group"]
+    key = by_raw[500.0]["group"]
+    assert key.startswith("g:Hammer:")
+    params = {"player_ids": str(isi_id), "variant_id": key}
+    assert {x["hunt_id"] for x in
+            client.get("/api/high-scores", params=params).json()["scores"]} == \
+        set(hunt_ids[:2])
+    assert {p["hunt_id"] for p in
+            client.get("/api/progress", params=params).json()["points"]} == \
+        set(hunt_ids[:2])
+    # bogus group key narrows to nothing
+    assert client.get("/api/high-scores",
+                      params={"player_ids": str(isi_id),
+                              "variant_id": "g:Hammer:99"}).json()["scores"] == []
 
 
 def test_high_scores_weapon_filter_features_weapon_user():
