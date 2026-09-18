@@ -51,6 +51,20 @@ def find_rename_candidates(session: Session, display_name: str) -> list[Player]:
     )
 
 
+def find_hunt_by_payload(session: Session, payload: dict) -> Hunt | None:
+    """Cheap pre-check: content dedup hit without touching reference rows.
+
+    Lets callers skip ensure_monster/ensure_weapon (and their commit) for
+    files that are already imported.
+    """
+    names = sorted(p["display_name"] for p in payload.get("players", []))
+    dh = payload.get("dedup_hash") or compute_dedup_hash(
+        payload["monster_id"], names, _coerce_ts(payload["started_at"]))
+    return session.execute(
+        select(Hunt).where(Hunt.dedup_hash == dh)
+    ).scalar_one_or_none()
+
+
 def get_or_create_player(
     session: Session, display_name: str, now: datetime, warnings: list[str]
 ) -> Player:
@@ -95,8 +109,14 @@ def get_or_create_identity(session: Session, weapon_type: str,
     return identity
 
 
-def upsert_hunt(session: Session, payload: dict) -> tuple[Hunt, bool, list[str]]:
-    """Insert one hunt atomically. Returns (hunt, created, warnings). Idempotent."""
+def upsert_hunt(session: Session, payload: dict,
+                cache: dict | None = None) -> tuple[Hunt, bool, list[str]]:
+    """Insert one hunt atomically. Returns (hunt, created, warnings). Idempotent.
+
+    cache: optional per-import-job dict memoizing ("player", name) -> id and
+    ("identity", weapon_type, raw, element, affinity) -> id, so bulk imports
+    don't re-SELECT the same reference rows for every hunt.
+    """
     missing = [f for f in REQUIRED_HUNT_FIELDS if payload.get(f) is None]
     if missing:
         raise ValueError(f"missing required hunt fields: {missing}")
@@ -108,14 +128,9 @@ def upsert_hunt(session: Session, payload: dict) -> tuple[Hunt, bool, list[str]]
     started_at = _coerce_ts(payload["started_at"])
     player_names = sorted(p["display_name"] for p in payload["players"])
     quest_id = payload.get("quest_id_external")
+    cache = cache if cache is not None else {}
 
-    existing: Hunt | None = None
-    dedup_hash = payload.get("dedup_hash") or compute_dedup_hash(
-        payload["monster_id"], player_names, started_at
-    )
-    existing = session.execute(
-        select(Hunt).where(Hunt.dedup_hash == dedup_hash)
-    ).scalar_one_or_none()
+    existing = find_hunt_by_payload(session, payload)
     if existing is not None:
         return existing, False, warnings
 
@@ -151,19 +166,27 @@ def upsert_hunt(session: Session, payload: dict) -> tuple[Hunt, bool, list[str]]
 
         player_ids: dict[str, int] = {}
         for p in payload["players"]:
-            player = get_or_create_player(session, p["display_name"], now, warnings)
-            player_ids[p["display_name"]] = player.id
+            pkey = ("player", p["display_name"])
+            pid = cache.get(pkey)
+            if pid is None:
+                player = get_or_create_player(session, p["display_name"], now, warnings)
+                pid = player.id
+                cache[pkey] = pid
+            player_ids[p["display_name"]] = pid
             gear = p.get("gear") or {}
             if gear and {"raw", "element", "affinity"} <= set(gear):
                 weapon = session.get(Weapon, p.get("weapon_id"))
-                get_or_create_identity(
-                    session, weapon.name if weapon else "Unknown", gear)
+                wtype = weapon.name if weapon else "Unknown"
+                ikey = ("identity", wtype, gear["raw"], gear["element"],
+                        gear["affinity"])
+                if ikey not in cache:
+                    cache[ikey] = get_or_create_identity(session, wtype, gear).id
             else:
                 gear = {}
             session.add(
                 HuntPlayer(
                     hunt_id=hunt.id,
-                    player_id=player.id,
+                    player_id=pid,
                     weapon_id=p.get("weapon_id"),
                     total_damage=p.get("total_damage", 0),
                     peak_dps=p.get("peak_dps", 0),

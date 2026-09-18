@@ -863,6 +863,9 @@ def quest_stats(session: Session) -> dict:
         else:
             key = ("quest", hunt.quest_id)
         agg = by_quest.setdefault(key, {
+            "key": (f"hunt:{hunt.id}" if key[0] == "hunt"
+                    else f"survey:{key[1]}:{key[2]}" if key[0] == "survey"
+                    else f"quest:{key[1]}"),
             "quest_id": hunt.quest_id, "monsters": [],
             "stars": hunt.quest_stars, "max_hp": hunt.monster_max_hp,
             "hunts": 0, "clears": 0, "clear_ss": [], "best": None,
@@ -922,6 +925,7 @@ def quest_stats(session: Session) -> dict:
         total_span = enrage_by_key.get(key, 0.0)
         agg["enrage_uptime"] = (total_span / sum(agg["clear_ss"])) if agg["clear_ss"] else 0.0
     rows = [{
+        "key": a["key"],
         "quest_id": a["quest_id"], "monster": " + ".join(a["monsters"]), "stars": a["stars"],
         "max_hp": a["max_hp"], "hunts": a["hunts"], "carts": a["carts"],
         "clear_rate": a["clears"] / a["hunts"] if a["hunts"] else 0.0,
@@ -933,6 +937,71 @@ def quest_stats(session: Session) -> dict:
     } for a in sorted(by_quest.values(),
                       key=lambda a: (a["quest_id"] is None, a["quest_id"] or 0))]
     return {"quests": rows}
+
+
+def quest_hunts(session: Session, key: str) -> dict:
+    """One quest-stats group as individual quest instances, for the popup.
+
+    key mirrors quest_stats grouping: hunt:<id> (untracked), survey:<qid>:<mid>
+    (starless slot split by monster), quest:<qid> (real quest, repeat runs).
+    Each repeat run is its own instance with its hunters' damage + DPS
+    (engagement divisor, same as best_dps), latest first. KeyError on a bad
+    key or an empty (all-ignored) group.
+    """
+    parts = (key or "").split(":")
+    kind = parts[0] if parts else ""
+    try:
+        if kind == "hunt" and len(parts) == 2:
+            hunt_ids = [int(parts[1])]
+        elif kind == "survey" and len(parts) == 3:
+            qid, mid = int(parts[1]), int(parts[2])
+            hunt_ids = [hid for (hid,) in session.execute(
+                select(Hunt.id).where(_visible(), Hunt.quest_id == qid,
+                                      Hunt.quest_stars.is_(None),
+                                      Hunt.monster_id == mid)
+            ).all()]
+        elif kind == "quest" and len(parts) == 2:
+            qid = int(parts[1])
+            hunt_ids = [hid for (hid,) in session.execute(
+                select(Hunt.id).where(_visible(), Hunt.quest_id == qid,
+                                      Hunt.quest_stars.is_not(None))
+            ).all()]
+        else:
+            raise ValueError(f"bad quest key: {key!r}")
+    except (ValueError, IndexError):
+        raise KeyError(key)
+    if not hunt_ids:
+        raise KeyError(key)
+
+    hunts = session.execute(
+        select(Hunt).where(Hunt.id.in_(hunt_ids))
+        .order_by(Hunt.started_at.desc())
+    ).scalars().all()
+    rows = session.execute(
+        select(HuntPlayer.hunt_id, HuntPlayer.player_id,
+               Player.display_name, Weapon.name, HuntPlayer.total_damage)
+        .join(Player, Player.id == HuntPlayer.player_id)
+        .join(Weapon, Weapon.id == HuntPlayer.weapon_id, isouter=True)
+        .where(HuntPlayer.hunt_id.in_(hunt_ids))
+    ).all()
+    hunts_by_id = {h.id: h for h in hunts}
+    eng = _batch_engagement_s(
+        session, hunts_by_id, [(hid, pid) for hid, pid, _n, _w, _d in rows])
+    by_hunt: dict[int, list] = {}
+    for hid, pid, name, weapon, damage in rows:
+        dmg = damage or 0.0
+        e = eng.get((hid, pid))
+        by_hunt.setdefault(hid, []).append({
+            "player": name, "weapon": weapon or "Unknown",
+            "total_damage": dmg, "dps": (dmg / e) if e else None,
+        })
+    for members in by_hunt.values():
+        members.sort(key=lambda m: m["total_damage"], reverse=True)
+    return {"key": key, "hunts": [{
+        "id": h.id, "started_at": h.started_at.isoformat(),
+        "clear_s": _hunt_duration_s(h), "cleared": bool(h.cleared),
+        "carts": h.cart_count, "members": by_hunt.get(h.id, []),
+    } for h in hunts]}
 
 
 def records(session: Session) -> dict:

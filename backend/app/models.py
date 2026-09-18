@@ -165,6 +165,22 @@ class MonsterHealthStep(Base):
     __table_args__ = (Index("idx_hpsteps_hunt_ts", "hunt_id", "ts_offset_seconds"),)
 
 
+class ImportedFile(Base):
+    """Skip manifest for HuntExports imports: one row per raw JSON file
+    fully processed. A file is skipped when name + size + mtime all match,
+    so incremental imports only parse genuinely new/changed files. Manifest
+    wins over the hunts table (a hunt deleted from the dashboard is NOT
+    re-added) unless the import runs with force=True."""
+    __tablename__ = "imported_files"
+
+    filename: Mapped[str] = mapped_column(String(256), primary_key=True)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    mtime_ns: Mapped[int] = mapped_column(Integer, nullable=False)
+    hunts_created: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    imported_at: Mapped[datetime] = mapped_column(DateTime, nullable=False,
+                                                  default=datetime.utcnow)
+
+
 class PlayerPin(Base):
     __tablename__ = "player_pins"
 

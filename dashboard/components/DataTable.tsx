@@ -19,6 +19,10 @@ interface Props<T> {
   /** Row key. Defaults to JSON.stringify (fine for small pages). */
   getRowId?: (row: T, index: number) => string;
   pageSize?: number;
+  /** Optional row click (e.g. expandable detail). */
+  onRowClick?: (row: T) => void;
+  /** Highlights a row (e.g. the selected one); receives the row. */
+  isSelected?: (row: T) => boolean;
 }
 
 const PAGE_OPTIONS = [25, 50, 100];
@@ -35,6 +39,8 @@ export default function DataTable<T>({
   initialSort = [],
   getRowId,
   pageSize = 25,
+  onRowClick,
+  isSelected,
 }: Props<T>) {
   const [sorting, setSorting] = useState<SortingState>(initialSort);
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize });
@@ -89,7 +95,14 @@ export default function DataTable<T>({
           </thead>
           <tbody>
             {table.getRowModel().rows.map((row) => (
-              <tr key={row.id}>
+              <tr
+                key={row.id}
+                onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                className={[
+                  onRowClick ? "clickable" : "",
+                  isSelected?.(row.original) ? "selected" : "",
+                ].filter(Boolean).join(" ") || undefined}
+              >
                 {row.getVisibleCells().map((cell) => (
                   <td
                     key={cell.id}

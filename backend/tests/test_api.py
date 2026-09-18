@@ -362,6 +362,59 @@ def test_multi_monster_quest_reads_as_one_quest():
     assert opts[0]["monster"] == "Xu Wu + Arkveld"
 
 
+def test_quest_detail_returns_instances_with_hunters():
+    """Quest rows carry a stable key; /api/quests/detail resolves it to one
+    entry per quest instance (latest first), each with its hunters' damage
+    + engagement-based DPS."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    def seed(s):
+        s.add_all([Monster(id=31, name="Xu Wu"),
+                   Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn"),
+                   Weapon(id=1, name="GreatSword", weapon_type="GreatSword")])
+        s.flush()
+        base = {
+            "hunterpie_version": "t", "game_version": "g",
+            "cart_count": 0, "cleared": True, "quest_time_seconds": 180.0,
+            "snapshots": [], "events": [],
+        }
+        upsert_hunt(s, {**base, "dedup_hash": "qd1", "monster_id": 31,
+                         "started_at": datetime(2026, 9, 1, 3, 0),
+                         "quest_id": 543, "quest_stars": 6,
+                         "players": [
+                             {"display_name": "Isi", "weapon_id": 6,
+                              "total_damage": 9000.0, "peak_dps": 60.0,
+                              "is_supporter": False},
+                             {"display_name": "Pal", "weapon_id": 1,
+                              "total_damage": 3000.0, "peak_dps": 20.0,
+                              "is_supporter": False},
+                         ]})
+        upsert_hunt(s, {**base, "dedup_hash": "qd2", "monster_id": 31,
+                         "started_at": datetime(2026, 9, 2, 3, 0),
+                         "quest_id": 543, "quest_stars": 6,
+                         "players": [{"display_name": "Isi", "weapon_id": 6,
+                                      "total_damage": 6000.0, "peak_dps": 40.0,
+                                      "is_supporter": False}]})
+
+    client, _ = make_client(seed)
+    quests = client.get("/api/quests").json()["quests"]
+    assert len(quests) == 1 and quests[0]["key"] == "quest:543"
+
+    detail = client.get("/api/quests/detail",
+                        params={"key": "quest:543"}).json()
+    assert [h["id"] for h in detail["hunts"]] == [2, 1]  # latest first
+    solo, duo = detail["hunts"]
+    assert solo["members"] == [{
+        "player": "Isi", "weapon": "HuntingHorn", "total_damage": 6000.0,
+        "dps": 6000.0 / 180.0}]
+    assert [m["player"] for m in duo["members"]] == ["Isi", "Pal"]
+    assert duo["members"][0]["total_damage"] == 9000.0
+    assert duo["members"][0]["dps"] == 50.0  # 9000 / 180s engagement
+    assert client.get("/api/quests/detail",
+                      params={"key": "bogus"}).status_code == 404
+
+
 def test_high_scores():
     client, _ = make_client(seed_two_hunts)
     # hunt 1 = solo Isi (5.6 dps), hunt 2 = Isi (8.3) + Pal (2.1)
@@ -826,6 +879,19 @@ def _export_doc(hash_: str = "IMPORTOK"):
     }
 
 
+def _run_import(client, **params):
+    """POST /api/import then poll /api/import/status until terminal."""
+    import time
+    job_id = client.post("/api/import", params=params).json()["job_id"]
+    for _ in range(200):
+        st = client.get("/api/import/status",
+                        params={"job_id": job_id}).json()
+        if st["state"] in ("done", "error"):
+            return st
+        time.sleep(0.05)
+    raise AssertionError("import job did not finish in time")
+
+
 def test_import_endpoint(tmp_path, monkeypatch):
     import json
     (tmp_path / "a.json").write_text(json.dumps(_export_doc()))
@@ -834,19 +900,80 @@ def test_import_endpoint(tmp_path, monkeypatch):
     client, _ = make_client()
     assert client.get("/api/health").json()["hunts"] == 0
 
-    res = client.post("/api/import").json()
-    assert res["scanned"] == 2
+    res = _run_import(client)
+    assert res["state"] == "done"
     assert res["imported"] == 1 and len(res["imported_ids"]) == 1
     assert len(res["errors"]) == 1 and res["errors"][0]["file"] == "bad.json"
     assert client.get("/api/health").json()["hunts"] == 1
 
-    # second call is a dedup no-op
-    res2 = client.post("/api/import").json()
-    assert res2["imported"] == 0 and res2["duplicates"] == 1
+    # second run is a manifest skip: nothing parsed, nothing duplicated
+    res2 = _run_import(client)
+    assert res2["imported"] == 0 and res2["duplicates"] == 0
+    assert res2["skipped_manifest"] == 1  # bad.json is retried, a.json skipped
+
+    # force=1 rechecks everything: a.json re-parses and dedups by hash
+    res3 = _run_import(client, force=1)
+    assert res3["skipped_manifest"] == 0
+    assert res3["imported"] == 0 and res3["duplicates"] == 1
 
     # missing dir -> 404
     monkeypatch.setenv("HUNT_EXPORTS", str(tmp_path / "nope"))
     assert client.post("/api/import").status_code == 404
+
+    # unknown job -> 404
+    assert client.get("/api/import/status",
+                      params={"job_id": "nope"}).status_code == 404
+
+
+def test_import_skips_changed_file_only_by_manifest(tmp_path, monkeypatch):
+    """Touching a file (size change) reprocesses just that file; the dedup
+    hash safety net counts it a duplicate and the manifest refreshes."""
+    import json
+    import os
+    (tmp_path / "a.json").write_text(json.dumps(_export_doc()))
+    monkeypatch.setenv("HUNT_EXPORTS", str(tmp_path))
+    client, _ = make_client()
+    assert _run_import(client)["imported"] == 1
+
+    # rewrite with extra whitespace: same hunt, new size+mtime
+    (tmp_path / "a.json").write_text(json.dumps(_export_doc(), indent=2))
+    os.utime(tmp_path / "a.json", (0, 0))
+    res = _run_import(client)
+    assert res["imported"] == 0 and res["duplicates"] == 1
+    assert res["skipped_manifest"] == 0
+    # manifest refreshed: next run skips again
+    assert _run_import(client)["skipped_manifest"] == 1
+
+
+def test_import_content_duplicate_under_new_name(tmp_path, monkeypatch):
+    """Same hunt content under a different filename is a manifest miss but
+    a dedup-hash hit: no double hunt."""
+    import json
+    import shutil
+    (tmp_path / "a.json").write_text(json.dumps(_export_doc()))
+    monkeypatch.setenv("HUNT_EXPORTS", str(tmp_path))
+    client, _ = make_client()
+    assert _run_import(client)["imported"] == 1
+    shutil.copy(tmp_path / "a.json", tmp_path / "b.json")
+    res = _run_import(client)
+    assert res["imported"] == 0 and res["duplicates"] == 1
+    assert client.get("/api/health").json()["hunts"] == 1
+
+
+def test_import_records_manifest_for_targetless_files(tmp_path, monkeypatch):
+    """Files that parse but register no hunts are still manifested, so
+    repeat runs never re-parse them."""
+    import json
+    doc = _export_doc()
+    doc["monsters"][0]["health_steps"] = [
+        {"time": "2026-09-06T03:34:00.0Z", "percentage": 0.99}]
+    (tmp_path / "idle.json").write_text(json.dumps(doc))
+    monkeypatch.setenv("HUNT_EXPORTS", str(tmp_path))
+    client, _ = make_client()
+    first = _run_import(client)
+    assert first["imported"] == 0 and first["duplicates"] == 0
+    second = _run_import(client)
+    assert second["skipped_manifest"] == 1 and not second["errors"]
 
 
 def test_ignore_hunt_hides_everywhere_and_restores():

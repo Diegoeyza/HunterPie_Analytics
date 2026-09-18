@@ -111,3 +111,13 @@ CREATE TABLE player_pins (
     player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
     pinned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Import skip manifest: one row per fully processed HuntExports file.
+-- A file is skipped when name + size + mtime all match.
+CREATE TABLE imported_files (
+    filename     VARCHAR(256) PRIMARY KEY,
+    size         INTEGER NOT NULL,
+    mtime_ns     INTEGER NOT NULL,
+    hunts_created INTEGER NOT NULL DEFAULT 0,
+    imported_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

@@ -3,6 +3,7 @@ import ProgressView from "../components/views/ProgressView";
 import GrowthView from "../components/views/GrowthView";
 import WeaponsView from "../components/views/WeaponsView";
 import CurveView from "../components/views/CurveView";
+import HuntsView from "../components/views/HuntsView";
 import QuestsView from "../components/views/QuestsView";
 import LeaderboardView from "../components/views/LeaderboardView";
 import CompareView from "../components/views/CompareView";
@@ -55,6 +56,12 @@ export const TABS: TabDef[] = [
     title: "Damage curves",
     blurb: "FR-3.3 — per-hunt cumulative damage overlay for all party members, monster HP curve, enrage markers.",
     render: (ctx) => <CurveView scope={ctx.scope} />,
+  },
+  {
+    id: "hunts",
+    title: "Hunts",
+    blurb: "Every run, latest first — click a row for party damage, DPS and the damage curve.",
+    render: (ctx) => <HuntsView scope={ctx.scope} />,
   },
   {
     id: "quests",
