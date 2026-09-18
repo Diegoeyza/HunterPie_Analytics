@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .db import init_db, make_session
-from .ingest import upsert_hunt
+from .ingest import find_hunt_by_payload, upsert_hunt
 from .models import Monster, Weapon
 
 # HunterPie.Core/Game/Enums/Weapon.cs (byte enum, 255 = None)
@@ -305,15 +305,23 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
 
 
 def import_doc(session, doc: dict, names: dict[int, str],
-               hunterpie_version: str, game_version: str):
+               hunterpie_version: str, game_version: str,
+               cache: dict | None = None):
     results = []
     for payload, warnings in poogie_to_payloads(doc, names, hunterpie_version,
                                                 game_version):
+        # Cheap content-dedup check first: already-imported hunts skip the
+        # reference-row writes (and their commit) entirely.
+        existing = find_hunt_by_payload(session, payload)
+        if existing is not None:
+            results.append((existing, False, warnings))
+            continue
         ensure_monster(session, payload["monster_id"], names)
         for p in payload["players"]:
             p["weapon_id"] = ensure_weapon(session, p.pop("_weapon_enum"))
         session.commit()  # persist reference rows before the hunt transaction
-        hunt, created, upsert_warnings = upsert_hunt(session, payload)
+        hunt, created, upsert_warnings = upsert_hunt(session, payload,
+                                                     cache=cache)
         results.append((hunt, created, warnings + upsert_warnings))
     return results
 
@@ -347,11 +355,25 @@ def main() -> None:
     ap.add_argument("--names-xml", default=None)
     args = ap.parse_args()
 
-    files = [args.file] if args.file else sorted(str(p) for p in Path(args.dir).glob("*.json"))
-    if not files:
-        raise SystemExit(f"no *.json in {args.dir}")
-    for f in files:
-        import_file(args.db, f, args.hunterpie_version, args.game_version, args.names_xml)
+    if args.file:
+        import_file(args.db, args.file, args.hunterpie_version,
+                    args.game_version, args.names_xml)
+        return
+    from .import_job import run_import
+
+    def _show(snap: dict) -> None:
+        print(f"\r  {snap['scanned']}/{snap['total']} files "
+              f"({snap['imported']} new, {snap['duplicates']} dupes, "
+              f"{snap['skipped_manifest']} skipped)", end="", flush=True)
+
+    result = run_import(args.db, args.dir, progress=_show)
+    print()
+    print(f"scanned={result['scanned']} imported={result['imported']} "
+          f"duplicates={result['duplicates']} "
+          f"skipped={result['skipped_manifest']} "
+          f"errors={len(result['errors'])}")
+    for e in result["errors"]:
+        print(f"  FAILED {e['file']}: {e['error']}")
 
 
 if __name__ == "__main__":

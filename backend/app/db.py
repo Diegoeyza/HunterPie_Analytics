@@ -34,13 +34,21 @@ EXTRA_COLUMNS: dict[str, list[tuple[str, str]]] = {
 
 
 def make_engine(db_path: str | Path = DEFAULT_DB_PATH, echo: bool = False):
-    return create_engine(f"sqlite:///{db_path}", echo=echo, future=True)
+    # check_same_thread=False: FastAPI serves sync endpoints from a worker
+    # thread pool and imports run on a background thread; each thread uses
+    # its own session/connection, which sqlite handles safely.
+    return create_engine(f"sqlite:///{db_path}", echo=echo, future=True,
+                         connect_args={"check_same_thread": False})
 
 
 def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
     engine = make_engine(db_path)
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
+        # WAL: import writes must not block dashboard reads (the progress
+        # poller reads while the background job writes). Native FS only.
+        conn.execute(text("PRAGMA journal_mode=WAL"))
+        conn.execute(text("PRAGMA busy_timeout=10000"))
         for table, columns in EXTRA_COLUMNS.items():
             existing = {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})"))}
             for name, ddl in columns:

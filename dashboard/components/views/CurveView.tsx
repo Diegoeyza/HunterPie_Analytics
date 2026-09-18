@@ -8,6 +8,7 @@ import {
 import { apiGet, apiGetCached, seriesColor, type FilterOptions, type HuntSummary } from "../../lib/api";
 import SearchSelect from "../SearchSelect";
 import EmptyState from "../EmptyState";
+import ChartTooltip from "../ChartTooltip";
 
 interface CurvePoint { t: number; dmg: number; }
 interface CurvePlayer { player: string; weapon: string | null; variant: string | null; points: CurvePoint[]; }
@@ -26,44 +27,7 @@ interface CurveData {
   quest_hp?: CurveHpSeries[];
 }
 
-type Metric = "damage" | "dps" | "burst";
-const SMOOTH_WINDOW = 5;
-
-/** Compute DPS from cumulative damage, starting from each player's first hit
- *  and ending at monster death (last HP step). After death, DPS plateaus. */
-function computeDps(points: CurvePoint[], deathT: number): { t: number; dps: number }[] {
-  if (points.length === 0) return [];
-  const firstHit = points[0].t;
-  return points.map((q) => {
-    if (q.t <= firstHit) return { t: q.t, dps: 0 };
-    const end = Math.min(q.t, deathT);
-    const window = end - firstHit;
-    return { t: q.t, dps: window > 0 ? q.dmg / window : 0 };
-  });
-}
-
-/** Rolling mean over a player's DPS series. */
-function smoothDps(dpsSeries: { t: number; dps: number }[]): { t: number; dps: number }[] {
-  return dpsSeries.map((q, i) => {
-    const seg = dpsSeries.slice(Math.max(0, i - SMOOTH_WINDOW + 1), i + 1);
-    return { t: q.t, dps: seg.reduce((a, b) => a + b.dps, 0) / seg.length };
-  });
-}
-
-/** Compute instantaneous DPS over a 5-second window ending at each timestamp. */
-function computeBurst(points: CurvePoint[]): { t: number; dps: number }[] {
-  if (points.length === 0) return [];
-  const WINDOW = 5;
-  return points.map((q) => {
-    const windowStart = q.t - WINDOW;
-    let dmgAtStart = 0;
-    for (const p of points) {
-      if (p.t > windowStart + 1e-9) break;
-      dmgAtStart = p.dmg;
-    }
-    return { t: q.t, dps: (q.dmg - dmgAtStart) / WINDOW };
-  });
-}
+import { type Metric, computeDps, smoothDps, computeBurst } from "../../lib/metrics";
 
 /** Merge n players' series + one HP series per visible monster onto one time
  *  grid. The DPS death cutoff is the last HP point across all visible
@@ -102,12 +66,20 @@ function mergeSeries(players: CurvePlayer[], hpSeries: { key: string; points: { 
           else break;
         }
         if (v !== null) row[p.player] = Math.round(v);
-      } else if (metric === "burst") {
-        const hit = (burst.get(p.player) ?? []).find((q) => Math.abs(q.t - t) < 1e-9);
-        if (hit) row[p.player] = Math.round(hit.dps * 10) / 10;
       } else {
-        const hit = (smoothed.get(p.player) ?? []).find((q) => Math.abs(q.t - t) < 1e-9);
-        if (hit) row[p.player] = Math.round(hit.dps * 10) / 10;
+        // Carry the last known value forward (like damage above): the grid
+        // is the union of all hunters' timestamps, so exact-match lookups
+        // leave every row with only one hunter defined and the tooltip
+        // shows a single hunter. Before a hunter's first point: no value.
+        const series = metric === "burst"
+          ? burst.get(p.player) ?? []
+          : smoothed.get(p.player) ?? [];
+        let v: number | null = null;
+        for (const q of series) {
+          if (q.t <= t + 1e-9) v = q.dps;
+          else break;
+        }
+        if (v !== null) row[p.player] = Math.round(v * 10) / 10;
       }
     }
     for (const q of hpSorted) {
@@ -124,60 +96,7 @@ function mergeSeries(players: CurvePlayer[], hpSeries: { key: string; points: { 
 
 const HP_COLORS = ["#e05c5c", "#ef8354", "#c94f7c", "#e8b64c"];
 
-interface TooltipEntry { name?: unknown; value?: unknown; color?: string; }
 
-/** Chart hover card: per-player values (same formatting as before) plus
- *  badges for whichever monsters are enraged at the hovered time.
- *  Enrage bands themselves carry no text (they overlap); identity comes
- *  from the color key above the chart and these badges. */
-function CurveTooltip({ active, payload, label, metric, events, colorOf }: {
-  active?: boolean; payload?: TooltipEntry[]; label?: number | string;
-  metric: Metric; events: CurveEvent[]; colorOf: (e: CurveEvent) => string;
-}) {
-  if (!active || !payload || payload.length === 0) return null;
-  const t = typeof label === "number" ? label : Number(label);
-  const enraged = new Map<string, string>();
-  if (Number.isFinite(t)) {
-    for (const e of events) {
-      if (e.type !== "enrage") continue;
-      if (t >= e.start - 1e-9 && (e.end == null || t <= e.end + 1e-9)) {
-        const m = e.monster ?? "";
-        if (m && !enraged.has(m)) enraged.set(m, colorOf(e));
-      }
-    }
-  }
-  const fmt = (p: TooltipEntry) => {
-    const name = String(p.name ?? "");
-    if (name.includes(" HP") && typeof p.value === "number")
-      return `${(p.value * 100).toFixed(1)}%`;
-    if (typeof p.value !== "number") return String(p.value ?? "");
-    return metric === "damage"
-      ? Math.round(p.value).toLocaleString()
-      : `${p.value.toFixed(1)} DPS`;
-  };
-  return (
-    <div style={{ background: "#1d2029", border: "1px solid #2c313e", padding: "8px 10px", fontSize: 12 }}>
-      <div style={{ color: "#9aa1b2", marginBottom: 4 }}>
-        {Number.isFinite(t) ? `${t.toFixed(1)}s` : ""}
-      </div>
-      {payload.map((p, i) => (
-        <div key={i} style={{ color: p.color ?? "#c8cddd" }}>
-          {String(p.name ?? "")}: {fmt(p)}
-        </div>
-      ))}
-      {enraged.size > 0 && (
-        <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #2c313e", display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {[...enraged.entries()].map(([m, c]) => (
-            <span key={m} style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#c8cddd" }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: c, display: "inline-block" }} />
-              {m} enraged
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function CurveView({ scope }: { scope: number[] }) {
   const [hunts, setHunts] = useState<HuntSummary[] | null>(null);
@@ -437,7 +356,7 @@ export default function CurveView({ scope }: { scope: number[] }) {
                 tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
                 label={{ value: "monster HP", fill: "#e05c5c", fontSize: 11, angle: 90, position: "insideRight" }}
                 hide={!showHp} />
-              <Tooltip content={<CurveTooltip metric={metric} events={visibleEvents} colorOf={eventColor} />} />
+              <Tooltip content={<ChartTooltip metric={metric} events={visibleEvents} colorOf={eventColor} />} />
               <Legend />
               {visibleEvents.map((e, i) => {
                 const c = eventColor(e);

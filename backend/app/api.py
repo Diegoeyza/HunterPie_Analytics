@@ -14,13 +14,8 @@ from sqlalchemy.orm import Session
 
 from . import queries
 from .db import DEFAULT_DB_PATH, make_session
-from .import_hunt import (
-    DEFAULT_EXPORTS_DIR,
-    DEFAULT_GAME_VERSION,
-    DEFAULT_HUNTERPIE_VERSION,
-    import_doc,
-    load_monster_names,
-)
+from .import_hunt import DEFAULT_EXPORTS_DIR
+from .import_job import get_job, start_import_job
 
 DB_PATH = Path(os.environ.get("HUNTS_DB", DEFAULT_DB_PATH))
 
@@ -129,6 +124,15 @@ def quests(db: Session = Depends(get_db)):
     return queries.quest_stats(db)
 
 
+@app.get("/api/quests/detail")
+def quest_detail(key: str, db: Session = Depends(get_db)):
+    """One quest row as individual instances, each with hunter damage + DPS."""
+    try:
+        return queries.quest_hunts(db, key)
+    except KeyError:
+        raise HTTPException(404, f"quest {key} not found")
+
+
 @app.get("/api/records")
 def records(db: Session = Depends(get_db)):
     return queries.records(db)
@@ -189,44 +193,37 @@ def rename_identity(identity_id: int, body: dict,
         raise HTTPException(404, f"weapon identity {identity_id} not found")
 
 
+def _session_db_path(db: Session) -> Path:
+    """DB file behind a request session (honors test dependency overrides)."""
+    try:
+        return Path(str(db.get_bind().url.database))
+    except Exception:
+        return DB_PATH
+
+
 @app.post("/api/import")
-def import_hunts(db: Session = Depends(get_db)):
-    """Import HuntExports JSON dumps (dedup-safe: re-imports skip).
+def import_hunts(db: Session = Depends(get_db), force: bool = False):
+    """Start a background HuntExports import; poll /api/import/status.
 
-    Source dir: $HUNT_EXPORTS or the HunterPie default. Powers the
-    dashboard Import button so hunts can be pulled without the CLI.
+    The skip manifest means repeat runs only stat files (no parsing), so
+    importing 1 new hunt costs ~1 file of work. force=True ignores the
+    manifest and rechecks every file (e.g. after deleting hunts from the
+    dashboard, which the manifest otherwise keeps deleted).
     """
-    import json
-
     src = Path(os.environ.get("HUNT_EXPORTS", str(DEFAULT_EXPORTS_DIR)))
     if not src.is_dir():
         raise HTTPException(404, f"hunt exports dir not found: {src}")
-    names = load_monster_names(None)
-    imported_ids: list[int] = []
-    duplicates = 0
-    errors: list[dict] = []
-    for path in sorted(src.glob("*.json")):
-        try:
-            doc = json.loads(path.read_text(encoding="utf-8-sig"))
-        except (OSError, ValueError) as e:
-            errors.append({"file": path.name, "error": str(e)})
-            continue
-        try:
-            for hunt, created, _warnings in import_doc(
-                    db, doc, names,
-                    DEFAULT_HUNTERPIE_VERSION, DEFAULT_GAME_VERSION):
-                if created:
-                    imported_ids.append(hunt.id)
-                else:
-                    duplicates += 1
-        except (ValueError, KeyError) as e:
-            db.rollback()
-            errors.append({"file": path.name, "error": str(e)})
-    return {"scanned": len(list(src.glob('*.json'))),
-            "imported": len(imported_ids),
-            "imported_ids": imported_ids,
-            "duplicates": duplicates,
-            "errors": errors}
+    job = start_import_job(_session_db_path(db), src, force=force)
+    return {"job_id": job.job_id, "state": job.state, "total": job.total}
+
+
+@app.get("/api/import/status")
+def import_status(job_id: str | None = None):
+    """Progress of an import job (or the latest one when omitted)."""
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "no import job found")
+    return job.to_dict()
 
 
 @app.get("/api/players/pins")
