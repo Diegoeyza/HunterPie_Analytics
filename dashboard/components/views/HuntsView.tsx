@@ -61,7 +61,7 @@ const columns: ColumnDef<HuntSummary>[] = [
   },
   {
     id: "date", accessorKey: "started_at", header: "Date",
-    cell: ({ row }) => row.original.started_at.slice(0, 10),
+    cell: ({ row }) => row.original.started_at.slice(0, 16).replace("T", " "),
   },
   { id: "monster", accessorKey: "monster", header: "Monster" },
   {
