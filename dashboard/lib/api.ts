@@ -3,13 +3,18 @@
  */
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-export async function apiGet<T>(path: string, params?: Record<string, string | number>): Promise<T> {
-  const url = new URL(`/api${path}`, BASE);
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== "" && v !== undefined) url.searchParams.set(k, String(v));
-    }
+export type Params = Record<string, string | number | null | undefined>;
+
+function setParams(url: URL, params?: Params): void {
+  if (!params) return;
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== "" && v !== undefined && v !== null) url.searchParams.set(k, String(v));
   }
+}
+
+export async function apiGet<T>(path: string, params?: Params): Promise<T> {
+  const url = new URL(`/api${path}`, BASE);
+  setParams(url, params);
   const res = await fetch(url.toString(), { cache: "no-store" });
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
   return (await res.json()) as T;
@@ -32,17 +37,13 @@ const _cache = new Map<string, { at: number; data: unknown }>();
 const _inflight = new Map<string, Promise<unknown>>();
 const CACHE_TTL_MS = 60_000;
 
-function cacheKey(path: string, params?: Record<string, string | number>): string {
+function cacheKey(path: string, params?: Params): string {
   const url = new URL(`/api${path}`, BASE);
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== "" && v !== undefined) url.searchParams.set(k, String(v));
-    }
-  }
+  setParams(url, params);
   return url.toString();
 }
 
-export async function apiGetCached<T>(path: string, params?: Record<string, string | number>): Promise<T> {
+export async function apiGetCached<T>(path: string, params?: Params): Promise<T> {
   const key = cacheKey(path, params);
   const hit = _cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data as T;
@@ -81,7 +82,30 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
-export interface Health { status: string; hunts: number; }
+export interface Health {
+  status: string; hunts: number;
+  hunterpie_version?: string; game_version?: string;
+}
+
+export interface AliasItem {
+  id: number; alias: string; player_id: number; player: string; created_at: string;
+}
+
+export interface ImportWarning { file: string; warnings: string[]; }
+
+export interface ImportJobStatus {
+  job_id: string;
+  state: "running" | "done" | "error" | "cancelled";
+  total: number;
+  scanned: number;
+  imported: number;
+  duplicates: number;
+  skipped_manifest: number;
+  imported_ids: number[];
+  errors: { file: string; error: string }[];
+  warnings: ImportWarning[];
+  error: string | null;
+}
 export interface Option { id: number; name: string; }
 export interface QuestOption { quest_id: number | null; monster: string; monster_id: number; stars: number | null; }
 export interface FilterOptions {

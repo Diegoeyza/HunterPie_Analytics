@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { apiGet, type HuntSummary } from "../../lib/api";
+import type { HuntSummary } from "../../lib/api";
+import { fmtTime } from "../../lib/format";
+import { ApiState, useApi } from "../../lib/useApi";
 import DataTable from "../DataTable";
 import SearchSelect from "../SearchSelect";
 import EmptyState from "../EmptyState";
+import { useFilterOptions } from "../useFilterOptions";
 
 interface AbnormalityEntry {
   id: string; name: string; category: string; start: number; end: number | null;
@@ -54,7 +57,7 @@ const columns: ColumnDef<UptimeRow>[] = [
   {
     id: "uptime_s", accessorKey: "uptime_s", header: "Uptime",
     meta: { cls: "num" },
-    cell: ({ row }) => `${Math.round(row.original.uptime_s)}s`,
+    cell: ({ row }) => fmtTime(row.original.uptime_s),
   },
   {
     id: "pct", accessorKey: "pct", header: "%",
@@ -115,31 +118,38 @@ function BuffTimeline({ lanes, domain }: { lanes: BuffLane[]; domain: number }) 
   );
 }
 export default function BuffsView({ scope, partySize }: { scope: number[]; partySize: number | null }) {
-  const [hunts, setHunts] = useState<HuntSummary[] | null>(null);
+  const opts = useFilterOptions();
   const [huntId, setHuntId] = useState<number | null>(null);
-  const [data, setData] = useState<BuffsData | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [catFilter, setCatFilter] = useState<string>("");
   const [view, setView] = useState<"table" | "timeline">("table");
 
-  useEffect(() => {
-    apiGet<{ hunts: HuntSummary[] }>("/hunts", {
-      limit: 200,
-      ...(partySize != null && { players: partySize }),
-    })
-      .then((d) => {
-        setHunts(d.hunts);
-        if (d.hunts.length > 0) setHuntId(d.hunts[0].id);
-      })
-      .catch((e: Error) => setError(e.message));
-  }, [partySize]);
+  const huntsQ = useApi<{ hunts: HuntSummary[] }>("/hunts", {
+    limit: 200,
+    ...(partySize != null && { players: partySize }),
+  });
+  const hunts = huntsQ.data?.hunts ?? null;
 
+  // Default to the latest hunt once the list loads.
   useEffect(() => {
-    if (huntId === null) return;
-    apiGet<BuffsData>(`/hunts/${huntId}/abnormalities`)
-      .then(setData)
-      .catch((e: Error) => setError(e.message));
-  }, [huntId]);
+    if (hunts && hunts.length > 0 && huntId === null) setHuntId(hunts[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hunts]);
+
+  const detailQ = useApi<BuffsData>(
+    `/hunts/${huntId}/abnormalities`, huntId === null ? null : {});
+  // Keyed fetch: ignore a stale previous-hunt payload while the new one loads.
+  const rawData = detailQ.data && detailQ.data.hunt_id === huntId ? detailQ.data : null;
+
+  // Honor the hunter scope: narrow lanes to scoped hunters by name.
+  const data = useMemo(() => {
+    if (!rawData || scope.length === 0) return rawData;
+    const names = new Set((opts?.players ?? [])
+      .filter((p) => scope.includes(p.id)).map((p) => p.name));
+    return { ...rawData, players: rawData.players.filter((p) => names.has(p.player)) };
+  }, [rawData, scope, opts]);
+
+  const error = huntsQ.error ?? detailQ.error;
+  const loadingList = huntsQ.loading;
 
   const rows = useMemo((): UptimeRow[] => {
     if (!data) return [];
@@ -220,8 +230,8 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
 
   const categories = useMemo(() => [...new Set(rows.map((r) => r.category))].sort(), [rows]);
 
-  if (error) return <p className="error">{error} — is the API running on :8000?</p>;
-  if (!hunts) return <p>Loading…</p>;
+  if (error) return <ApiState error={error} loading={false} />;
+  if (loadingList || !hunts) return <p>Loading…</p>;
   if (hunts.length === 0) {
     return (
       <EmptyState what="hunts">

@@ -11,6 +11,7 @@ import ActivityView from "../components/views/ActivityView";
 import SynergyView from "../components/views/SynergyView";
 import BuffsView from "../components/views/BuffsView";
 import HighScoreView from "../components/views/HighScoreView";
+import ReviewView from "../components/views/ReviewView";
 
 export interface ViewCtx {
   /** Hunter scope: player ids to focus on. Empty = all hunters. */
@@ -106,5 +107,11 @@ export const TABS: TabDef[] = [
     title: "Buffs",
     blurb: "Consumable, skill, song and debuff uptime per player per hunt. HunterPie user only.",
     render: (ctx) => <BuffsView scope={ctx.scope} partySize={ctx.partySize} />,
+  },
+  {
+    id: "review",
+    title: "Review",
+    blurb: "Rename flags from ingest — merge case-variant hunters or keep them separate.",
+    render: () => <ReviewView />,
   },
 ];

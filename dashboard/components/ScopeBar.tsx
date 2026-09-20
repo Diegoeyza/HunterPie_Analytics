@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import {
   apiGetCached, apiInvalidate, apiSend, variantLabel, UNKNOWN_VARIANT_ID,
-  type Option, type Pin, type PlayerVariants, type VariantOption,
+  type Pin, type PlayerVariants, type VariantOption,
 } from "../lib/api";
+import { useFilterOptions } from "./useFilterOptions";
 import SearchSelect from "./SearchSelect";
 import WeaponVariantManager from "./WeaponVariantManager";
 
@@ -42,6 +43,12 @@ export function loadScope(): number[] {
   } catch {
     return [];
   }
+}
+
+export function storeScope(ids: number[]) {
+  try {
+    localStorage.setItem(SCOPE_KEY, JSON.stringify(ids));
+  } catch { /* private mode: scope just won't persist */ }
 }
 
 export function loadVariant(): number | string | null {
@@ -90,7 +97,8 @@ function groupLabel(members: { weapon_type: string; raw: number; element: number
  *  filter appears next to the hunter chips, with an edit button that
  *  opens the label-once naming menu. */
 export default function ScopeBar({ scope, onScope, variantId, onVariant, partySize, onParty }: Props) {
-  const [players, setPlayers] = useState<Option[]>([]);
+  const opts = useFilterOptions();
+  const players = opts?.players ?? [];
   const [pins, setPins] = useState<Pin[]>([]);
   const [variants, setVariants] = useState<PlayerVariants | null>(null);
   const [open, setOpen] = useState(false);
@@ -98,8 +106,6 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, partySi
   const [query, setQuery] = useState("");
 
   const refresh = () => {
-    apiGetCached<{ players: Option[] }>("/filter-options")
-      .then((d) => setPlayers(d.players)).catch(() => {});
     apiGetCached<{ pins: Pin[] }>("/players/pins").then((d) => setPins(d.pins)).catch(() => {});
   };
   useEffect(refresh, []);
@@ -110,6 +116,7 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, partySi
   };
 
   // Variant options only exist for a single scoped hunter with gear data.
+  const scopeKey = scope.join(",");
   useEffect(() => {
     setVariants(null);
     setVariantMenu(false);
@@ -119,7 +126,7 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, partySi
     }
     loadVariants(scope[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope.join(",")]);
+  }, [scopeKey]);
 
   // Drop a persisted variant the hunter no longer has (e.g. DB rebuild).
   useEffect(() => {

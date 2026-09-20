@@ -1,14 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  CartesianGrid, ComposedChart, Line, Bar, ResponsiveContainer,
-  Tooltip, XAxis, YAxis,
-} from "recharts";
-import { apiGet } from "../../lib/api";
+import { useState } from "react";
+import {CartesianGrid, ComposedChart, Line, Bar, ResponsiveContainer, XAxis, YAxis, } from "recharts";
+import { ApiState, useApi } from "../../lib/useApi";
 import SearchSelect from "../SearchSelect";
+import { HunterSelect, MonsterSelect, StarsSelect, WeaponSelect, splitQuestValue, useQuestOptions } from "../FilterBar";
 import { useFilterOptions } from "../useFilterOptions";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
+import { ChartTip, GRID_STROKE, TICK } from "../ChartKit";
 
 interface Point {
   hunt_id: number; started_at: string; monster: string;
@@ -27,53 +26,64 @@ export default function ProgressView({ scope, variantId, clearScope, partySize }
   const [stars, setStars] = useState("");
   const [windowSize, setWindowSize] = useState(5);
   const [huntLimit, setHuntLimit] = useState("100");
-  const [data, setData] = useState<ProgressData | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setError(null);
-    // Survey quest values carry the target (`391@m10`); an explicit
-    // monster pick by the user takes precedence over the suffix.
-    const [qid, qmid] = quest.includes("@m") ? quest.split("@m") : [quest, ""];
-    apiGet<ProgressData>("/progress", {
-      ...((monster || qmid) && { monster_id: Number(monster || qmid) }),
-      ...(weapon && { weapon_id: Number(weapon) }),
-      ...(player && { player_id: Number(player) }),
-      ...(qid && { quest_id: Number(qid) }),
-      ...(stars && { stars: Number(stars) }),
-      ...(scope.length > 0 && { player_ids: scope.join(",") }),
-      ...(variantId !== null && { variant_id: variantId }),
-      ...(huntLimit !== "all" && { limit: Number(huntLimit) }),
-      ...(partySize != null && { players: partySize }),
-      window: windowSize,
-    }).then(setData).catch((e: Error) => setError(e.message));
-  }, [monster, weapon, player, quest, stars, windowSize, huntLimit, scope.join(","), variantId, partySize]);
+  // Survey quest values carry the target (`391@m10`); an explicit
+  // monster pick by the user takes precedence over the suffix.
+  const [qid, qmid] = splitQuestValue(quest);
+  const { data, error, loading } = useApi<ProgressData>("/progress", {
+    ...((monster || qmid) && { monster_id: Number(monster || qmid) }),
+    ...(weapon && { weapon_id: Number(weapon) }),
+    ...(player && { player_id: Number(player) }),
+    ...(qid && { quest_id: Number(qid) }),
+    ...(stars && { stars: Number(stars) }),
+    ...(scope.length > 0 && { player_ids: scope.join(",") }),
+    ...(variantId !== null && { variant_id: variantId }),
+    ...(huntLimit !== "all" && { limit: Number(huntLimit) }),
+    ...(partySize != null && { players: partySize }),
+    window: windowSize,
+  });
 
   // One option per quest group: real quests collapse multi-monster runs
   // into one entry, while unknown-star slots (field surveys) stay split
-  // by target — keyed by both so unrelated hunts never merge. Survey
-  // values carry the target monster (`391@m10`) so the filter below can
-  // narrow to it; real quests filter by quest_id alone.
-  const questOptions = useMemo(() => {
-    const byId = new Map<string, { id: number; mid: number; monsters: string[]; stars: number | null }>();
-    for (const q of opts?.quests ?? []) {
-      if (q.quest_id == null) continue;
-      const key = `${q.quest_id}|${q.monster}`;
-      const g = byId.get(key);
-      if (g) {
-        if (!g.monsters.includes(q.monster)) g.monsters.push(q.monster);
-      } else {
-        byId.set(key, { id: q.quest_id, mid: q.monster_id, monsters: [q.monster], stars: q.stars });
-      }
-    }
-    return [...byId.values()].map((g) => ({
-      value: g.stars != null ? String(g.id) : `${g.id}@m${g.mid}`,
-      label: `#${g.id} ${g.monsters.join(" + ")}${g.stars ? ` ${g.stars}★` : ""}`,
-    }));
-  }, [opts]);
+  // by target — keyed by both so unrelated hunts never merge.
+  const questOptions = useQuestOptions(opts);
 
-  if (error) return <p className="error">{error} — is the API running on :8000?</p>;
-  if (!data) return <p>Loading…</p>;
+  const filters = (
+    <div className="filters">
+      <MonsterSelect value={monster} opts={opts}
+        onChange={(v) => { setMonster(v); setStars(""); }} />
+      <SearchSelect
+        label="Quest"
+        value={quest}
+        options={questOptions}
+        onChange={setQuest}
+      />
+      <StarsSelect value={stars} onChange={setStars} monster={monster} opts={opts} />
+      <WeaponSelect value={weapon} onChange={setWeapon} opts={opts} />
+      <HunterSelect value={player} onChange={setPlayer} opts={opts} />
+      <label>Rolling window
+        <input type="number" min={1} max={50} value={windowSize}
+          onChange={(e) => setWindowSize(Number(e.target.value) || 5)} />
+      </label>
+      <label>Hunts
+        <select value={huntLimit} onChange={(e) => setHuntLimit(e.target.value)}>
+          <option value="50">Last 50</option>
+          <option value="100">Last 100</option>
+          <option value="200">Last 200</option>
+          <option value="all">All</option>
+        </select>
+      </label>
+    </div>
+  );
+
+  if (error || loading || !data) {
+    return (
+      <div className="card">
+        {filters}
+        <ApiState error={error} loading={loading} />
+      </div>
+    );
+  }
   if (data.points.length === 0) {
     if (scope.length > 0) {
       return (
@@ -105,60 +115,17 @@ export default function ProgressView({ scope, variantId, clearScope, partySize }
 
   return (
     <div className="card">
-      <div className="filters">
-        <SearchSelect
-          label="Monster"
-          value={monster}
-          options={(opts?.monsters ?? []).map((m) => ({ value: String(m.id), label: m.name }))}
-          onChange={(v) => { setMonster(v); setStars(""); }}
-        />
-        <SearchSelect
-          label="Quest"
-          value={quest}
-          options={questOptions}
-          onChange={setQuest}
-        />
-        <label>Stars
-          <select value={stars} onChange={(e) => setStars(e.target.value)}>
-            <option value="">All</option>
-            {(monster ? (opts?.monster_stars[Number(monster)] ?? opts?.stars ?? []) : opts?.stars ?? []).map((s) => <option key={s} value={s}>{s}★</option>)}
-          </select>
-        </label>
-        <SearchSelect
-          label="Weapon"
-          value={weapon}
-          options={(opts?.weapons ?? []).map((w) => ({ value: String(w.id), label: w.name }))}
-          onChange={setWeapon}
-        />
-        <SearchSelect
-          label="Hunter"
-          value={player}
-          options={(opts?.players ?? []).map((p) => ({ value: String(p.id), label: p.name }))}
-          onChange={setPlayer}
-        />
-        <label>Rolling window
-          <input type="number" min={1} max={50} value={windowSize}
-            onChange={(e) => setWindowSize(Number(e.target.value) || 5)} />
-        </label>
-        <label>Hunts
-          <select value={huntLimit} onChange={(e) => setHuntLimit(e.target.value)}>
-            <option value="50">Last 50</option>
-            <option value="100">Last 100</option>
-            <option value="200">Last 200</option>
-            <option value="all">All</option>
-          </select>
-        </label>
-      </div>
+      {filters}
       <h2>DPS per hunt + {data.window}-hunt rolling average</h2>
       <ResponsiveContainer width="100%" height={340}>
         <ComposedChart data={rows}>
-          <CartesianGrid stroke="#2c313e" />
-          <XAxis dataKey="x" tick={{ fill: "#9aa1b2", fontSize: 11 }} interval="preserveStartEnd" />
-          <YAxis yAxisId="dps" tick={{ fill: "#9aa1b2", fontSize: 11 }}
-            label={{ value: "DPS", fill: "#9aa1b2", fontSize: 11, angle: -90, position: "insideLeft" }} />
-          <YAxis yAxisId="time" orientation="right" tick={{ fill: "#9aa1b2", fontSize: 11 }}
-            label={{ value: "clear time (s)", fill: "#9aa1b2", fontSize: 11, angle: 90, position: "insideRight" }} />
-          <Tooltip contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }} />
+          <CartesianGrid stroke={GRID_STROKE} />
+          <XAxis dataKey="x" tick={TICK} interval="preserveStartEnd" />
+          <YAxis yAxisId="dps" tick={TICK}
+            label={{ value: "DPS", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: -90, position: "insideLeft" }} />
+          <YAxis yAxisId="time" orientation="right" tick={TICK}
+            label={{ value: "clear time (s)", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: 90, position: "insideRight" }} />
+          <ChartTip />
           {dense ? (
             <Line yAxisId="dps" type="monotone" dataKey="dps" name="DPS"
               stroke="#e8b64c" dot={false} isAnimationActive={false} />

@@ -69,8 +69,9 @@ def seed_two_hunts(s):
 def test_hunts_player_filter():
     """GET /hunts narrows to hunts the given hunter(s) fought in (any-of);
     unfiltered returns everything (curve quest list follows the scope)."""
-    from app.models import Player
     from sqlalchemy import select
+
+    from app.models import Player
 
     client, s = make_client(seed_two_hunts)
     ids = {name: s.execute(select(Player.id).where(
@@ -594,8 +595,9 @@ def _seed_gear_hunts(s):
                        "cumulative_damage": 8000.0, "instant_dps": 40.0}],
         "events": [],
     })
-    from app.models import Player, WeaponIdentity
     from sqlalchemy import select
+
+    from app.models import Player, WeaponIdentity
     isi_id = s.execute(select(Player.id)
                        .where(Player.display_name == "Isi")).scalar_one()
     identity = s.execute(select(WeaponIdentity)).scalars().all()
@@ -660,7 +662,7 @@ def test_variant_filter_narrows_scoped_queries():
 def test_variant_groups_cluster_similar_stats():
     """Unit: near-identical builds group; distant, raw-vs-elemental,
     affinity-split and cross-weapon pairs never do."""
-    from app.queries import cluster_weapon_variants
+    from app.variants import cluster_weapon_variants
 
     def fp(w, raw, ele, aff, pos=0):
         return {"_pos": pos, "weapon_type": w, "raw": raw,
@@ -723,8 +725,9 @@ def test_variant_group_filter_unions_group_hunts():
             "events": [],
         })
         hunt_ids.append(hunt.id)
-    from app.models import Player
     from sqlalchemy import select
+
+    from app.models import Player
     isi_id = s.execute(select(Player.id).where(
         Player.display_name == "Isi")).scalar_one()
     body = client.get(f"/api/players/{isi_id}/variants").json()
@@ -771,8 +774,9 @@ def test_progress_improvement():
     client, s = make_client(seed_two_hunts)
     res = client.get("/api/progress/improvement").json()
     assert "top_hunters" in res
-    from app.models import Player
     from sqlalchemy import select
+
+    from app.models import Player
     isi_id = s.execute(select(Player.id).where(Player.display_name == "Isi")).scalar_one()
     p_res = client.get(f"/api/progress/improvement?player_id={isi_id}").json()
     assert p_res["player_id"] == isi_id
@@ -801,8 +805,9 @@ def test_progress_improvement_weapon_filter():
     assert isi_hh[0]["qualifying_groups_count"] >= 1
 
     # Scoped to Isi + weapon filter still returns player data.
-    from app.models import Player
     from sqlalchemy import select
+
+    from app.models import Player
     isi_id = s.execute(select(Player.id).where(Player.display_name == "Isi")).scalar_one()
     p_res = client.get(f"/api/progress/improvement?player_id={isi_id}&weapon_id=6").json()
     assert p_res["player_id"] == isi_id
@@ -820,8 +825,9 @@ def test_progress_improvement_unknown_player_fallback():
 
 def test_progress_improvement_multi_scope_and_filters():
     """player_ids narrows the ranking; monster filter + top_n clamp work."""
-    from app.models import Player
     from sqlalchemy import select
+
+    from app.models import Player
     client, s = make_client(seed_two_hunts)
     isi_id = s.execute(select(Player.id).where(Player.display_name == "Isi")).scalar_one()
     pal_id = s.execute(select(Player.id).where(Player.display_name == "Pal")).scalar_one()
@@ -837,9 +843,9 @@ def test_progress_improvement_multi_scope_and_filters():
     assert client.get("/api/progress/improvement",
                       params={"monster_id": 9999}).json() == {"top_hunters": []}
 
-    # top_n clamps to >=1 (0 becomes 1) and returns at most that many.
-    one = client.get("/api/progress/improvement", params={"top_n": 0}).json()
-    assert len(one["top_hunters"]) <= 1
+    # Out-of-range top_n is a 422 (validated at the API boundary).
+    bad = client.get("/api/progress/improvement", params={"top_n": 0})
+    assert bad.status_code == 422
 
     # Trend stats present on qualifying groups.
     detail = client.get("/api/progress/improvement",
@@ -1030,3 +1036,69 @@ def test_party_size_filter():
     scores = client.get(
         "/api/high-scores", params={"players": 2}).json()["scores"]
     assert [s["hunt_id"] for s in scores] == [2]
+
+
+def test_alias_review_flow():
+    """Rename flagged on import; merge reassigns hunts; dismiss keeps."""
+    from datetime import datetime
+
+    from sqlalchemy import select
+
+    from app.ingest import upsert_hunt
+    from app.models import HuntPlayer, Monster, Player, Weapon
+
+    client, s = make_client()
+    s.add_all([Monster(id=31, name="Xu Wu"),
+               Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn")])
+    s.flush()
+
+    def payload(ext, name):
+        return {
+            "quest_id_external": ext, "monster_id": 31,
+            "started_at": datetime(2026, 9, 6, 3, 0),
+            "ended_at": datetime(2026, 9, 6, 3, 3),
+            "quest_time_seconds": 180.0, "cart_count": 0, "cleared": True,
+            "hunterpie_version": "t", "game_version": "g",
+            "players": [{"display_name": name, "weapon_id": 6,
+                         "total_damage": 1000.0, "peak_dps": 50.0,
+                         "is_supporter": False}],
+            "snapshots": [], "events": [],
+        }
+
+    upsert_hunt(s, payload("a1", "Isi"))
+    _, _, warnings = upsert_hunt(s, payload("a2", "ISI"))
+    assert any("rename-review" in w for w in warnings)
+
+    aliases = client.get("/api/players/aliases").json()["aliases"]
+    assert len(aliases) == 1 and aliases[0]["alias"] == "ISI"
+
+    merged = client.post(
+        f"/api/players/aliases/{aliases[0]['id']}/merge").json()
+    assert merged["merged"] == "ISI" and merged["into"] == "Isi"
+    assert merged["hunts"] == 1
+    assert client.get("/api/players/aliases").json()["aliases"] == []
+    names = sorted(p.display_name for p in
+                   s.execute(select(Player)).scalars())
+    assert names == ["Isi"]
+    # both hunts now belong to Isi
+    isi_id = s.execute(select(Player.id).where(
+        Player.display_name == "Isi")).scalar_one()
+    assert len(s.execute(select(HuntPlayer).where(
+        HuntPlayer.player_id == isi_id)).scalars().all()) == 2
+
+    # dismiss path: new flag, then keep-separate
+    upsert_hunt(s, payload("a3", "isi"))
+    aliases = client.get("/api/players/aliases").json()["aliases"]
+    assert len(aliases) == 1
+    assert client.delete(
+        f"/api/players/aliases/{aliases[0]['id']}").status_code == 200
+    assert client.get("/api/players/aliases").json()["aliases"] == []
+    assert client.post("/api/players/aliases/9999/merge").status_code == 404
+
+
+def test_health_reports_versions():
+    client, _ = make_client(seed_two_hunts)
+    health = client.get("/api/health").json()
+    assert health["status"] == "ok" and health["hunts"] == 2
+    assert health["hunterpie_version"] == "t"
+    assert health["game_version"] == "g"

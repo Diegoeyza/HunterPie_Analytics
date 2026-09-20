@@ -1,6 +1,11 @@
 """Seed script with fake hunt data so Phases 2-3 aren't blocked on live gameplay.
 
 Usage: python -m app.seed --db hunts.db --hunts 20
+
+Weapon ids/names mirror import_hunt.WEAPONS (enum id + 1) so seeded rows
+join variant/leaderboard logic exactly like real imports. Some hunts
+carry gear fingerprints, one is SOS-flagged, one is ignored, and some
+carry abnormality activations, so edge-case UI has data to render.
 """
 from __future__ import annotations
 
@@ -8,20 +13,28 @@ import argparse
 import random
 from datetime import datetime, timedelta
 
+from sqlalchemy import func, select
+
 from .db import init_db, make_session
+from .import_hunt import WEAPONS as IMPORTER_WEAPONS
 from .ingest import upsert_hunt
 from .models import Monster, Weapon
 
 MONSTERS = [("Rathalos", "Flying Wyvern"), ("Nergigante", "Elder Dragon"), ("Zinogre", "Fanged Wyvern")]
-WEAPONS = [("Great Sword", "GS"), ("Long Sword", "LS"), ("Bow", "Bow"), ("Hammer", "Hammer")]
 PLAYERS = ["Diego", "Haato", "TeammateA", "TeammateB"]
+
+GEARS = [
+    {"raw": 280.0, "element": 0.0, "affinity": 15.0},
+    {"raw": 310.0, "element": 120.0, "affinity": -10.0},
+]
 
 
 def ensure_reference_data(session) -> None:
-    if not session.query(Monster).count():
+    if session.execute(select(func.count(Monster.id))).scalar_one() == 0:
         session.add_all([Monster(name=n, species=s) for n, s in MONSTERS])
-    if not session.query(Weapon).count():
-        session.add_all([Weapon(name=n, weapon_type=t) for n, t in WEAPONS])
+    if session.execute(select(func.count(Weapon.id))).scalar_one() == 0:
+        session.add_all([Weapon(id=i + 1, name=n, weapon_type=n)
+                         for i, n in enumerate(IMPORTER_WEAPONS)])
     session.commit()
 
 
@@ -52,6 +65,28 @@ def fake_hunt(i: int, rng: random.Random, max_party: int = 4) -> dict:
                     "instant_dps": total / quest_time + rng.uniform(-5, 5),
                 }
             )
+    players = []
+    abnormalities = []
+    for n in members:
+        entry: dict = {
+            "display_name": n,
+            "weapon_id": rng.randint(1, len(IMPORTER_WEAPONS)),
+            "total_damage": totals[n],
+            # biggest single ~1s frame, same scale as the real importer
+            "peak_dps": totals[n] / 10 * rng.uniform(0.9, 1.8),
+        }
+        # Local-player gear on ~40% of hunts (variant UI needs data).
+        if n == members[0] and rng.random() < 0.4:
+            entry["gear"] = dict(rng.choice(GEARS))
+        players.append(entry)
+        if rng.random() < 0.3:
+            abnormalities.append({
+                "display_name": n,
+                "abnormality_id": "SKILL_INSPIRATION_1",
+                "category": "SKILL",
+                "started_at_offset": quest_time * 0.2,
+                "finished_at_offset": quest_time * 0.5,
+            })
     return {
         "quest_id_external": f"seed-quest-{i:04d}",
         "monster_id": monster_id,
@@ -68,22 +103,16 @@ def fake_hunt(i: int, rng: random.Random, max_party: int = 4) -> dict:
         "real_hunt_time_seconds": quest_time - rng.uniform(0, 60),
         "cart_count": rng.randint(0, 2),
         "cleared": rng.random() > 0.15,
-        "players": [
-            {
-                "display_name": n,
-                "weapon_id": rng.randint(1, len(WEAPONS)),
-                "total_damage": totals[n],
-                # biggest single ~1s frame, same scale as the real importer
-                "peak_dps": totals[n] / 10 * rng.uniform(0.9, 1.8),
-            }
-            for n in members
-        ],
+        # Edge cases sprinkled deterministically: SOS + ignored rows.
+        "is_sos": (i % 11 == 10),
+        "players": players,
         "snapshots": snapshots,
+        "abnormalities": abnormalities,
         "events": [{"event_type": "enrage", "start_offset_seconds": quest_time * 0.4,
                     "end_offset_seconds": quest_time * 0.55}],
         "hp_steps": [
             {"ts_offset_seconds": quest_time * k / 12,
-             "hp_fraction": max(0.02, 1.0 - k / 12 + rng.uniform(-0.03, 0.03))}
+             "hp_fraction": min(1.0, max(0.02, 1.0 - k / 12 + rng.uniform(-0.03, 0.03)))}
             for k in range(13)
         ],
         "hunterpie_version": "2.14.0",
@@ -106,8 +135,12 @@ def main() -> None:
     rng = random.Random(args.seed)
     created = 0
     for i in range(args.hunts):
-        _, was_created, _ = upsert_hunt(session, fake_hunt(i, rng, args.max_party))
+        hunt, was_created, _ = upsert_hunt(session, fake_hunt(i, rng, args.max_party))
         created += was_created
+        # Every 13th hunt is user-hidden (ignored-filter UI needs data).
+        if was_created and i % 13 == 12:
+            hunt.ignored = True
+            session.commit()
     print(f"seeded {created} new hunts into {args.db}")
 
 

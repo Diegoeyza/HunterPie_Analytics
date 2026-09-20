@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { createPortal } from "react-dom";
-import { apiGet } from "../../lib/api";
-import { fmtDps, fmtPct, fmtTime } from "../../lib/format";
+import { fmtDps, fmtInt, fmtPct, fmtTime } from "../../lib/format";
+import { ApiState, useApi } from "../../lib/useApi";
 import DataTable from "../DataTable";
 import EmptyState from "../EmptyState";
-import HunterCard, { fmtDmg } from "../HunterCard";
+import HunterCard from "../HunterCard";
+import Modal from "../Modal";
 
 interface QuestRow {
   /** Stable group key (hunt:<id> | survey:<qid>:<mid> | quest:<qid>). */
@@ -44,7 +44,7 @@ const columns: ColumnDef<QuestRow>[] = [
   {
     id: "max_hp", accessorFn: (r) => r.max_hp ?? -1, header: "HP",
     meta: { cls: "num" },
-    cell: ({ row }) => (row.original.max_hp ? Math.round(row.original.max_hp).toLocaleString() : "—"),
+    cell: ({ row }) => (row.original.max_hp ? fmtInt(row.original.max_hp) : "—"),
   },
   { id: "hunts", accessorKey: "hunts", header: "Hunts", meta: { cls: "num" } },
   {
@@ -83,26 +83,20 @@ const columns: ColumnDef<QuestRow>[] = [
  *  expandable instance with that run's hunter damage + DPS. Latest run
  *  starts expanded. Closes on backdrop click, the × button, or Escape. */
 function QuestPopup({ quest, onClose, partySize }: { quest: QuestRow; onClose: () => void; partySize: number | null }) {
-  const [instances, setInstances] = useState<QuestInstance[] | null>(null);
   const [open, setOpen] = useState<Set<number>>(new Set());
+  const { data, error, loading } = useApi<{ hunts: QuestInstance[] }>("/quests/detail", {
+    key: quest.key,
+    ...(partySize != null && { players: partySize }),
+  });
+  // ?? []: a stale API serving the previous response shape must show
+  // an empty list, never crash the whole tab (instances.map below).
+  const instances = data ? (data.hunts ?? []) : null;
 
+  // Latest run starts expanded.
   useEffect(() => {
-    setInstances(null);
-    setOpen(new Set());
-    apiGet<{ hunts: QuestInstance[] }>("/quests/detail", {
-      key: quest.key,
-      ...(partySize != null && { players: partySize }),
-    }).then(
-      (d) => {
-        // ?? []: a stale API serving the previous response shape must show
-        // an empty list, never crash the whole tab (instances.map below).
-        const hunts = d.hunts ?? [];
-        setInstances(hunts);
-        if (hunts.length > 0) setOpen(new Set([hunts[0].id]));
-      },
-      () => setInstances([]),
-    );
-  }, [quest.key, partySize]);
+    if (instances && instances.length > 0) setOpen(new Set([instances[0].id]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quest.key, partySize, data]);
 
   const toggle = (id: number) =>
     setOpen((s) => {
@@ -111,17 +105,6 @@ function QuestPopup({ quest, onClose, partySize }: { quest: QuestRow; onClose: (
       else next.add(id);
       return next;
     });
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
 
   const title =
     `${quest.quest_id === null ? "Hunt" : `#${quest.quest_id}`} ${quest.monster}` +
@@ -136,30 +119,28 @@ function QuestPopup({ quest, onClose, partySize }: { quest: QuestRow; onClose: (
     ["Enrage", fmtPct(quest.enrage_uptime)],
     ["Carts", String(quest.carts)],
   ];
-  return createPortal(
-    <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="modal-panel" role="dialog" aria-modal="true" aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <h2>{title}</h2>
-          <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
-            ×
-          </button>
+  return (
+    <Modal label={title} onClose={onClose}>
+      <div className="modal-head">
+        <h2>{title}</h2>
+        <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+      </div>
+      <div className="modal-body">
+        <div className="quest-stats">
+          {stats.map(([label, value]) => (
+            <div className="quest-stat" key={label}>
+              <span className="muted">{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
         </div>
-        <div className="modal-body">
-          <div className="quest-stats">
-            {stats.map(([label, value]) => (
-              <div className="quest-stat" key={label}>
-                <span className="muted">{label}</span>
-                <strong>{value}</strong>
-              </div>
-            ))}
-          </div>
-          {instances === null ? (
-            <p>Loading hunts…</p>
-          ) : (
+        {error ? (
+          <ApiState error={error} loading={false} />
+        ) : instances === null || loading ? (
+          <p>Loading hunts…</p>
+        ) : (
             <div className="quest-instances">
               {instances.map((h) => {
                 const team = h.members.reduce((s, m) => s + m.total_damage, 0);
@@ -178,7 +159,7 @@ function QuestPopup({ quest, onClose, partySize }: { quest: QuestRow; onClose: (
                         {h.started_at.slice(0, 10)}
                         {h.clear_s ? ` · ${h.cleared ? "cleared" : "failed"} in ${fmtTime(h.clear_s)}` : ""}
                         {h.carts > 0 ? ` · ${h.carts} cart${h.carts === 1 ? "" : "s"}` : ""}
-                        {` · ${fmtDmg(team)} team damage · ${h.members.length} hunter${h.members.length === 1 ? "" : "s"}`}
+                        {` · ${fmtInt(team)} team damage · ${h.members.length} hunter${h.members.length === 1 ? "" : "s"}`}
                       </span>
                     </button>
                     {isOpen && (
@@ -202,28 +183,19 @@ function QuestPopup({ quest, onClose, partySize }: { quest: QuestRow; onClose: (
               })}
             </div>
           )}
-        </div>
       </div>
-    </div>,
-    document.body
+    </Modal>
   );
 }
 
 export default function QuestsView({ partySize }: { partySize: number | null }) {
-  const [rows, setRows] = useState<QuestRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<QuestRow | null>(null);
+  const { data, error, loading } = useApi<{ quests: QuestRow[] }>("/quests", {
+    ...(partySize != null && { players: partySize }),
+  });
+  const rows = data?.quests ?? null;
 
-  useEffect(() => {
-    apiGet<{ quests: QuestRow[] }>("/quests", {
-      ...(partySize != null && { players: partySize }),
-    })
-      .then((d) => setRows(d.quests))
-      .catch((e: Error) => setError(e.message));
-  }, [partySize]);
-
-  if (error) return <p className="error">{error} — is the API running?</p>;
-  if (!rows) return <p>Loading…</p>;
+  if (error || loading || !rows) return <ApiState error={error} loading={loading} />;
   if (rows.length === 0) {
     return (
       <EmptyState what="quest data">

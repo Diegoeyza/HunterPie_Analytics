@@ -1,73 +1,83 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { apiGet, apiSend, type Health } from "../lib/api";
-
-interface ImportJobStatus {
-  job_id: string;
-  state: "running" | "done" | "error";
-  total: number;
-  scanned: number;
-  imported: number;
-  duplicates: number;
-  skipped_manifest: number;
-  imported_ids: number[];
-  errors: { file: string; error: string }[];
-  error: string | null;
-}
+import { apiGet, apiInvalidate, apiSend, type ImportJobStatus } from "../lib/api";
+import { useToast } from "./Toast";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export default function ImportButton({ onImported }: { onImported: (h: Health) => void }) {
+/** Header import button: background HuntExports import with progress.
+ *  No page reloads — cache invalidation + onImported refresh every view.
+ *  Supports cancel (server-side) and surfaces per-file warnings.
+ */
+export default function ImportButton({ onImported }: { onImported: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState<ImportJobStatus | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [isError, setIsError] = useState(false);
   const cancelled = useRef(false);
+  const toast = useToast();
 
   useEffect(() => () => { cancelled.current = true; }, []);
 
-  const finish = async (st: ImportJobStatus) => {
-    const h = await apiGet<Health>("/health");
-    onImported(h);
-    if (st.state === "error") {
-      setIsError(true);
-      setMsg(`Import failed: ${st.error ?? "unknown error"}`);
+  const finish = (st: ImportJobStatus) => {
+    apiInvalidate();
+    onImported();
+    if (st.state === "cancelled") {
+      toast.push(`Import cancelled — ${st.imported} new hunt(s) kept`, true);
+    } else if (st.state === "error") {
+      toast.push(`Import failed: ${st.error ?? "unknown error"}`, true);
     } else if (st.errors.length > 0) {
-      setIsError(true);
-      setMsg(`${st.errors.length} file(s) failed (first: ${st.errors[0].file}) — ${st.imported} new hunt(s)`);
+      toast.push(`${st.errors.length} file(s) failed (first: ${st.errors[0].file}) — ${st.imported} new`, true);
+    } else if (st.warnings.length > 0) {
+      const n = st.warnings.reduce((a, w) => a + w.warnings.length, 0);
+      toast.push(`Imported ${st.imported} new hunt(s) · ${n} warning(s) — see Review tab`);
     } else if (st.imported > 0) {
-      setMsg(`Imported ${st.imported} new hunt${st.imported === 1 ? "" : "s"} — refreshing…`);
-      setTimeout(() => window.location.reload(), 2000);
+      toast.push(`Imported ${st.imported} new hunt${st.imported === 1 ? "" : "s"}`);
     } else {
-      setMsg(`Up to date — ${st.scanned} files (${st.skipped_manifest} skipped), nothing new`);
+      toast.push(`Up to date — ${st.scanned} files (${st.skipped_manifest} skipped), nothing new`);
     }
   };
 
   const run = async (force: boolean) => {
     setBusy(true);
     setProgress(null);
-    setMsg(null);
-    setIsError(false);
     try {
       const { job_id } = await apiSend<{ job_id: string }>(
         "POST", force ? "/import?force=1" : "/import");
+      setJobId(job_id);
       for (;;) {
         await sleep(500);
         if (cancelled.current) return;
-        const st = await apiGet<ImportJobStatus>("/import/status", { job_id });
+        let st: ImportJobStatus;
+        try {
+          st = await apiGet<ImportJobStatus>("/import/status", { job_id });
+        } catch (e) {
+          if (cancelled.current) return;
+          throw e;
+        }
         if (cancelled.current) return;
         setProgress(st);
         if (st.state !== "running") {
-          await finish(st);
+          finish(st);
           break;
         }
       }
     } catch (e) {
-      setIsError(true);
-      setMsg(e instanceof Error ? e.message : "Import failed");
+      const msg = e instanceof Error ? e.message : "Import failed";
+      // 409 = another import already running (single-flight).
+      toast.push(msg.includes("409") ? "An import is already running" : msg, true);
     } finally {
       setBusy(false);
+      setJobId(null);
+    }
+  };
+
+  const cancel = async () => {
+    if (!jobId) return;
+    try {
+      await apiSend("POST", `/import/cancel?job_id=${jobId}`);
+    } catch {
+      /* the poll loop surfaces the terminal state */
     }
   };
 
@@ -89,6 +99,12 @@ export default function ImportButton({ onImported }: { onImported: (h: Health) =
       >
         Full recheck
       </button>
+      {busy && (
+        <button type="button" className="import-button import-button--ghost"
+          onClick={cancel} title="Stop after the current file">
+          Cancel
+        </button>
+      )}
       {busy && progress && (
         <span className="import-progress" role="status" aria-label="Import progress">
           <progress value={progress.scanned} max={Math.max(progress.total, 1)} />
@@ -98,7 +114,6 @@ export default function ImportButton({ onImported }: { onImported: (h: Health) =
           </span>
         </span>
       )}
-      {msg && <span className={`status-text ${isError ? "error" : ""}`}>{msg}</span>}
     </span>
   );
 }

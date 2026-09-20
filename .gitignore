@@ -18,7 +18,12 @@ obj/
 # SQLite
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 *.sqlite3
+
+# Playwright MCP browser state
+.playwright-mcp/
 
 # OS / editor
 .DS_Store

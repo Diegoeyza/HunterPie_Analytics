@@ -1,8 +1,6 @@
 "use client";
 
-import { fmtDps, fmtPct } from "../lib/format";
-
-export const fmtDmg = (d: number): string => Math.round(d).toLocaleString();
+import { fmtDps, fmtInt, fmtPct } from "../lib/format";
 
 export interface HunterCardData {
   player: string;
@@ -25,7 +23,7 @@ export default function HunterCard({ m, mvp }: { m: HunterCardData; mvp: boolean
         <span className="member-name" title={m.player}>{mvp ? "★ " : ""}{m.player}</span>
         <span className="muted" title={m.caption}>{m.caption}</span>
       </div>
-      <div className="member-dmg">{fmtDmg(m.total_damage)}</div>
+      <div className="member-dmg">{fmtInt(m.total_damage)}</div>
       <div className="member-sub">
         <span>{fmtDps(m.dps)} DPS</span>
         <span className="muted">{fmtPct(m.share, 1)} {m.shareLabel}</span>

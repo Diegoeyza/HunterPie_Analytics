@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { apiGet } from "../../lib/api";
-import { fmtDps, fmtPct, fmtTime } from "../../lib/format";
+import { fmtPct, fmtTime } from "../../lib/format";
+import { ApiState, useApi } from "../../lib/useApi";
 import DataTable from "../DataTable";
-import SearchSelect from "../SearchSelect";
+import { MonsterSelect, StarsSelect } from "../FilterBar";
 import { useFilterOptions } from "../useFilterOptions";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
 
@@ -25,9 +25,7 @@ const columns: ColumnDef<Pairing>[] = [
   {
     id: "avg_clear_s", accessorFn: (r) => r.avg_clear_s ?? -1, header: "Avg clear",
     meta: { cls: "num" },
-    cell: ({ row }) => (
-      row.original.avg_clear_s ? `${Math.round(row.original.avg_clear_s)}s` : "—"
-    ),
+    cell: ({ row }) => fmtTime(row.original.avg_clear_s),
   },
   {
     id: "avg_share",
@@ -43,45 +41,35 @@ const columns: ColumnDef<Pairing>[] = [
 ];
 
 export default function SynergyView({ scope, variantId, clearScope, partySize }: { scope: number[]; variantId: number | string | null; clearScope: () => void; partySize: number | null }) {
-  const [rows, setRows] = useState<Pairing[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [stars, setStars] = useState("");
 
-  useEffect(() => {
-    apiGet<{ pairings: Pairing[] }>("/synergy", {
-      ...(scope.length > 0 && { player_ids: scope.join(",") }),
-      ...(monster && { monster_id: Number(monster) }),
-      ...(stars && { stars: Number(stars) }),
-      ...(variantId !== null && { variant_id: variantId }),
-      ...(partySize != null && { players: partySize }),
-    })
-      .then((d) => setRows(d.pairings))
-      .catch((e: Error) => setError(e.message));
-  }, [scope.join(","), monster, stars, variantId, partySize]);
-
-  if (error) return <p className="error">{error} — is the API running on :8000?</p>;
-  if (!rows) return <p>Loading…</p>;
-
-  const starOptions = monster ? (opts?.monster_stars[Number(monster)] ?? []) : opts?.stars ?? [];
+  const { data, error, loading } = useApi<{ pairings: Pairing[] }>("/synergy", {
+    ...(scope.length > 0 && { player_ids: scope.join(",") }),
+    ...(monster && { monster_id: Number(monster) }),
+    ...(stars && { stars: Number(stars) }),
+    ...(variantId !== null && { variant_id: variantId }),
+    ...(partySize != null && { players: partySize }),
+  });
+  const rows = data?.pairings ?? null;
 
   const filters = (
     <div className="filters">
-      <SearchSelect
-        label="Monster"
-        value={monster}
-        options={(opts?.monsters ?? []).map((m) => ({ value: String(m.id), label: m.name }))}
-        onChange={(v) => { setMonster(v); setStars(""); }}
-      />
-      <label>Stars
-        <select value={stars} onChange={(e) => setStars(e.target.value)}>
-          <option value="">All</option>
-          {starOptions.map((s) => <option key={s} value={s}>{s}★</option>)}
-        </select>
-      </label>
+      <MonsterSelect value={monster} opts={opts}
+        onChange={(v) => { setMonster(v); setStars(""); }} />
+      <StarsSelect value={stars} onChange={setStars} monster={monster} opts={opts} />
     </div>
   );
+
+  if (error || loading || !rows) {
+    return (
+      <div className="card">
+        {filters}
+        <ApiState error={error} loading={loading} />
+      </div>
+    );
+  }
 
   if (rows.length === 0) {
     if (scope.length > 0) {

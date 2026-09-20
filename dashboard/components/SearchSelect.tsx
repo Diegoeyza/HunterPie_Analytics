@@ -66,7 +66,9 @@ export default function SearchSelect({ label, value, options, placeholder, showA
       if (!open) {
         setOpen(true);
       } else if (highlight === -1) {
-        if (showAll) commit("");
+        // Never hijack Enter into "All": commit only an unambiguous
+        // single match, otherwise leave the menu open.
+        if (capped.length === 1 && capped[0]) commit(capped[0].value);
       } else {
         const pick = capped[highlight];
         if (pick) commit(pick.value);
@@ -91,6 +93,12 @@ export default function SearchSelect({ label, value, options, placeholder, showA
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onKeyDown={onKey}
         />
+        {!open && value !== "" && (
+          <button type="button" className="combo-clear" aria-label={`Clear ${label}`}
+            onMouseDown={(e) => { e.preventDefault(); onChange(""); }}>
+            ✕
+          </button>
+        )}
         {open && (
           <ul className="combo-list" id={listId} role="listbox">
             {showAll && (

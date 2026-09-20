@@ -1,15 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import {
-  Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer,
-  Tooltip, XAxis, YAxis,
-} from "recharts";
-import { apiGet } from "../../lib/api";
-import { fmtDps, fmtPct } from "../../lib/format";
+import {Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, XAxis, YAxis, } from "recharts";
+import { fmtDps, fmtInt, fmtPct } from "../../lib/format";
+import { ApiState, useApi } from "../../lib/useApi";
 import DataTable from "../DataTable";
 import EmptyState from "../EmptyState";
+import { ChartTip, GRID_STROKE, TICK } from "../ChartKit";
 
 interface DayRow {
   date: string; hunts: number; clear_rate: number;
@@ -32,24 +29,17 @@ const columns: ColumnDef<DayRow>[] = [
   {
     id: "total_damage", accessorKey: "total_damage", header: "Damage",
     meta: { cls: "num" },
-    cell: ({ row }) => Math.round(row.original.total_damage).toLocaleString(),
+    cell: ({ row }) => fmtInt(row.original.total_damage),
   },
 ];
 
 export default function ActivityView({ partySize }: { partySize: number | null }) {
-  const [days, setDays] = useState<DayRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data, error, loading } = useApi<{ days: DayRow[] }>("/activity", {
+    ...(partySize != null && { players: partySize }),
+  });
+  const days = data?.days ?? null;
 
-  useEffect(() => {
-    apiGet<{ days: DayRow[] }>("/activity", {
-      ...(partySize != null && { players: partySize }),
-    })
-      .then((d) => setDays(d.days))
-      .catch((e: Error) => setError(e.message));
-  }, [partySize]);
-
-  if (error) return <p className="error">{error} — is the API running?</p>;
-  if (!days) return <p>Loading…</p>;
+  if (error || loading || !days) return <ApiState error={error} loading={loading} />;
   if (days.length === 0) {
     return (
       <EmptyState what="activity">
@@ -65,18 +55,18 @@ export default function ActivityView({ partySize }: { partySize: number | null }
     <div className="cards-2">
       <div className="card">
         <h2>
-          {totalHunts} hunts · {Math.round(totalDmg).toLocaleString()} total damage · {days.length} active day{days.length === 1 ? "" : "s"}
+          {totalHunts} hunts · {fmtInt(totalDmg)} total damage · {days.length} active day{days.length === 1 ? "" : "s"}
         </h2>
         <ResponsiveContainer width="100%" height={300}>
           <ComposedChart data={days}>
-            <CartesianGrid stroke="#2c313e" />
-            <XAxis dataKey="date" tick={{ fill: "#9aa1b2", fontSize: 11 }} interval="preserveStartEnd" />
-            <YAxis yAxisId="n" tick={{ fill: "#9aa1b2", fontSize: 11 }} allowDecimals={false}
-              label={{ value: "hunts", fill: "#9aa1b2", fontSize: 11, angle: -90, position: "insideLeft" }} />
+            <CartesianGrid stroke={GRID_STROKE} />
+            <XAxis dataKey="date" tick={TICK} interval="preserveStartEnd" />
+            <YAxis yAxisId="n" tick={TICK} allowDecimals={false}
+              label={{ value: "hunts", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: -90, position: "insideLeft" }} />
             <YAxis yAxisId="rate" orientation="right" domain={[0, 1]}
-              tick={{ fill: "#9aa1b2", fontSize: 11 }} tickFormatter={(v: number) => `${v * 100}%`}
-              label={{ value: "clear rate", fill: "#9aa1b2", fontSize: 11, angle: 90, position: "insideRight" }} />
-            <Tooltip contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }} />
+              tick={TICK} tickFormatter={(v: number) => `${v * 100}%`}
+              label={{ value: "clear rate", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: 90, position: "insideRight" }} />
+            <ChartTip />
             <Bar yAxisId="n" dataKey="hunts" name="hunts" fill="#5aa9e6" />
             <Line yAxisId="rate" type="monotone" dataKey="clear_rate" name="clear rate"
               stroke="#58b368" dot={false} strokeWidth={2} />
