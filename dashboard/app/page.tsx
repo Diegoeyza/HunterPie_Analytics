@@ -6,7 +6,7 @@ import { useApi } from "../lib/useApi";
 import { apiInvalidate } from "../lib/api";
 import { parseIds, readParam, writeParams } from "../lib/url";
 import { TABS, type ViewCtx } from "../lib/registry";
-import ScopeBar, { loadParty, loadScope, loadVariant, storeParty, storeScope, storeVariant } from "../components/ScopeBar";
+import ScopeBar, { DEFAULT_PARTY_SIZE, loadParty, loadScope, loadVariant, storeParty, storeScope, storeVariant } from "../components/ScopeBar";
 import HuntsManager from "../components/HuntsManager";
 import ImportButton from "../components/ImportButton";
 import ThemeToggle from "../components/ThemeToggle";
@@ -36,16 +36,22 @@ function initialParty(): number | null {
 }
 
 export default function Home() {
-  const [tab, setTab] = useState(initialTab);
-  const [scope, setScope] = useState<number[]>(initialScope);
+  // Defaults first (server prerender); URL/localStorage sync in the
+  // mount effect below — reading window.location during render would
+  // hydrate-mismatch on shared links (?tab=hunts prerenders as tab=0).
+  const [tab, setTab] = useState(TABS[0].id);
+  const [scope, setScope] = useState<number[]>([]);
   const [variantId, setVariantId] = useState<number | string | null>(null);
-  const [partySize, setPartySize] = useState<number | null>(initialParty);
+  const [partySize, setPartySize] = useState<number | null>(DEFAULT_PARTY_SIZE);
   const [scopeReady, setScopeReady] = useState(false);
   const healthQ = useApi<Health>("/health");
 
   useEffect(() => {
-    // A persisted variant only survives with the same single-hunter scope.
+    setTab(initialTab());
     const ids = initialScope();
+    setScope(ids);
+    setPartySize(initialParty());
+    // A persisted variant only survives with the same single-hunter scope.
     setVariantId(ids.length === 1 ? loadVariant() : null);
     setScopeReady(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
@@ -16,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from . import queries
-from .db import DEFAULT_DB_PATH, make_session
+from .db import DEFAULT_DB_PATH, init_db, make_session
 from .filters import (
     MAX_LIMIT,
     MAX_PARTY,
@@ -33,12 +34,21 @@ log = logging.getLogger(__name__)
 
 DB_PATH = Path(os.environ.get("HUNTS_DB", DEFAULT_DB_PATH))
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # New tables/columns (e.g. player_aliases) must exist before the first
+    # request: a plain `python -m app.api` boot never ran init_db, so fresh
+    # code against an old DB 500'd on missing tables. Idempotent.
+    init_db(DB_PATH)
+    yield
+
 # Local dev serves the dashboard on varying ports (:3000 dev, :3001 prod
 # preview). Extra origins can be appended via $CORS_ORIGINS (comma-sep).
 # NOTE: this Starlette version rejects allow_origins=None — always pass a
 # real list and use allow_origin_regex for the localhost range.
 _extra = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
-app = FastAPI(title="HunterPie Analytics")
+app = FastAPI(title="HunterPie Analytics", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", *dict.fromkeys(_extra)],

@@ -12,7 +12,8 @@ import type { FilterOptions } from "../lib/api";
 export function MonsterSelect({ value, onChange, opts }: {
   value: string; onChange: (v: string) => void; opts?: FilterOptions | null;
 }) {
-  const o = opts ?? useFilterOptions();
+  const fallback = useFilterOptions();
+  const o = opts ?? fallback;
   return (
     <SearchSelect
       label="Monster"
@@ -28,7 +29,8 @@ export function StarsSelect({ value, onChange, monster, opts }: {
   value: string; onChange: (v: string) => void; monster: string;
   opts?: FilterOptions | null;
 }) {
-  const o = opts ?? useFilterOptions();
+  const fallback = useFilterOptions();
+  const o = opts ?? fallback;
   const stars = monster
     ? (o?.monster_stars[Number(monster)] ?? o?.stars ?? [])
     : (o?.stars ?? []);
@@ -45,7 +47,8 @@ export function StarsSelect({ value, onChange, monster, opts }: {
 export function WeaponSelect({ value, onChange, opts }: {
   value: string; onChange: (v: string) => void; opts?: FilterOptions | null;
 }) {
-  const o = opts ?? useFilterOptions();
+  const fallback = useFilterOptions();
+  const o = opts ?? fallback;
   return (
     <SearchSelect
       label="Weapon"
@@ -59,7 +62,8 @@ export function WeaponSelect({ value, onChange, opts }: {
 export function HunterSelect({ value, onChange, opts }: {
   value: string; onChange: (v: string) => void; opts?: FilterOptions | null;
 }) {
-  const o = opts ?? useFilterOptions();
+  const fallback = useFilterOptions();
+  const o = opts ?? fallback;
   return (
     <SearchSelect
       label="Hunter"
@@ -74,7 +78,8 @@ export function HunterSelect({ value, onChange, opts }: {
  *  starless survey slots stay split by target: `391@m10` values).
  */
 export function useQuestOptions(opts?: FilterOptions | null) {
-  const o = opts ?? useFilterOptions();
+  const fallback = useFilterOptions();
+  const o = opts ?? fallback;
   return useMemo(() => {
     const byId = new Map<string, { id: number; mid: number; monsters: string[]; stars: number | null }>();
     for (const q of o?.quests ?? []) {
