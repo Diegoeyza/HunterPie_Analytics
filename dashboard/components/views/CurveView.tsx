@@ -104,8 +104,8 @@ const HP_COLORS = ["#e05c5c", "#ef8354", "#c94f7c", "#e8b64c"];
 
 export default function CurveView({ scope, partySize }: { scope: number[]; partySize: number | null }) {
   const opts = useFilterOptions();
-  const [questKey, setQuestKey] = useState<string | null>(null);
   const [huntId, setHuntId] = useState<number | null>(null);
+  const [monsterHunt, setMonsterHunt] = useState<number | null>(null);
   const [showHp, setShowHp] = useState(true);
   const [metric, setMetric] = useState<Metric>("damage");
 
@@ -113,9 +113,9 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
     () => new Map((opts?.players ?? []).map((p) => [p.name, p.id])),
     [opts]);
 
-  // Quest list follows the hunter scope (any-of): only hunts the scoped
+  // Hunt list follows the hunter scope (any-of): only hunts the scoped
   // hunter(s) fought in. A selection that vanishes from the filtered
-  // list falls back to the latest quest.
+  // list falls back to the latest hunt.
   const huntsQ = useApi<{ hunts: HuntSummary[] }>("/hunts", {
     limit: 200,
     ...(scope.length > 0 && { player_ids: scope.join(",") }),
@@ -123,68 +123,44 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
   });
   const hunts = huntsQ.data?.hunts ?? null;
 
-  /** Quests in hunt-list order (latest first), grouped by quest_id so
-   *  repeat runs of the same quest (e.g. #558) collapse into one entry.
-   *  Unknown-star slots (e.g. field surveys) reuse ids across targets AND
-   *  across sessions, so those group per session (quest id + start time):
-   *  each entry is one real hunt with its true monster set. Hunts without
-   *  a quest id stay per-session. */
-  const quests = useMemo(() => {
-    const groups = new Map<string, HuntSummary[]>();
-    const keyOf = (h: HuntSummary) =>
-      h.quest_id != null && h.quest_stars != null ? `q:${h.quest_id}`
-      : h.quest_id != null ? `s:${h.quest_id}:${h.started_at}`
-      : `t:${h.started_at}`;
-    for (const h of hunts ?? []) {
-      const key = keyOf(h);
-      const g = groups.get(key);
-      if (g) g.push(h);
-      else groups.set(key, [h]);
-    }
-    return [...groups.entries()].map(([key, hs]) => {
-      const qid = hs[0].quest_id;
-      const stars = hs[0].quest_stars;
-      const monsters = [...new Set(hs.map((h) => h.monster))].join(" + ");
-      const when = `${hs[0].started_at.slice(0, 10)} ${hs[0].started_at.slice(11, 16)}`;
-      const label = qid != null && stars != null
-        ? `#${qid} ${stars}★ · ${monsters} · ${hs.length} hunt${hs.length === 1 ? "" : "s"}`
-        : qid != null
-          ? `#${qid} · ${when} · ${monsters}`
-          : `${when} · ${monsters} · ${hs[0].players}p`;
-      return { key, hunts: hs, label };
-    });
-  }, [hunts]);
-
-  // Default to the latest quest (All monsters) when the list loads or the
-  // selection vanishes from a rescoped list.
+  // Default to the latest hunt when the list loads or the selection
+  // vanishes from a rescoped list.
   useEffect(() => {
     if (!hunts) return;
-    if (quests.length === 0) {
-      if (questKey !== null) { setQuestKey(null); setHuntId(null); }
+    if (hunts.length === 0) {
+      if (huntId !== null) { setHuntId(null); setMonsterHunt(null); }
       return;
     }
-    if (questKey === null || !quests.some((q) => q.key === questKey)) {
-      setQuestKey(quests[0].key);
-      setHuntId(null);
+    if (huntId === null || !hunts.some((h) => h.id === huntId)) {
+      setHuntId(hunts[0].id);
+      setMonsterHunt(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hunts]);
-  const questHunts = useMemo(
-    () => quests.find((q) => q.key === questKey)?.hunts ?? hunts ?? [],
-    [quests, questKey, hunts]
-  );
 
-  /** Null huntId = All monsters. Snapshots are quest-wide (identical across
-   *  siblings), so one fetch carries the whole quest: players + every
-   *  monster's HP and enrage spans. Display filters down when one monster
-   *  is picked. */
-  const fetchId = huntId ?? questHunts[0]?.id ?? null;
+  /** One fetch per hunt. Snapshots are quest-wide (identical across
+   *  siblings), so one fetch carries the whole quest instance: players +
+   *  every monster's HP and enrage spans. Display filters down when one
+   *  monster is picked. */
+  const fetchId = huntId ?? hunts?.[0]?.id ?? null;
   const curveQ = useApi<CurveData>(
     fetchId === null ? "" : `/hunts/${fetchId}/curve`,
     fetchId === null ? null : { quest_hp: 1 });
-  // Keyed fetch: ignore a stale previous-quest curve while the new one loads.
+  // Keyed fetch: ignore a stale previous-hunt curve while the new one loads.
   const curve = curveQ.data && curveQ.data.hunt_id === fetchId ? curveQ.data : null;
   const error = huntsQ.error ?? curveQ.error;
+
+  /** Sibling monsters of this quest instance (one row per monster). */
+  const siblingOptions = useMemo(() => {
+    if (!curve) return [];
+    const base = curve.quest_hp && curve.quest_hp.length > 0
+      ? curve.quest_hp
+      : [{ hunt_id: curve.hunt_id, monster: curve.monster }];
+    return base.map((s) => ({
+      value: String(s.hunt_id),
+      label: `#${s.hunt_id} ${s.monster}`,
+    }));
+  }, [curve]);
 
   /** HP series for every monster in the quest (any number). Colors follow
    *  quest order so each monster keeps its shade whether viewed alone or
@@ -205,24 +181,25 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
       color: HP_COLORS[i % HP_COLORS.length],
       points: s.points,
     }));
-    if (huntId == null) return colored;
+    if (monsterHunt == null) return colored;
     return [...colored].sort((a, b) =>
-      (a.hunt_id === huntId ? -1 : b.hunt_id === huntId ? 1 : a.hunt_id - b.hunt_id));
-  }, [curve, huntId]);
+      (a.hunt_id === monsterHunt ? -1 : b.hunt_id === monsterHunt ? 1 : a.hunt_id - b.hunt_id));
+  }, [curve, monsterHunt]);
 
   /** Monster filter: null = All. Narrow HP lines + enrage spans to the
-   *  picked hunt; hunt_id match first, monster-name fallback for old data. */
+   *  picked sibling hunt; hunt_id match first, monster-name fallback for
+   *  old data. */
   const visibleHp = useMemo(
-    () => (huntId == null ? hpSeries : hpSeries.filter((s) => s.hunt_id === huntId)),
-    [hpSeries, huntId]
+    () => (monsterHunt == null ? hpSeries : hpSeries.filter((s) => s.hunt_id === monsterHunt)),
+    [hpSeries, monsterHunt]
   );
   const visibleEvents = useMemo(() => {
     if (!curve) return [];
-    if (huntId == null) return curve.events;
+    if (monsterHunt == null) return curve.events;
     return curve.events.filter((e) =>
-      e.hunt_id != null ? e.hunt_id === huntId : (e.monster ?? curve.monster) ===
-        (hpSeries.find((s) => s.hunt_id === huntId)?.monster ?? curve.monster));
-  }, [curve, huntId, hpSeries]);
+      e.hunt_id != null ? e.hunt_id === monsterHunt : (e.monster ?? curve.monster) ===
+        (hpSeries.find((s) => s.hunt_id === monsterHunt)?.monster ?? curve.monster));
+  }, [curve, monsterHunt, hpSeries]);
 
   /** Enrage shade per monster, matching its HP line; overlaps stack opacity. */
   const eventColor = useMemo(() => {
@@ -260,9 +237,9 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
     [curve, visibleHp, visibleEvents, showHp, metric]
   );
 
-  const selectQuest = (key: string) => {
-    setQuestKey(key);
-    setHuntId(null);
+  const selectHunt = (v: string) => {
+    setHuntId(v ? Number(v) : null);
+    setMonsterHunt(null);
   };
 
   if (error) return <ApiState error={error} loading={false} />;
@@ -279,20 +256,20 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
     <div className="card">
       <div className="filters">
         <SearchSelect
-          label="Quest"
-          value={questKey ?? ""}
-          options={quests.map((q) => ({ value: q.key, label: q.label }))}
-          onChange={selectQuest}
+          label="Hunt"
+          value={huntId === null ? "" : String(huntId)}
+          options={(hunts ?? []).map((h) => ({
+            value: String(h.id),
+            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${h.started_at.slice(0, 10)} · ${h.players}p${h.quest_id != null ? ` · quest #${h.quest_id}` : ""}`,
+          }))}
+          onChange={selectHunt}
         />
         <SearchSelect
           label="Monster"
-          value={huntId === null ? "" : String(huntId)}
+          value={monsterHunt === null ? "" : String(monsterHunt)}
           placeholder="All monsters — type to search"
-          options={questHunts.map((h) => ({
-            value: String(h.id),
-            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${h.started_at.slice(0, 10)} · ${h.players}p`,
-          }))}
-          onChange={(v) => setHuntId(v ? Number(v) : null)}
+          options={siblingOptions}
+          onChange={(v) => setMonsterHunt(v ? Number(v) : null)}
         />
         <label>
           <input type="checkbox" checked={showHp} onChange={(e) => setShowHp(e.target.checked)} />
@@ -309,14 +286,14 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
       {curve && (
         <>
           <h2>
-            {huntId == null
+            {monsterHunt == null
               ? (visibleHp.length > 0
                   ? visibleHp.map((s) => `#${s.hunt_id} ${s.monster}`).join(" + ")
                   : `#${curve.hunt_id} ${curve.monster}`)
               : `#${curve.hunt_id} ${curve.monster}`}
             {curve.quest.stars ? ` · ${curve.quest.stars}★` : ""}
             {curve.quest.quest_id ? ` · quest #${curve.quest.quest_id}` : ""}
-            {huntId != null && curve.quest.max_hp ? ` · ${fmtInt(curve.quest.max_hp)} HP` : ""}
+            {monsterHunt != null && curve.quest.max_hp ? ` · ${fmtInt(curve.quest.max_hp)} HP` : ""}
             {curve.clear_s ? ` · cleared in ${Math.round(curve.clear_s)}s` : ""}
           </h2>
           {enrageGroups.length > 0 && (
