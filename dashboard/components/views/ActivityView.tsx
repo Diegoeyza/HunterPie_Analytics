@@ -36,15 +36,17 @@ const columns: ColumnDef<DayRow>[] = [
   },
 ];
 
-export default function ActivityView() {
+export default function ActivityView({ partySize }: { partySize: number | null }) {
   const [days, setDays] = useState<DayRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiGet<{ days: DayRow[] }>("/activity")
+    apiGet<{ days: DayRow[] }>("/activity", {
+      ...(partySize != null && { players: partySize }),
+    })
       .then((d) => setDays(d.days))
       .catch((e: Error) => setError(e.message));
-  }, []);
+  }, [partySize]);
 
   if (error) return <p className="error">{error} — is the API running?</p>;
   if (!days) return <p>Loading…</p>;

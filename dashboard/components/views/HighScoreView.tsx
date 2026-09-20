@@ -90,7 +90,7 @@ const columns: ColumnDef<HighScore>[] = [
   },
 ];
 
-export default function HighScoreView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | string | null; clearScope: () => void }) {
+export default function HighScoreView({ scope, variantId, clearScope, partySize }: { scope: number[]; variantId: number | string | null; clearScope: () => void; partySize: number | null }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -110,9 +110,10 @@ export default function HighScoreView({ scope, variantId, clearScope }: { scope:
       ...(stars && { stars: Number(stars) }),
       sort_by: sortBy,
       ...(topN && { limit: Number(topN) }),
+      ...(partySize != null && { players: partySize }),
     }).then((d) => setRows(d.scores)).catch((e: Error) => setError(e.message));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope.join(","), variantId, monster, weapon, stars, sortBy, topN]);
+  }, [scope.join(","), variantId, monster, weapon, stars, sortBy, topN, partySize]);
 
   const starOptions = useMemo(
     () => (monster ? (opts?.monster_stars[Number(monster)] ?? []) : opts?.stars ?? []),

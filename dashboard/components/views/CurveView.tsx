@@ -98,7 +98,7 @@ const HP_COLORS = ["#e05c5c", "#ef8354", "#c94f7c", "#e8b64c"];
 
 
 
-export default function CurveView({ scope }: { scope: number[] }) {
+export default function CurveView({ scope, partySize }: { scope: number[]; partySize: number | null }) {
   const [hunts, setHunts] = useState<HuntSummary[] | null>(null);
   const [questKey, setQuestKey] = useState<string | null>(null);
   const [huntId, setHuntId] = useState<number | null>(null);
@@ -123,6 +123,7 @@ export default function CurveView({ scope }: { scope: number[] }) {
     setCurve(null);
     const params: Record<string, string | number> = { limit: 200 };
     if (scope.length > 0) params.player_ids = scopeKey;
+    if (partySize != null) params.players = partySize;
     apiGet<{ hunts: HuntSummary[] }>("/hunts", params)
       .then((d) => {
         setHunts(d.hunts);
@@ -143,7 +144,7 @@ export default function CurveView({ scope }: { scope: number[] }) {
       })
       .catch((e: Error) => setError(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey]);
+  }, [scopeKey, partySize]);
 
   /** Quests in hunt-list order (latest first), grouped by quest_id so
    *  repeat runs of the same quest (e.g. #558) collapse into one entry.

@@ -22,6 +22,8 @@ export interface ViewCtx {
   clearScope: () => void;
   /** Set the hunter scope to the given player ids. */
   setScope: (ids: number[]) => void;
+  /** Global party-size filter: exact hunters per hunt. Null = all sizes. */
+  partySize: number | null;
 }
 
 export interface TabDef {
@@ -37,72 +39,72 @@ export const TABS: TabDef[] = [
     id: "progress",
     title: "Progress",
     blurb: "FR-3.1 — rolling DPS and clear time per hunt, filterable by monster, quest, stars, weapon, hunter.",
-    render: (ctx) => <ProgressView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} />,
+    render: (ctx) => <ProgressView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
   },
   {
     id: "growth",
     title: "Growth",
     blurb: "Instance-weighted DPS change with per-group trends (median, best, slope, clear time). Single hunter drill-down, multi-hunter scope, monster/star/weapon/variant filters.",
-    render: (ctx) => <GrowthView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} setScope={ctx.setScope} />,
+    render: (ctx) => <GrowthView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} setScope={ctx.setScope} />,
   },
   {
     id: "weapons",
     title: "Weapons",
     blurb: "FR-3.2 — avg/peak DPS, hunt count and clear rate by weapon type.",
-    render: (ctx) => <WeaponsView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} />,
+    render: (ctx) => <WeaponsView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
   },
   {
     id: "curves",
     title: "Damage curves",
     blurb: "FR-3.3 — per-hunt cumulative damage overlay for all party members, monster HP curve, enrage markers.",
-    render: (ctx) => <CurveView scope={ctx.scope} />,
+    render: (ctx) => <CurveView scope={ctx.scope} partySize={ctx.partySize} />,
   },
   {
     id: "hunts",
     title: "Hunts",
     blurb: "Every run, latest first — click a row for party damage, DPS and the damage curve.",
-    render: (ctx) => <HuntsView scope={ctx.scope} />,
+    render: (ctx) => <HuntsView scope={ctx.scope} partySize={ctx.partySize} />,
   },
   {
     id: "quests",
     title: "Quests",
     blurb: "Same monster, different HP per quest — per-quest clear stats, best DPS and enrage uptime.",
-    render: () => <QuestsView />,
+    render: (ctx) => <QuestsView partySize={ctx.partySize} />,
   },
   {
     id: "leaderboard",
     title: "Leaderboard",
     blurb: "Best players by DPS over cleared hunts — filterable by monster, stars, weapon and min hunts.",
-    render: (ctx) => <LeaderboardView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} />,
+    render: (ctx) => <LeaderboardView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
   },
   {
     id: "high-scores",
     title: "High Scores",
     blurb: "One row per cleared hunt, ranked by top DPS or fastest clear. Scoped to the hunters bar above; filterable by monster, weapon and stars.",
-    render: (ctx) => <HighScoreView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} />,
+    render: (ctx) => <HighScoreView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
   },
   {
     id: "compare",
     title: "Compare",
     blurb: "Your scoped hunters vs the whole party, hunt by hunt. Star yourself in the hunters bar above.",
-    render: (ctx) => <CompareView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} />,
+    render: (ctx) => <CompareView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
   },
   {
     id: "activity",
     title: "Activity",
     blurb: "Hunt volume, clear rate and damage output day by day.",
-    render: () => <ActivityView />,
+    render: (ctx) => <ActivityView partySize={ctx.partySize} />,
   },
   {
     id: "synergy",
     title: "Synergy",
     blurb: "FR-3.4 — clear time and damage share by teammate pairing (supporters excluded).",
-    render: (ctx) => <SynergyView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} />,
+    render: (ctx) => <SynergyView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
   },
   {
     id: "buffs",
     title: "Buffs",
     blurb: "Consumable, skill, song and debuff uptime per player per hunt. HunterPie user only.",
-    render: (ctx) => <BuffsView scope={ctx.scope} />,
+    render: (ctx) => <BuffsView scope={ctx.scope} partySize={ctx.partySize} />,
   },
 ];

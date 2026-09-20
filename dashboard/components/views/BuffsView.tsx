@@ -114,7 +114,7 @@ function BuffTimeline({ lanes, domain }: { lanes: BuffLane[]; domain: number }) 
     </div>
   );
 }
-export default function BuffsView({ scope }: { scope: number[] }) {
+export default function BuffsView({ scope, partySize }: { scope: number[]; partySize: number | null }) {
   const [hunts, setHunts] = useState<HuntSummary[] | null>(null);
   const [huntId, setHuntId] = useState<number | null>(null);
   const [data, setData] = useState<BuffsData | null>(null);
@@ -123,13 +123,16 @@ export default function BuffsView({ scope }: { scope: number[] }) {
   const [view, setView] = useState<"table" | "timeline">("table");
 
   useEffect(() => {
-    apiGet<{ hunts: HuntSummary[] }>("/hunts", { limit: 200 })
+    apiGet<{ hunts: HuntSummary[] }>("/hunts", {
+      limit: 200,
+      ...(partySize != null && { players: partySize }),
+    })
       .then((d) => {
         setHunts(d.hunts);
         if (d.hunts.length > 0) setHuntId(d.hunts[0].id);
       })
       .catch((e: Error) => setError(e.message));
-  }, []);
+  }, [partySize]);
 
   useEffect(() => {
     if (huntId === null) return;
