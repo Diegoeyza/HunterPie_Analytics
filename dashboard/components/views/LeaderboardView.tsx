@@ -36,7 +36,7 @@ const columns: ColumnDef<Leader>[] = [
   },
 ];
 
-export default function LeaderboardView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | string | null; clearScope: () => void }) {
+export default function LeaderboardView({ scope, variantId, clearScope, partySize }: { scope: number[]; variantId: number | string | null; clearScope: () => void; partySize: number | null }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -53,10 +53,11 @@ export default function LeaderboardView({ scope, variantId, clearScope }: { scop
       ...(monster && { monster_id: Number(monster) }),
       ...(weapon && { weapon_id: Number(weapon) }),
       ...(stars && { stars: Number(stars) }),
+      ...(partySize != null && { players: partySize }),
       min_hunts: minHunts,
     }).then((d) => setRows(d.leaders)).catch((e: Error) => setError(e.message));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope.join(","), variantId, monster, weapon, stars, minHunts]);
+  }, [scope.join(","), variantId, monster, weapon, stars, minHunts, partySize]);
 
   const starOptions = useMemo(
     () => (monster ? (opts?.monster_stars[Number(monster)] ?? []) : opts?.stars ?? []),

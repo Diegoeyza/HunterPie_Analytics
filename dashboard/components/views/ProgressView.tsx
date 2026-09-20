@@ -18,7 +18,7 @@ interface Point {
 }
 interface ProgressData { points: Point[]; rolling: { hunt_id: number; avg_dps: number }[]; window: number; }
 
-export default function ProgressView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | string | null; clearScope: () => void }) {
+export default function ProgressView({ scope, variantId, clearScope, partySize }: { scope: number[]; variantId: number | string | null; clearScope: () => void; partySize: number | null }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -44,9 +44,10 @@ export default function ProgressView({ scope, variantId, clearScope }: { scope: 
       ...(scope.length > 0 && { player_ids: scope.join(",") }),
       ...(variantId !== null && { variant_id: variantId }),
       ...(huntLimit !== "all" && { limit: Number(huntLimit) }),
+      ...(partySize != null && { players: partySize }),
       window: windowSize,
     }).then(setData).catch((e: Error) => setError(e.message));
-  }, [monster, weapon, player, quest, stars, windowSize, huntLimit, scope.join(","), variantId]);
+  }, [monster, weapon, player, quest, stars, windowSize, huntLimit, scope.join(","), variantId, partySize]);
 
   // One option per quest group: real quests collapse multi-monster runs
   // into one entry, while unknown-star slots (field surveys) stay split

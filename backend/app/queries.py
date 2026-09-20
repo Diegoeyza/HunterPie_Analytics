@@ -34,6 +34,14 @@ def _visible():
     return Hunt.ignored.isnot(True)
 
 
+def _party(stmt, party: int | None):
+    """Narrow a Hunt-selecting statement to hunts with exactly N players.
+
+    ``party`` is the global party-size filter (Hunt.player_count, the same
+    number the Hunts tab shows). None = all party sizes."""
+    return stmt.where(Hunt.player_count == party) if party is not None else stmt
+
+
 def set_hunt_ignored(session: Session, hunt_id: int, ignored: bool) -> dict:
     """Hide (or restore) a hunt from every stat view. Reversible."""
     hunt = session.get(Hunt, hunt_id)
@@ -473,7 +481,8 @@ def health(session: Session) -> dict:
 
 def hunt_list(session: Session, limit: int = 200,
               include_ignored: bool = False,
-              player_ids: list[int] | None = None) -> dict:
+              player_ids: list[int] | None = None,
+              party: int | None = None) -> dict:
     stmt = select(Hunt, Monster).join(Monster)
     if not include_ignored:
         stmt = stmt.where(_visible())
@@ -481,6 +490,7 @@ def hunt_list(session: Session, limit: int = 200,
         stmt = (stmt.join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
                 .where(HuntPlayer.player_id.in_(player_ids))
                 .distinct())
+    stmt = _party(stmt, party)
     rows = session.execute(
         stmt.order_by(Hunt.started_at.desc()).limit(limit)
     ).all()
@@ -499,7 +509,7 @@ def progress(session: Session, monster_id: int | None = None,
              quest_id: int | None = None, stars: int | None = None,
              player_ids: list[int] | None = None,
              window: int = 5, variant_id: int | str | None = None,
-             limit: int | None = None) -> dict:
+             limit: int | None = None, party: int | None = None) -> dict:
     """FR-3.1: per-hunt DPS + clear time series with rolling average.
 
     ``limit`` keeps only the most recent N hunts (by started_at); None =
@@ -515,6 +525,7 @@ def progress(session: Session, monster_id: int | None = None,
             hq = hq.where(Hunt.quest_id == quest_id)
         if stars is not None:
             hq = hq.where(Hunt.quest_stars == stars)
+        hq = _party(hq, party)
         recent = set(session.execute(hq).scalars())
         if not recent:
             return {"points": [], "rolling": [], "window": window}
@@ -543,6 +554,7 @@ def progress(session: Session, monster_id: int | None = None,
         stmt = stmt.where(Hunt.quest_stars == stars)
     if player_ids:
         stmt = stmt.where(HuntPlayer.player_id.in_(player_ids))
+    stmt = _party(stmt, party)
     variant_hunts = _resolve_variant_filter(session, player_ids, variant_id)
     if variant_hunts is not None:
         stmt = stmt.where(Hunt.id.in_(variant_hunts))
@@ -584,7 +596,8 @@ def progress(session: Session, monster_id: int | None = None,
 
 def weapon_matrix(session: Session, player_ids: list[int] | None = None,
                    monster_id: int | None = None, stars: int | None = None,
-                   variant_id: int | str | None = None) -> dict:
+                   variant_id: int | str | None = None,
+                   party: int | None = None) -> dict:
     """FR-3.2: per-weapon aggregates (supporters excluded)."""
     stmt = (
         select(Weapon.name, HuntPlayer.weapon_id, Hunt, HuntPlayer)
@@ -592,6 +605,7 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
         .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
         .where(HuntPlayer.is_supporter.is_(False), _visible())
     )
+    stmt = _party(stmt, party)
     if player_ids:
         stmt = stmt.where(HuntPlayer.player_id.in_(player_ids))
     if monster_id is not None:
@@ -627,6 +641,7 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
         unk_stmt = unk_stmt.where(Hunt.monster_id == monster_id)
     if stars is not None:
         unk_stmt = unk_stmt.where(Hunt.quest_stars == stars)
+    unk_stmt = _party(unk_stmt, party)
     unknown_hunts = session.execute(unk_stmt).scalar_one()
     rows = [{
         "weapon": name,
@@ -792,7 +807,8 @@ def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
 
 def synergy(session: Session, player_ids: list[int] | None = None,
             monster_id: int | None = None, stars: int | None = None,
-            variant_id: int | str | None = None) -> dict:
+            variant_id: int | str | None = None,
+            party: int | None = None) -> dict:
     """FR-3.4: aggregate stats keyed by non-supporter teammate pairing.
 
     player_ids narrows to hunts including ALL of those hunters."""
@@ -815,6 +831,9 @@ def synergy(session: Session, player_ids: list[int] | None = None,
         want = set(player_ids)
         hunts = {hid: h for hid, h in hunts.items()
                  if want <= {pid for _, _, pid in h["members"]}}
+    if party is not None:
+        hunts = {hid: h for hid, h in hunts.items()
+                 if h["hunt"].player_count == party}
     variant_hunts = _resolve_variant_filter(session, player_ids, variant_id)
     if variant_hunts is not None:
         hunts = {hid: h for hid, h in hunts.items() if hid in variant_hunts}
@@ -843,13 +862,15 @@ def synergy(session: Session, player_ids: list[int] | None = None,
     return {"pairings": rows}
 
 
-def quest_stats(session: Session) -> dict:
+def quest_stats(session: Session, party: int | None = None) -> dict:
     """Per-quest aggregates: same monster, different HP per quest id."""
     hunts = session.execute(
-        select(Hunt, Monster.name)
-        .join(Monster, Monster.id == Hunt.monster_id)
-        .where(_visible())
-        .order_by(Hunt.quest_id, Hunt.started_at)
+        _party(
+            select(Hunt, Monster.name)
+            .join(Monster, Monster.id == Hunt.monster_id)
+            .where(_visible())
+            .order_by(Hunt.quest_id, Hunt.started_at),
+            party)
     ).all()
     by_quest: dict[tuple, dict] = {}
     for hunt, monster_name in hunts:
@@ -939,7 +960,8 @@ def quest_stats(session: Session) -> dict:
     return {"quests": rows}
 
 
-def quest_hunts(session: Session, key: str) -> dict:
+def quest_hunts(session: Session, key: str,
+                party: int | None = None) -> dict:
     """One quest-stats group as individual quest instances, for the popup.
 
     key mirrors quest_stats grouping: hunt:<id> (untracked), survey:<qid>:<mid>
@@ -970,6 +992,11 @@ def quest_hunts(session: Session, key: str) -> dict:
             raise ValueError(f"bad quest key: {key!r}")
     except (ValueError, IndexError):
         raise KeyError(key)
+    if party is not None:
+        hunt_ids = [hid for (hid,) in session.execute(
+            select(Hunt.id).where(Hunt.id.in_(hunt_ids),
+                                  Hunt.player_count == party)
+        ).all()]
     if not hunt_ids:
         raise KeyError(key)
 
@@ -1004,15 +1031,17 @@ def quest_hunts(session: Session, key: str) -> dict:
     } for h in hunts]}
 
 
-def records(session: Session) -> dict:
+def records(session: Session, party: int | None = None) -> dict:
     """Personal bests per monster: fastest clear + highest single-hunt DPS."""
     rows = session.execute(
-        select(Hunt, HuntPlayer, Player.display_name, Weapon.name, Monster.name)
-        .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
-        .join(Player, Player.id == HuntPlayer.player_id)
-        .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
-        .join(Monster, Monster.id == Hunt.monster_id)
-        .where(HuntPlayer.is_supporter.is_(False), _visible())
+        _party(
+            select(Hunt, HuntPlayer, Player.display_name, Weapon.name, Monster.name)
+            .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
+            .join(Player, Player.id == HuntPlayer.player_id)
+            .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
+            .join(Monster, Monster.id == Hunt.monster_id)
+            .where(HuntPlayer.is_supporter.is_(False), _visible()),
+            party)
     ).all()
     by_monster: dict[str, dict] = {}
     hunts_by_id = {h.id: h for h, _hp, _n, _w, _m in rows}
@@ -1049,7 +1078,8 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
                 stars: int | None = None, sort_by: str = "dps",
                 limit: int | None = None,
                 variant_id: int | str | None = None,
-                include_ignored: bool = False) -> dict:
+                include_ignored: bool = False,
+                party: int | None = None) -> dict:
     """Cleared-hunt leaderboard: one row per hunt, ranked.
 
     ``player_ids`` (global hunter scope) narrows to hunts including ANY of
@@ -1103,6 +1133,8 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
     variant_hunts = _resolve_variant_filter(session, player_ids, variant_id)
     scores: list[dict] = []
     for h in by_hunt.values():
+        if party is not None and h["hunt"].player_count != party:
+            continue
         if variant_hunts is not None and h["hunt"].id not in variant_hunts:
             continue
         members = h["members"]
@@ -1116,8 +1148,8 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
             continue
         featured = max(pool, key=lambda m: (m["dps"], m["player"]))
         clear_s = _hunt_duration_s(h["hunt"])
-        party = sorted((m for m in members if m["player"] != featured["player"]),
-                       key=lambda m: (-m["dps"], m["player"]))
+        rest = sorted((m for m in members if m["player"] != featured["player"]),
+                      key=lambda m: (-m["dps"], m["player"]))
         scores.append({
             "hunt_id": h["hunt"].id,
             "date": h["hunt"].started_at.date().isoformat(),
@@ -1131,7 +1163,7 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
             "ignored": bool(h["hunt"].ignored),
             "party": [{"player": m["player"], "weapon": m["weapon"],
                        "variant": m["variant"],
-                       "dps": m["dps"]} for m in party],
+                       "dps": m["dps"]} for m in rest],
         })
     if sort_by == "dps":
         scores.sort(key=lambda s: (-s["dps"], s["hunt_id"]))
@@ -1151,7 +1183,7 @@ def leaderboard(session: Session, player_ids: list[int] | None = None,
                 monster_id: int | None = None, stars: int | None = None,
                 weapon_id: int | None = None,
                 variant_id: int | str | None = None,
-                min_hunts: int = 1) -> dict:
+                min_hunts: int = 1, party: int | None = None) -> dict:
     """Best-players ranking: per-hunter aggregates over cleared hunts.
 
     ``player_ids`` (global hunter scope): empty = rank everyone, otherwise
@@ -1175,6 +1207,7 @@ def leaderboard(session: Session, player_ids: list[int] | None = None,
         stmt = stmt.where(Hunt.quest_stars == stars)
     if weapon_id is not None:
         stmt = stmt.where(HuntPlayer.weapon_id == weapon_id)
+    stmt = _party(stmt, party)
     variant_hunts = _resolve_variant_filter(session, player_ids, variant_id)
     if variant_hunts is not None:
         stmt = stmt.where(Hunt.id.in_(variant_hunts))
@@ -1205,13 +1238,15 @@ def leaderboard(session: Session, player_ids: list[int] | None = None,
     return {"leaders": leaders}
 
 
-def activity(session: Session) -> dict:
+def activity(session: Session, party: int | None = None) -> dict:
     """Hunts per day + clear rate + avg DPS (heatmap fuel)."""
     rows = session.execute(
-        select(Hunt, HuntPlayer.total_damage, HuntPlayer.player_id)
-        .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
-        .where(HuntPlayer.is_supporter.is_(False), _visible())
-        .order_by(Hunt.started_at)
+        _party(
+            select(Hunt, HuntPlayer.total_damage, HuntPlayer.player_id)
+            .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
+            .where(HuntPlayer.is_supporter.is_(False), _visible())
+            .order_by(Hunt.started_at),
+            party)
     ).all()
     by_day: dict[str, dict] = {}
     hunts_by_id = {h.id: h for h, _d, _p in rows}
@@ -1237,7 +1272,8 @@ def activity(session: Session) -> dict:
 
 
 def compare(session: Session, player_ids: list[int], window: int = 5,
-              variant_id: int | str | None = None) -> dict:
+              variant_id: int | str | None = None,
+              party: int | None = None) -> dict:
     """Scoped hunters' DPS vs whole-party DPS per hunt (needs a scope)."""
     if not player_ids:
         return {"points": [], "window": window, "scope": []}
@@ -1259,6 +1295,9 @@ def compare(session: Session, player_ids: list[int], window: int = 5,
         h["all"].append(dps)
         if hp.player_id in want:
             h["scope"].append(dps)
+    if party is not None:
+        hunts = {hid: h for hid, h in hunts.items()
+                 if h["hunt"].player_count == party}
     variant_hunts = _resolve_variant_filter(session, player_ids, variant_id)
     if variant_hunts is not None:
         hunts = {hid: h for hid, h in hunts.items() if hid in variant_hunts}
@@ -1306,7 +1345,8 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
                          player_ids: list[int] | None = None,
                          monster_id: int | None = None,
                          stars: int | None = None,
-                         variant_id: int | str | None = None) -> dict:
+                         variant_id: int | str | None = None,
+                         party: int | None = None) -> dict:
     """Analyze player DPS improvement over time, grouped by monster and quest stars (only groups with >1 instance).
 
     Single-hunter mode (``player_id`` set, no ``player_ids``) returns one
@@ -1340,6 +1380,7 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
         stmt = stmt.where(Hunt.monster_id == monster_id)
     if stars is not None:
         stmt = stmt.where(Hunt.quest_stars == stars)
+    stmt = _party(stmt, party)
 
     # Variant narrowing only applies with an explicit hunter scope
     # (mirrors _resolve_variant_filter semantics).

@@ -82,14 +82,17 @@ const columns: ColumnDef<QuestRow>[] = [
 /** Popup for the clicked quest: its summary stats plus each run as its own
  *  expandable instance with that run's hunter damage + DPS. Latest run
  *  starts expanded. Closes on backdrop click, the × button, or Escape. */
-function QuestPopup({ quest, onClose }: { quest: QuestRow; onClose: () => void }) {
+function QuestPopup({ quest, onClose, partySize }: { quest: QuestRow; onClose: () => void; partySize: number | null }) {
   const [instances, setInstances] = useState<QuestInstance[] | null>(null);
   const [open, setOpen] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     setInstances(null);
     setOpen(new Set());
-    apiGet<{ hunts: QuestInstance[] }>("/quests/detail", { key: quest.key }).then(
+    apiGet<{ hunts: QuestInstance[] }>("/quests/detail", {
+      key: quest.key,
+      ...(partySize != null && { players: partySize }),
+    }).then(
       (d) => {
         // ?? []: a stale API serving the previous response shape must show
         // an empty list, never crash the whole tab (instances.map below).
@@ -99,7 +102,7 @@ function QuestPopup({ quest, onClose }: { quest: QuestRow; onClose: () => void }
       },
       () => setInstances([]),
     );
-  }, [quest.key]);
+  }, [quest.key, partySize]);
 
   const toggle = (id: number) =>
     setOpen((s) => {
@@ -206,16 +209,18 @@ function QuestPopup({ quest, onClose }: { quest: QuestRow; onClose: () => void }
   );
 }
 
-export default function QuestsView() {
+export default function QuestsView({ partySize }: { partySize: number | null }) {
   const [rows, setRows] = useState<QuestRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<QuestRow | null>(null);
 
   useEffect(() => {
-    apiGet<{ quests: QuestRow[] }>("/quests")
+    apiGet<{ quests: QuestRow[] }>("/quests", {
+      ...(partySize != null && { players: partySize }),
+    })
       .then((d) => setRows(d.quests))
       .catch((e: Error) => setError(e.message));
-  }, []);
+  }, [partySize]);
 
   if (error) return <p className="error">{error} — is the API running?</p>;
   if (!rows) return <p>Loading…</p>;
@@ -238,7 +243,7 @@ export default function QuestsView() {
         onRowClick={setSelected}
         isSelected={(r) => r.key === selected?.key}
       />
-      {selected && <QuestPopup quest={selected} onClose={() => setSelected(null)} />}
+      {selected && <QuestPopup quest={selected} onClose={() => setSelected(null)} partySize={partySize} />}
     </div>
   );
 }

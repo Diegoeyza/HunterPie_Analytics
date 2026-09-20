@@ -111,7 +111,7 @@ function GrowthFilters({
   );
 }
 
-export default function GrowthView({ scope, variantId, clearScope, setScope }: { scope: number[]; variantId: number | string | null; clearScope: () => void; setScope: (ids: number[]) => void }) {
+export default function GrowthView({ scope, variantId, clearScope, setScope, partySize }: { scope: number[]; variantId: number | string | null; clearScope: () => void; setScope: (ids: number[]) => void; partySize: number | null }) {
   const opts = useFilterOptions();
   const [weapon, setWeapon] = useState("");
   const [monster, setMonster] = useState("");
@@ -137,12 +137,13 @@ export default function GrowthView({ scope, variantId, clearScope, setScope }: {
     if (monster) params.monster_id = Number(monster);
     if (stars) params.stars = Number(stars);
     if (variantId !== null) params.variant_id = variantId;
+    if (partySize != null) params.players = partySize;
     if (isTopMode) params.top_n = Number(topN);
     apiGet<GrowthData>("/progress/improvement", params)
       .then((d) => { if (!cancelled) { setData(d); setLoading(false); } })
       .catch((e: Error) => { if (!cancelled) { setError(e.message); setLoading(false); } });
     return () => { cancelled = true; };
-  }, [selectedPlayerId, scopeKey, weapon, monster, stars, topN, variantId, isTopMode]);
+  }, [selectedPlayerId, scopeKey, weapon, monster, stars, topN, variantId, isTopMode, partySize]);
 
   if (error) return <p className="error">{error} — is the API running on :8000?</p>;
   if (loading || !data) return <p>Loading growth analytics…</p>;

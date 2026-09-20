@@ -10,6 +10,29 @@ import WeaponVariantManager from "./WeaponVariantManager";
 
 const SCOPE_KEY = "hp.scope";
 const VARIANT_KEY = "hp.variant";
+const PARTY_KEY = "hp.party";
+
+/** Default party size (4-player hunts); null = all sizes. */
+export const DEFAULT_PARTY_SIZE: number | null = 4;
+
+export function loadParty(): number | null {
+  try {
+    const raw = localStorage.getItem(PARTY_KEY);
+    // Nothing stored yet: default to full parties.
+    if (raw === null) return DEFAULT_PARTY_SIZE;
+    const v = raw ? (JSON.parse(raw) as unknown) : null;
+    if (v === null) return null;
+    return typeof v === "number" && v >= 1 && v <= 8 ? v : DEFAULT_PARTY_SIZE;
+  } catch {
+    return DEFAULT_PARTY_SIZE;
+  }
+}
+
+export function storeParty(size: number | null) {
+  try {
+    localStorage.setItem(PARTY_KEY, JSON.stringify(size));
+  } catch { /* private mode: party just won't persist */ }
+}
 
 export function loadScope(): number[] {
   try {
@@ -42,6 +65,8 @@ interface Props {
   onScope: (ids: number[]) => void;
   variantId: number | string | null;
   onVariant: (id: number | string | null) => void;
+  partySize: number | null;
+  onParty: (size: number | null) => void;
 }
 
 /** One dropdown row for a multi-build group: stat ranges + build count. */
@@ -64,7 +89,7 @@ function groupLabel(members: { weapon_type: string; raw: number; element: number
  *  With exactly one scoped hunter who has gear data, a weapon-variant
  *  filter appears next to the hunter chips, with an edit button that
  *  opens the label-once naming menu. */
-export default function ScopeBar({ scope, onScope, variantId, onVariant }: Props) {
+export default function ScopeBar({ scope, onScope, variantId, onVariant, partySize, onParty }: Props) {
   const [players, setPlayers] = useState<Option[]>([]);
   const [pins, setPins] = useState<Pin[]>([]);
   const [variants, setVariants] = useState<PlayerVariants | null>(null);
@@ -222,6 +247,17 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant }: Props
       {scope.length > 0 && (
         <button className="scope-clear" onClick={() => onScope([])}>clear</button>
       )}
+      <span className="scope-label">Party:</span>
+      <div className="seg" role="group" aria-label="Party size filter">
+        <button type="button" className={partySize === null ? "on" : ""}
+          aria-pressed={partySize === null}
+          onClick={() => onParty(null)}>All</button>
+        {[1, 2, 3, 4].map((n) => (
+          <button key={n} type="button" className={partySize === n ? "on" : ""}
+            aria-pressed={partySize === n}
+            onClick={() => onParty(n)}>{n}</button>
+        ))}
+      </div>
       {hasVariants && (
         <div className="scope-variant">
           <SearchSelect

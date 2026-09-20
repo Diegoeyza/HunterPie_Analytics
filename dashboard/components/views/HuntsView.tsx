@@ -298,7 +298,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
   );
 }
 
-export default function HuntsView({ scope }: { scope: number[] }) {
+export default function HuntsView({ scope, partySize }: { scope: number[]; partySize: number | null }) {
   const [hunts, setHunts] = useState<HuntSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [monsterFilter, setMonsterFilter] = useState<string>("");
@@ -310,11 +310,12 @@ export default function HuntsView({ scope }: { scope: number[] }) {
     setHunts(null);
     const params: Record<string, string | number> = { limit: 500 };
     if (scope.length > 0) params.player_ids = scopeKey;
+    if (partySize != null) params.players = partySize;
     apiGet<{ hunts: HuntSummary[] }>("/hunts", params)
       .then((d) => setHunts(d.hunts))
       .catch((e: Error) => setError(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey]);
+  }, [scopeKey, partySize]);
 
   const monsters = useMemo(
     () => [...new Set((hunts ?? []).map((h) => h.monster))].sort(),

@@ -54,10 +54,10 @@ def health(db: Session = Depends(get_db)):
 
 @app.get("/api/hunts")
 def hunts(limit: int = 200, include_ignored: bool = False,
-          player_ids: str | None = None,
+          player_ids: str | None = None, players: int | None = None,
           db: Session = Depends(get_db)):
     return queries.hunt_list(db, limit, include_ignored,
-                             queries._parse_ids(player_ids))
+                             queries._parse_ids(player_ids), party=players)
 
 
 @app.get("/api/progress")
@@ -65,11 +65,11 @@ def progress(monster_id: int | None = None, weapon_id: int | None = None,
              player_id: int | None = None, quest_id: int | None = None,
              stars: int | None = None, player_ids: str | None = None,
              window: int = 5, variant_id: str | None = None,
-             limit: int | None = None,
+             limit: int | None = None, players: int | None = None,
              db: Session = Depends(get_db)):
     return queries.progress(db, monster_id, weapon_id, player_id,
                             quest_id, stars, queries._parse_ids(player_ids),
-                            window, variant_id, limit)
+                            window, variant_id, limit, party=players)
 
 
 @app.get("/api/progress/improvement")
@@ -79,19 +79,22 @@ def progress_improvement(player_id: int | None = None, top_n: int = 5,
                          monster_id: int | None = None,
                          stars: int | None = None,
                          variant_id: str | None = None,
+                         players: int | None = None,
                          db: Session = Depends(get_db)):
     return queries.progress_improvement(db, player_id, top_n, weapon_id,
                                         queries._parse_ids(player_ids),
-                                        monster_id, stars, variant_id)
+                                        monster_id, stars, variant_id,
+                                        party=players)
 
 
 
 @app.get("/api/weapons")
 def weapons(player_ids: str | None = None, monster_id: int | None = None,
             stars: int | None = None, variant_id: str | None = None,
+            players: int | None = None,
             db: Session = Depends(get_db)):
     return queries.weapon_matrix(db, queries._parse_ids(player_ids), monster_id,
-                                 stars, variant_id)
+                                 stars, variant_id, party=players)
 
 
 @app.get("/api/hunts/{hunt_id}/curve")
@@ -114,39 +117,42 @@ def abnormalities(hunt_id: int, db: Session = Depends(get_db)):
 @app.get("/api/synergy")
 def synergy(player_ids: str | None = None, monster_id: int | None = None,
             stars: int | None = None, variant_id: str | None = None,
+            players: int | None = None,
             db: Session = Depends(get_db)):
     return queries.synergy(db, queries._parse_ids(player_ids), monster_id,
-                           stars, variant_id)
+                           stars, variant_id, party=players)
 
 
 @app.get("/api/quests")
-def quests(db: Session = Depends(get_db)):
-    return queries.quest_stats(db)
+def quests(players: int | None = None, db: Session = Depends(get_db)):
+    return queries.quest_stats(db, party=players)
 
 
 @app.get("/api/quests/detail")
-def quest_detail(key: str, db: Session = Depends(get_db)):
+def quest_detail(key: str, players: int | None = None,
+                 db: Session = Depends(get_db)):
     """One quest row as individual instances, each with hunter damage + DPS."""
     try:
-        return queries.quest_hunts(db, key)
+        return queries.quest_hunts(db, key, party=players)
     except KeyError:
         raise HTTPException(404, f"quest {key} not found")
 
 
 @app.get("/api/records")
-def records(db: Session = Depends(get_db)):
-    return queries.records(db)
+def records(players: int | None = None, db: Session = Depends(get_db)):
+    return queries.records(db, party=players)
 
 
 @app.get("/api/high-scores")
 def high_scores(player_ids: str | None = None, monster_id: int | None = None,
                 weapon_id: int | None = None, stars: int | None = None,
-                sort_by: str = "dps", limit: int | None = None,
-                variant_id: str | None = None,
-                include_ignored: bool = False, db: Session = Depends(get_db)):
+                 sort_by: str = "dps", limit: int | None = None,
+                 variant_id: str | None = None,
+                 include_ignored: bool = False, players: int | None = None,
+                 db: Session = Depends(get_db)):
     return queries.high_scores(db, queries._parse_ids(player_ids), monster_id,
                                weapon_id, stars, sort_by, limit, variant_id,
-                               include_ignored)
+                               include_ignored, party=players)
 
 
 @app.patch("/api/hunts/{hunt_id}/ignore")
@@ -161,22 +167,25 @@ def ignore_hunt(hunt_id: int, body: dict, db: Session = Depends(get_db)):
 @app.get("/api/leaderboard")
 def leaderboard(player_ids: str | None = None,
                 monster_id: int | None = None, stars: int | None = None,
-                weapon_id: int | None = None, variant_id: str | None = None,
-                min_hunts: int = 1, db: Session = Depends(get_db)):
+                 weapon_id: int | None = None, variant_id: str | None = None,
+                 min_hunts: int = 1, players: int | None = None,
+                 db: Session = Depends(get_db)):
     return queries.leaderboard(db, queries._parse_ids(player_ids), monster_id,
-                               stars, weapon_id, variant_id, min_hunts)
+                               stars, weapon_id, variant_id, min_hunts,
+                               party=players)
 
 
 @app.get("/api/activity")
-def activity(db: Session = Depends(get_db)):
-    return queries.activity(db)
+def activity(players: int | None = None, db: Session = Depends(get_db)):
+    return queries.activity(db, party=players)
 
 
 @app.get("/api/compare")
 def compare(player_ids: str | None = None, window: int = 5,
-            variant_id: str | None = None, db: Session = Depends(get_db)):
+            variant_id: str | None = None, players: int | None = None,
+            db: Session = Depends(get_db)):
     return queries.compare(db, queries._parse_ids(player_ids), window,
-                           variant_id)
+                           variant_id, party=players)
 
 
 @app.get("/api/players/{player_id}/variants")

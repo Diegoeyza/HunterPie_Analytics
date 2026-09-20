@@ -15,7 +15,7 @@ interface ComparePoint {
 }
 interface CompareData { points: ComparePoint[]; window: number; scope: string[]; }
 
-export default function CompareView({ scope, variantId, clearScope }: { scope: number[]; variantId: number | string | null; clearScope: () => void }) {
+export default function CompareView({ scope, variantId, clearScope, partySize }: { scope: number[]; variantId: number | string | null; clearScope: () => void; partySize: number | null }) {
   const [data, setData] = useState<CompareData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const key = scope.join(",");
@@ -25,11 +25,12 @@ export default function CompareView({ scope, variantId, clearScope }: { scope: n
     apiGet<CompareData>("/compare", {
       player_ids: scope.join(","),
       ...(variantId !== null && { variant_id: variantId }),
+      ...(partySize != null && { players: partySize }),
     })
       .then(setData)
       .catch((e: Error) => setError(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, variantId]);
+  }, [key, variantId, partySize]);
 
   if (scope.length === 0) {
     return (

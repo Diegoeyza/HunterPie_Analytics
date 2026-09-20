@@ -1010,3 +1010,23 @@ def test_ignore_hunt_hides_everywhere_and_restores():
         "/api/high-scores").json()["scores"]] == [2, 1]
 
 
+
+
+def test_party_size_filter():
+    """?players=N narrows hunt-pool endpoints to N-hunter hunts (seed has
+    a solo hunt 1 and a duo hunt 2); absent = all sizes."""
+    client, _s = make_client(seed_two_hunts)
+    solo = client.get("/api/hunts", params={"players": 1}).json()["hunts"]
+    assert [h["id"] for h in solo] == [1]
+    duo = client.get("/api/hunts", params={"players": 2}).json()["hunts"]
+    assert [h["id"] for h in duo] == [2]
+    assert client.get("/api/hunts", params={"players": 4}).json()["hunts"] == []
+    assert len(client.get("/api/hunts").json()["hunts"]) == 2
+    pts = client.get("/api/progress", params={"players": 1}).json()["points"]
+    assert {p["hunt_id"] for p in pts} == {1}
+    leads = client.get(
+        "/api/leaderboard", params={"players": 1}).json()["leaders"]
+    assert [L["player"] for L in leads] == ["Isi"]
+    scores = client.get(
+        "/api/high-scores", params={"players": 2}).json()["scores"]
+    assert [s["hunt_id"] for s in scores] == [2]
