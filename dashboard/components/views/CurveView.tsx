@@ -5,10 +5,14 @@ import {
   CartesianGrid, Legend, Line, LineChart, ReferenceArea,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { apiGet, apiGetCached, seriesColor, type FilterOptions, type HuntSummary } from "../../lib/api";
+import { seriesColor, type HuntSummary } from "../../lib/api";
+import { fmtInt } from "../../lib/format";
+import { ApiState, useApi } from "../../lib/useApi";
 import SearchSelect from "../SearchSelect";
 import EmptyState from "../EmptyState";
 import ChartTooltip from "../ChartTooltip";
+import { GRID_STROKE, TICK } from "../ChartKit";
+import { useFilterOptions } from "../useFilterOptions";
 
 interface CurvePoint { t: number; dmg: number; }
 interface CurvePlayer { player: string; weapon: string | null; variant: string | null; points: CurvePoint[]; }
@@ -99,52 +103,25 @@ const HP_COLORS = ["#e05c5c", "#ef8354", "#c94f7c", "#e8b64c"];
 
 
 export default function CurveView({ scope, partySize }: { scope: number[]; partySize: number | null }) {
-  const [hunts, setHunts] = useState<HuntSummary[] | null>(null);
+  const opts = useFilterOptions();
   const [questKey, setQuestKey] = useState<string | null>(null);
   const [huntId, setHuntId] = useState<number | null>(null);
-  const [curve, setCurve] = useState<CurveData | null>(null);
   const [showHp, setShowHp] = useState(true);
   const [metric, setMetric] = useState<Metric>("damage");
-  const [nameToId, setNameToId] = useState<Map<string, number>>(new Map());
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    apiGetCached<FilterOptions>("/filter-options")
-      .then((d) => setNameToId(new Map(d.players.map((p) => [p.name, p.id]))))
-      .catch(() => {});
-  }, []);
+  const nameToId = useMemo(
+    () => new Map((opts?.players ?? []).map((p) => [p.name, p.id])),
+    [opts]);
 
   // Quest list follows the hunter scope (any-of): only hunts the scoped
-  // hunter(s) fought in. Refetches when the scope changes; a selection
-  // that vanishes from the filtered list falls back to the latest quest.
-  const scopeKey = scope.join(",");
-  useEffect(() => {
-    setHunts(null);
-    setCurve(null);
-    const params: Record<string, string | number> = { limit: 200 };
-    if (scope.length > 0) params.player_ids = scopeKey;
-    if (partySize != null) params.players = partySize;
-    apiGet<{ hunts: HuntSummary[] }>("/hunts", params)
-      .then((d) => {
-        setHunts(d.hunts);
-        if (d.hunts.length > 0) {
-          // Hunts sharing a quest_id collapse into one entry: default to
-          // the latest quest, showing All monsters. Starless quests group
-          // per session (see keyOf below).
-          const h0 = d.hunts[0];
-          const key = h0.quest_id != null && h0.quest_stars != null ? `q:${h0.quest_id}`
-            : h0.quest_id != null ? `s:${h0.quest_id}:${h0.started_at}`
-            : `t:${h0.started_at}`;
-          setQuestKey(key);
-          setHuntId(null);
-        } else {
-          setQuestKey(null);
-          setHuntId(null);
-        }
-      })
-      .catch((e: Error) => setError(e.message));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey, partySize]);
+  // hunter(s) fought in. A selection that vanishes from the filtered
+  // list falls back to the latest quest.
+  const huntsQ = useApi<{ hunts: HuntSummary[] }>("/hunts", {
+    limit: 200,
+    ...(scope.length > 0 && { player_ids: scope.join(",") }),
+    ...(partySize != null && { players: partySize }),
+  });
+  const hunts = huntsQ.data?.hunts ?? null;
 
   /** Quests in hunt-list order (latest first), grouped by quest_id so
    *  repeat runs of the same quest (e.g. #558) collapse into one entry.
@@ -177,6 +154,21 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
       return { key, hunts: hs, label };
     });
   }, [hunts]);
+
+  // Default to the latest quest (All monsters) when the list loads or the
+  // selection vanishes from a rescoped list.
+  useEffect(() => {
+    if (!hunts) return;
+    if (quests.length === 0) {
+      if (questKey !== null) { setQuestKey(null); setHuntId(null); }
+      return;
+    }
+    if (questKey === null || !quests.some((q) => q.key === questKey)) {
+      setQuestKey(quests[0].key);
+      setHuntId(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hunts]);
   const questHunts = useMemo(
     () => quests.find((q) => q.key === questKey)?.hunts ?? hunts ?? [],
     [quests, questKey, hunts]
@@ -187,12 +179,12 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
    *  monster's HP and enrage spans. Display filters down when one monster
    *  is picked. */
   const fetchId = huntId ?? questHunts[0]?.id ?? null;
-  useEffect(() => {
-    if (fetchId == null) return;
-    apiGet<CurveData>(`/hunts/${fetchId}/curve`, { quest_hp: 1 })
-      .then(setCurve)
-      .catch((e: Error) => setError(e.message));
-  }, [fetchId]);
+  const curveQ = useApi<CurveData>(
+    fetchId === null ? "" : `/hunts/${fetchId}/curve`,
+    fetchId === null ? null : { quest_hp: 1 });
+  // Keyed fetch: ignore a stale previous-quest curve while the new one loads.
+  const curve = curveQ.data && curveQ.data.hunt_id === fetchId ? curveQ.data : null;
+  const error = huntsQ.error ?? curveQ.error;
 
   /** HP series for every monster in the quest (any number). Colors follow
    *  quest order so each monster keeps its shade whether viewed alone or
@@ -243,7 +235,7 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
     return (e: CurveEvent) => {
       if (e.hunt_id != null && byHunt.has(e.hunt_id)) return byHunt.get(e.hunt_id)!;
       if (e.monster && byMonster.has(e.monster)) return byMonster.get(e.monster)!;
-      return "#e05c5c";
+      return "var(--bad, #e05c5c)";
     };
   }, [hpSeries]);
 
@@ -273,8 +265,8 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
     setHuntId(null);
   };
 
-  if (error) return <p className="error">{error} — is the API running on :8000?</p>;
-  if (!hunts) return <p>Loading…</p>;
+  if (error) return <ApiState error={error} loading={false} />;
+  if (huntsQ.loading || !hunts) return <p>Loading…</p>;
   if (hunts.length === 0) {
     return (
       <EmptyState what="hunts">
@@ -324,16 +316,16 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
               : `#${curve.hunt_id} ${curve.monster}`}
             {curve.quest.stars ? ` · ${curve.quest.stars}★` : ""}
             {curve.quest.quest_id ? ` · quest #${curve.quest.quest_id}` : ""}
-            {huntId != null && curve.quest.max_hp ? ` · ${Math.round(curve.quest.max_hp).toLocaleString()} HP` : ""}
+            {huntId != null && curve.quest.max_hp ? ` · ${fmtInt(curve.quest.max_hp)} HP` : ""}
             {curve.clear_s ? ` · cleared in ${Math.round(curve.clear_s)}s` : ""}
           </h2>
           {enrageGroups.length > 0 && (
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "4px 0 8px", fontSize: 12 }}>
               {enrageGroups.map((g) => (
-                <span key={g.monster} style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#9aa1b2" }}>
+                <span key={g.monster} style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--chart-tick, #9aa1b2)" }}>
                   <span style={{ width: 10, height: 10, borderRadius: 2, background: g.color, opacity: 0.85, display: "inline-block" }} />
                   <span>
-                    <strong style={{ color: "#c8cddd", fontWeight: 600 }}>{g.monster}</strong>
+                    <strong style={{ color: "var(--text, #c8cddd)", fontWeight: 600 }}>{g.monster}</strong>
                     {" enraged "}
                     {g.spans.map((e) => `${Math.round(e.start)}s–${e.end != null ? `${Math.round(e.end)}s` : "…"}`).join(", ")}
                   </span>
@@ -343,19 +335,19 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
           )}
           <ResponsiveContainer width="100%" height={360}>
             <LineChart data={merged}>
-              <CartesianGrid stroke="#2c313e" />
-              <XAxis dataKey="t" tick={{ fill: "#9aa1b2", fontSize: 11 }}
+              <CartesianGrid stroke={GRID_STROKE} />
+              <XAxis dataKey="t" tick={TICK}
                 tickFormatter={(v: number) => `${Math.round(v)}s`}
-                label={{ value: "time since quest start", fill: "#9aa1b2", fontSize: 11, position: "insideBottom", offset: -2 }} />
-              <YAxis tick={{ fill: "#9aa1b2", fontSize: 11 }}
+                label={{ value: "time since quest start", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, position: "insideBottom", offset: -2 }} />
+              <YAxis tick={TICK}
                 label={{
                   value: metric === "damage" ? "cumulative damage" : metric === "burst" ? "DPS (5s window)" : "DPS (5s rolling avg)",
-                  fill: "#9aa1b2", fontSize: 11, angle: -90, position: "insideLeft",
+                  fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: -90, position: "insideLeft",
                 }} />
               <YAxis yAxisId="hp" orientation="right" domain={[0, 1]}
-                tick={{ fill: "#e05c5c", fontSize: 11 }}
+                tick={{ fill: "var(--bad, #e05c5c)", fontSize: 11 }}
                 tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
-                label={{ value: "monster HP", fill: "#e05c5c", fontSize: 11, angle: 90, position: "insideRight" }}
+                label={{ value: "monster HP", fill: "var(--bad, #e05c5c)", fontSize: 11, angle: 90, position: "insideRight" }}
                 hide={!showHp} />
               <Tooltip content={<ChartTooltip metric={metric} events={visibleEvents} colorOf={eventColor} />} />
               <Legend />

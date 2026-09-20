@@ -25,13 +25,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .db import init_db, make_session
 from .ingest import find_hunt_by_payload, upsert_hunt
 from .models import Monster, Weapon
+
+log = logging.getLogger(__name__)
 
 # HunterPie.Core/Game/Enums/Weapon.cs (byte enum, 255 = None)
 WEAPONS = [
@@ -55,7 +58,7 @@ def parse_ts(value: str) -> datetime:
     v = value.strip().replace("Z", "+00:00").replace("z", "+00:00")
     v = re.sub(r"(\.\d{6})\d+(\+|$)", r"\1\2", v)
     dt = datetime.fromisoformat(v)
-    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt.astimezone(UTC).replace(tzinfo=None)
 
 
 def load_monster_names(xml_path: str | Path | None = None) -> dict[int, str]:
@@ -210,6 +213,11 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
                                      names, hunterpie_version, game_version,
                                      cleared=not failed),
                     warnings))
+    # Multi-monster quests carry the FULL quest damage on every sibling row;
+    # flag them so stats can attribute or exclude shared damage later.
+    is_split = len(out) > 1
+    for payload, _ in out:
+        payload["is_split_quest"] = is_split
     return out
 
 
@@ -334,14 +342,15 @@ def import_file(db_path: str, file_path: str, hunterpie_version: str,
     session = make_session(db_path)
     results = import_doc(session, doc, names, hunterpie_version, game_version)
     if not results:
-        print(f"skipped {file_path}: no targeted monsters "
-              f"(no HP below {ENGAGEMENT_FLOOR:.0%})")
+        log.info("skipped %s: no targeted monsters (no HP below %.0f%%)",
+                 file_path, ENGAGEMENT_FLOOR * 100)
         return
     for hunt, created, warnings in results:
-        print(f"{'imported' if created else 'duplicate-skipped'} hunt id={hunt.id} "
-              f"from {file_path}")
+        log.info("%s hunt id=%s from %s",
+                 'imported' if created else 'duplicate-skipped', hunt.id,
+                 file_path)
         for w in warnings:
-            print(f"  warning: {w}")
+            log.warning("hunt id=%s: %s", hunt.id, w)
 
 
 def main() -> None:

@@ -1,17 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import {
-  Bar, BarChart, CartesianGrid, ResponsiveContainer,
-  Tooltip, XAxis, YAxis,
-} from "recharts";
-import { apiGet } from "../../lib/api";
+import {Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis, } from "recharts";
 import { fmtDps, fmtPct } from "../../lib/format";
+import { ApiState, useApi } from "../../lib/useApi";
 import DataTable from "../DataTable";
-import SearchSelect from "../SearchSelect";
+import { MonsterSelect, StarsSelect } from "../FilterBar";
 import { useFilterOptions } from "../useFilterOptions";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
+import { ChartTip, GRID_STROKE, TICK } from "../ChartKit";
 
 interface WeaponRow {
   weapon: string; hunts: number; avg_dps: number;
@@ -38,45 +36,35 @@ const columns: ColumnDef<WeaponRow>[] = [
 ];
 
 export default function WeaponsView({ scope, variantId, clearScope, partySize }: { scope: number[]; variantId: number | string | null; clearScope: () => void; partySize: number | null }) {
-  const [rows, setRows] = useState<WeaponRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [stars, setStars] = useState("");
 
-  useEffect(() => {
-    apiGet<{ weapons: WeaponRow[] }>("/weapons", {
-      ...(scope.length > 0 && { player_ids: scope.join(",") }),
-      ...(monster && { monster_id: Number(monster) }),
-      ...(stars && { stars: Number(stars) }),
-      ...(variantId !== null && { variant_id: variantId }),
-      ...(partySize != null && { players: partySize }),
-    })
-      .then((d) => setRows(d.weapons))
-      .catch((e: Error) => setError(e.message));
-  }, [scope.join(","), monster, stars, variantId, partySize]);
-
-  if (error) return <p className="error">{error} — is the API running on :8000?</p>;
-  if (!rows) return <p>Loading…</p>;
-
-  const starOptions = monster ? (opts?.monster_stars[Number(monster)] ?? []) : opts?.stars ?? [];
+  const { data, error, loading } = useApi<{ weapons: WeaponRow[] }>("/weapons", {
+    ...(scope.length > 0 && { player_ids: scope.join(",") }),
+    ...(monster && { monster_id: Number(monster) }),
+    ...(stars && { stars: Number(stars) }),
+    ...(variantId !== null && { variant_id: variantId }),
+    ...(partySize != null && { players: partySize }),
+  });
+  const rows = data?.weapons ?? null;
 
   const filters = (
     <div className="filters">
-      <SearchSelect
-        label="Monster"
-        value={monster}
-        options={(opts?.monsters ?? []).map((m) => ({ value: String(m.id), label: m.name }))}
-        onChange={(v) => { setMonster(v); setStars(""); }}
-      />
-      <label>Stars
-        <select value={stars} onChange={(e) => setStars(e.target.value)}>
-          <option value="">All</option>
-          {starOptions.map((s) => <option key={s} value={s}>{s}★</option>)}
-        </select>
-      </label>
+      <MonsterSelect value={monster} opts={opts}
+        onChange={(v) => { setMonster(v); setStars(""); }} />
+      <StarsSelect value={stars} onChange={setStars} monster={monster} opts={opts} />
     </div>
   );
+
+  if (error || loading || !rows) {
+    return (
+      <div className="card">
+        {filters}
+        <ApiState error={error} loading={loading} />
+      </div>
+    );
+  }
 
   if (rows.length === 0) {
     if (scope.length > 0) {
@@ -104,11 +92,11 @@ export default function WeaponsView({ scope, variantId, clearScope, partySize }:
         <h2>Average DPS by weapon</h2>
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={chartData} layout="vertical">
-            <CartesianGrid stroke="#2c313e" />
-            <XAxis type="number" tick={{ fill: "#9aa1b2", fontSize: 11 }}
-              label={{ value: "average DPS", fill: "#9aa1b2", fontSize: 11, position: "insideBottom", offset: -2 }} />
-            <YAxis type="category" dataKey="weapon" width={110} tick={{ fill: "#9aa1b2", fontSize: 12 }} />
-            <Tooltip contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }} />
+            <CartesianGrid stroke={GRID_STROKE} />
+            <XAxis type="number" tick={TICK}
+              label={{ value: "average DPS", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, position: "insideBottom", offset: -2 }} />
+            <YAxis type="category" dataKey="weapon" width={110} tick={{ ...TICK, fontSize: 12 }} />
+            <ChartTip />
             <Bar dataKey="avg_dps" name="avg DPS" fill="#5aa9e6" />
           </BarChart>
         </ResponsiveContainer>
