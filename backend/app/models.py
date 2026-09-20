@@ -1,10 +1,11 @@
 """SQLAlchemy models — mirrors db/schema.sql (source of truth for V1)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -17,6 +18,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -26,9 +31,37 @@ class Player(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    # Lowercased lookup aid for rename detection (FR-2.2): exact
+    # display_name matches win; canonical-only matches are flagged via
+    # warnings + PlayerAlias, never silently merged. Deliberately NOT
+    # unique — case-variant rows ("Diego" vs "diego") coexist until a
+    # human merges them in the review queue.
+    canonical: Mapped[str | None] = mapped_column(Text)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
-    __table_args__ = (Index("idx_players_name", "display_name"),)
+    __table_args__ = (
+        Index("idx_players_name", "display_name"),
+        Index("idx_players_canonical", "canonical"),
+    )
+
+
+class PlayerAlias(Base):
+    """Case-/rename-variant sightings awaiting review.
+
+    Written by ingest when a new display_name shares a canonical key with
+    an existing player (or collides after normalization). The dashboard
+    review queue (Phase 4) lets the user merge or keep separate.
+    """
+    __tablename__ = "player_aliases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    alias: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    player_id: Mapped[int] = mapped_column(
+        ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False,
+                                                default=_utcnow)
+
+    player: Mapped[Player] = relationship()
 
 
 class Weapon(Base):
@@ -71,15 +104,29 @@ class Hunt(Base):
     player_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_sos: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     joined_mid_hunt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Multi-monster quests register one hunt per monster, each carrying the
+    # FULL quest damage. quest_damage is the quest-wide total (identical on
+    # siblings); is_split_quest marks rows whose total_damage is shared, so
+    # future leaderboards can attribute or exclude split damage.
+    quest_damage: Mapped[float | None] = mapped_column(Float)
+    is_split_quest: Mapped[bool] = mapped_column(Boolean, nullable=False,
+                                                default=False)
     hunterpie_version: Mapped[str] = mapped_column(Text, nullable=False)
     game_version: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
 
     monster: Mapped[Monster] = relationship()
 
     __table_args__ = (
         Index("idx_hunts_started", "started_at"),
         Index("idx_hunts_monster", "monster_id"),
+        Index("idx_hunts_quest", "quest_id"),
+        Index("idx_hunts_stars", "quest_stars"),
+        Index("idx_hunts_players", "player_count"),
+        Index("idx_hunts_ignored", "ignored"),
+        Index("idx_hunts_cleared", "cleared"),
+        CheckConstraint("player_count >= 1", name="ck_hunts_player_count"),
+        CheckConstraint("cart_count >= 0", name="ck_hunts_carts"),
     )
 
 
@@ -87,8 +134,8 @@ class HuntPlayer(Base):
     __tablename__ = "hunt_players"
 
     hunt_id: Mapped[int] = mapped_column(ForeignKey("hunts.id", ondelete="CASCADE"), primary_key=True)
-    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), primary_key=True)
-    weapon_id: Mapped[int | None] = mapped_column(ForeignKey("weapons.id"))
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id", ondelete="CASCADE"), primary_key=True)
+    weapon_id: Mapped[int | None] = mapped_column(ForeignKey("weapons.id", ondelete="SET NULL"))
     total_damage: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     peak_dps: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     is_supporter: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -97,6 +144,13 @@ class HuntPlayer(Base):
     gear_raw: Mapped[float | None] = mapped_column(Float)
     gear_element: Mapped[float | None] = mapped_column(Float)
     gear_affinity: Mapped[float | None] = mapped_column(Float)
+
+    __table_args__ = (
+        Index("idx_hunt_players_player", "player_id"),
+        Index("idx_hunt_players_weapon", "weapon_id"),
+        CheckConstraint("total_damage >= 0", name="ck_hp_damage"),
+        CheckConstraint("peak_dps >= 0", name="ck_hp_peak"),
+    )
 
 
 class WeaponIdentity(Base):
@@ -126,7 +180,7 @@ class DpsSnapshot(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     hunt_id: Mapped[int] = mapped_column(ForeignKey("hunts.id", ondelete="CASCADE"), nullable=False)
-    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), nullable=False)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
     ts_offset_seconds: Mapped[float] = mapped_column(Float, nullable=False)
     cumulative_damage: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     instant_dps: Mapped[float] = mapped_column(Float, nullable=False, default=0)
@@ -134,6 +188,8 @@ class DpsSnapshot(Base):
     __table_args__ = (
         Index("idx_snapshots_hunt_ts", "hunt_id", "ts_offset_seconds"),
         Index("idx_snapshots_hunt_player", "hunt_id", "player_id"),
+        CheckConstraint("ts_offset_seconds >= 0", name="ck_snap_ts"),
+        CheckConstraint("cumulative_damage >= 0", name="ck_snap_dmg"),
     )
 
 
@@ -142,13 +198,14 @@ class MonsterEvent(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     hunt_id: Mapped[int] = mapped_column(ForeignKey("hunts.id", ondelete="CASCADE"), nullable=False)
-    monster_id: Mapped[int] = mapped_column(ForeignKey("monsters.id"), nullable=False)
+    monster_id: Mapped[int] = mapped_column(ForeignKey("monsters.id", ondelete="CASCADE"), nullable=False)
     event_type: Mapped[str] = mapped_column(Text, nullable=False)
     start_offset_seconds: Mapped[float] = mapped_column(Float, nullable=False)
     end_offset_seconds: Mapped[float | None] = mapped_column(Float)
 
     __table_args__ = (
         Index("idx_events_hunt", "hunt_id", "monster_id"),
+        Index("idx_events_type", "event_type"),
         UniqueConstraint("hunt_id", "monster_id", "event_type", "start_offset_seconds"),
     )
 
@@ -158,11 +215,15 @@ class MonsterHealthStep(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     hunt_id: Mapped[int] = mapped_column(ForeignKey("hunts.id", ondelete="CASCADE"), nullable=False)
-    monster_id: Mapped[int] = mapped_column(ForeignKey("monsters.id"), nullable=False)
+    monster_id: Mapped[int] = mapped_column(ForeignKey("monsters.id", ondelete="CASCADE"), nullable=False)
     ts_offset_seconds: Mapped[float] = mapped_column(Float, nullable=False)
     hp_fraction: Mapped[float] = mapped_column(Float, nullable=False)
 
-    __table_args__ = (Index("idx_hpsteps_hunt_ts", "hunt_id", "ts_offset_seconds"),)
+    __table_args__ = (
+        Index("idx_hpsteps_hunt_ts", "hunt_id", "ts_offset_seconds"),
+        CheckConstraint("hp_fraction >= 0 AND hp_fraction <= 1",
+                        name="ck_hp_fraction"),
+    )
 
 
 class ImportedFile(Base):
@@ -177,8 +238,11 @@ class ImportedFile(Base):
     size: Mapped[int] = mapped_column(Integer, nullable=False)
     mtime_ns: Mapped[int] = mapped_column(Integer, nullable=False)
     hunts_created: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # JSON list of warning strings from the file's import (rename reviews,
+    # multi-monster splits, ...). Surfaced in the import job result.
+    warnings_json: Mapped[str | None] = mapped_column(Text)
     imported_at: Mapped[datetime] = mapped_column(DateTime, nullable=False,
-                                                  default=datetime.utcnow)
+                                                  default=_utcnow)
 
 
 class PlayerPin(Base):
@@ -187,7 +251,7 @@ class PlayerPin(Base):
     player_id: Mapped[int] = mapped_column(ForeignKey("players.id", ondelete="CASCADE"),
                                            primary_key=True)
     pinned_at: Mapped[datetime] = mapped_column(DateTime, nullable=False,
-                                                default=datetime.utcnow)
+                                                 default=_utcnow)
 
 
 class PlayerAbnormality(Base):
@@ -195,7 +259,7 @@ class PlayerAbnormality(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     hunt_id: Mapped[int] = mapped_column(ForeignKey("hunts.id", ondelete="CASCADE"), nullable=False)
-    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), nullable=False)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
     abnormality_id: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(Text, nullable=False)
     started_at_offset: Mapped[float] = mapped_column(Float, nullable=False)
@@ -203,4 +267,5 @@ class PlayerAbnormality(Base):
 
     __table_args__ = (
         Index("idx_abnormalities_hunt_player", "hunt_id", "player_id"),
+        Index("idx_abnormalities_hunt", "hunt_id"),
     )

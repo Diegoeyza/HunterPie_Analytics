@@ -837,9 +837,9 @@ def test_progress_improvement_multi_scope_and_filters():
     assert client.get("/api/progress/improvement",
                       params={"monster_id": 9999}).json() == {"top_hunters": []}
 
-    # top_n clamps to >=1 (0 becomes 1) and returns at most that many.
-    one = client.get("/api/progress/improvement", params={"top_n": 0}).json()
-    assert len(one["top_hunters"]) <= 1
+    # Out-of-range top_n is a 422 (validated at the API boundary).
+    bad = client.get("/api/progress/improvement", params={"top_n": 0})
+    assert bad.status_code == 422
 
     # Trend stats present on qualifying groups.
     detail = client.get("/api/progress/improvement",
