@@ -27,7 +27,7 @@ import argparse
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .db import init_db, make_session
@@ -58,7 +58,7 @@ def parse_ts(value: str) -> datetime:
     v = value.strip().replace("Z", "+00:00").replace("z", "+00:00")
     v = re.sub(r"(\.\d{6})\d+(\+|$)", r"\1\2", v)
     dt = datetime.fromisoformat(v)
-    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt.astimezone(UTC).replace(tzinfo=None)
 
 
 def load_monster_names(xml_path: str | Path | None = None) -> dict[int, str]:

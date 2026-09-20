@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { apiGet } from "../../lib/api";
+import { useState } from "react";
+import { ApiState, useApi } from "../../lib/useApi";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
 import { useFilterOptions } from "../useFilterOptions";
-import SearchSelect from "../SearchSelect";
+import { MonsterSelect, StarsSelect, WeaponSelect } from "../FilterBar";
 
 interface HuntPoint {
   hunt_id: number;
@@ -78,26 +78,10 @@ function GrowthFilters({
   const opts = useFilterOptions();
   return (
     <div className="filters">
-      <SearchSelect
-        label="Weapon"
-        value={weapon}
-        options={(opts?.weapons ?? []).map((w) => ({ value: String(w.id), label: w.name }))}
-        onChange={setWeapon}
-      />
-      <SearchSelect
-        label="Monster"
-        value={monster}
-        options={(opts?.monsters ?? []).map((m) => ({ value: String(m.id), label: m.name }))}
-        onChange={(v) => { setMonster(v); setStars(""); }}
-      />
-      <label>Stars
-        <select value={stars} onChange={(e) => setStars(e.target.value)}>
-          <option value="">All</option>
-          {(monster ? (opts?.monster_stars[Number(monster)] ?? opts?.stars ?? []) : opts?.stars ?? []).map((s) => (
-            <option key={s} value={s}>{s}★</option>
-          ))}
-        </select>
-      </label>
+      <WeaponSelect value={weapon} onChange={setWeapon} opts={opts} />
+      <MonsterSelect value={monster} opts={opts}
+        onChange={(v) => { setMonster(v); setStars(""); }} />
+      <StarsSelect value={stars} onChange={setStars} monster={monster} opts={opts} />
       {showTopN && (
         <label>Top
           <select value={topN} onChange={(e) => setTopN(e.target.value)}>
@@ -117,40 +101,42 @@ export default function GrowthView({ scope, variantId, clearScope, setScope, par
   const [monster, setMonster] = useState("");
   const [stars, setStars] = useState("");
   const [topN, setTopN] = useState("5");
-  const [data, setData] = useState<GrowthData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const selectedPlayerId = scope.length === 1 ? scope[0] : null;
-  const scopeKey = scope.join(",");
   const isTopMode = selectedPlayerId === null;
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setData(null);
-    const params: Record<string, string | number> = {};
-    if (selectedPlayerId !== null) params.player_id = selectedPlayerId;
-    else if (scope.length > 1) params.player_ids = scopeKey;
-    if (weapon) params.weapon_id = Number(weapon);
-    if (monster) params.monster_id = Number(monster);
-    if (stars) params.stars = Number(stars);
-    if (variantId !== null) params.variant_id = variantId;
-    if (partySize != null) params.players = partySize;
-    if (isTopMode) params.top_n = Number(topN);
-    apiGet<GrowthData>("/progress/improvement", params)
-      .then((d) => { if (!cancelled) { setData(d); setLoading(false); } })
-      .catch((e: Error) => { if (!cancelled) { setError(e.message); setLoading(false); } });
-    return () => { cancelled = true; };
-  }, [selectedPlayerId, scopeKey, weapon, monster, stars, topN, variantId, isTopMode, partySize]);
+  const { data, error, loading } = useApi<GrowthData>("/progress/improvement", {
+    ...(selectedPlayerId !== null ? { player_id: selectedPlayerId }
+      : scope.length > 1 ? { player_ids: scope.join(",") } : {}),
+    ...(weapon && { weapon_id: Number(weapon) }),
+    ...(monster && { monster_id: Number(monster) }),
+    ...(stars && { stars: Number(stars) }),
+    ...(variantId !== null && { variant_id: variantId }),
+    ...(partySize != null && { players: partySize }),
+    ...(isTopMode && { top_n: Number(topN) }),
+  });
 
-  if (error) return <p className="error">{error} — is the API running on :8000?</p>;
-  if (loading || !data) return <p>Loading growth analytics…</p>;
+  if (error || loading || !data) {
+    return (
+      <div className="card">
+        <GrowthFilters weapon={weapon} setWeapon={setWeapon} monster={monster} setMonster={setMonster}
+          stars={stars} setStars={setStars} topN={topN} setTopN={setTopN} showTopN={isTopMode} />
+        <ApiState error={error} loading={loading || !data} />
+      </div>
+    );
+  }
 
   // Guard against scope/data shape mismatch mid-transition.
   const wantPlayer = selectedPlayerId !== null;
-  if (wantPlayer !== isPlayerData(data)) return <p>Loading growth analytics…</p>;
+  if (wantPlayer !== isPlayerData(data)) {
+    return (
+      <div className="card">
+        <GrowthFilters weapon={weapon} setWeapon={setWeapon} monster={monster} setMonster={setMonster}
+          stars={stars} setStars={setStars} topN={topN} setTopN={setTopN} showTopN={isTopMode} />
+        <p>Loading growth analytics…</p>
+      </div>
+    );
+  }
 
   if (isPlayerData(data)) {
     const pData = data;

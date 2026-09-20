@@ -142,7 +142,6 @@ def test_bystander_threshold_is_40_percent():
     """HP floor: a monster scratched to 45% is a bystander, one down to 20%
     is a target. Sample count no longer matters (3 samples at 68% — the
     Guardian Anjanath case — is skipped)."""
-    from app.import_hunt import import_doc
     doc = sample_doc()
     base = doc["monsters"][0]
     step = lambda frac: {"percentage": frac, "time": "2026-09-06T03:34:00.0000000Z"}

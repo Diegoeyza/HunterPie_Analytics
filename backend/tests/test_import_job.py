@@ -1,6 +1,5 @@
 """Import job manager: single-flight, cancel, manifest, warnings."""
 import json
-import os
 import tempfile
 from pathlib import Path
 

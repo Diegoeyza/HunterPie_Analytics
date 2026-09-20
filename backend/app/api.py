@@ -17,7 +17,15 @@ from sqlalchemy.orm import Session
 
 from . import queries
 from .db import DEFAULT_DB_PATH, make_session
-from .filters import MAX_LIMIT, MAX_PARTY, MAX_POINTS, MAX_TOP_N, MAX_WINDOW, FilterError, parse_ids
+from .filters import (
+    MAX_LIMIT,
+    MAX_PARTY,
+    MAX_POINTS,
+    MAX_TOP_N,
+    MAX_WINDOW,
+    FilterError,
+    parse_ids,
+)
 from .import_hunt import DEFAULT_EXPORTS_DIR
 from .import_job import JobBusyError, cancel_job, get_job, start_import_job
 
@@ -54,7 +62,7 @@ def _ids(raw: str | None) -> list[int]:
     try:
         return parse_ids(raw)
     except FilterError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, str(e)) from None
 
 
 def _party(size: int | None) -> int | None:
@@ -137,7 +145,7 @@ def curve(hunt_id: int, max_points: int = Query(500, ge=1, le=MAX_POINTS),
     try:
         return queries.hunt_curve(db, hunt_id, max_points, quest_hp)
     except KeyError:
-        raise HTTPException(404, f"hunt {hunt_id} not found")
+        raise HTTPException(404, f"hunt {hunt_id} not found") from None
 
 
 @app.get("/api/hunts/{hunt_id}/abnormalities")
@@ -145,7 +153,7 @@ def abnormalities(hunt_id: int, db: Session = Depends(get_db)):
     try:
         return queries.hunt_abnormalities(db, hunt_id)
     except KeyError:
-        raise HTTPException(404, f"hunt {hunt_id} not found")
+        raise HTTPException(404, f"hunt {hunt_id} not found") from None
 
 
 @app.get("/api/synergy")
@@ -169,7 +177,7 @@ def quest_detail(key: str, players: int | None = None,
     try:
         return queries.quest_hunts(db, key, party=_party(players))
     except KeyError:
-        raise HTTPException(404, f"quest {key} not found")
+        raise HTTPException(404, f"quest {key} not found") from None
 
 
 @app.get("/api/records")
@@ -196,7 +204,7 @@ def ignore_hunt(hunt_id: int, body: IgnoreBody, db: Session = Depends(get_db)):
     try:
         return queries.set_hunt_ignored(db, hunt_id, body.ignored)
     except KeyError:
-        raise HTTPException(404, f"hunt {hunt_id} not found")
+        raise HTTPException(404, f"hunt {hunt_id} not found") from None
 
 
 @app.get("/api/leaderboard")
@@ -225,6 +233,28 @@ def compare(player_ids: str | None = None,
                            variant_id, party=_party(players))
 
 
+@app.get("/api/players/aliases")
+def aliases(db: Session = Depends(get_db)):
+    """Rename-variant sightings awaiting review (ingest writes these)."""
+    return queries.list_aliases(db)
+
+
+@app.post("/api/players/aliases/{alias_id}/merge")
+def merge_alias(alias_id: int, db: Session = Depends(get_db)):
+    try:
+        return queries.merge_alias(db, alias_id)
+    except KeyError:
+        raise HTTPException(404, f"alias {alias_id} not found") from None
+
+
+@app.delete("/api/players/aliases/{alias_id}")
+def dismiss_alias(alias_id: int, db: Session = Depends(get_db)):
+    try:
+        return queries.dismiss_alias(db, alias_id)
+    except KeyError:
+        raise HTTPException(404, f"alias {alias_id} not found") from None
+
+
 @app.get("/api/players/{player_id}/variants")
 def player_variants(player_id: int, db: Session = Depends(get_db)):
     return queries.player_variants(db, player_id)
@@ -236,7 +266,7 @@ def rename_identity(identity_id: int, body: LabelBody,
     try:
         return queries.set_identity_label(db, identity_id, body.label)
     except KeyError:
-        raise HTTPException(404, f"weapon identity {identity_id} not found")
+        raise HTTPException(404, f"weapon identity {identity_id} not found") from None
 
 
 def _session_db_path(db: Session) -> Path:
@@ -263,7 +293,7 @@ def import_hunts(db: Session = Depends(get_db), force: bool = False):
     try:
         job = start_import_job(_session_db_path(db), src, force=force)
     except JobBusyError as e:
-        raise HTTPException(409, str(e))
+        raise HTTPException(409, str(e)) from None
     return {"job_id": job.job_id, "state": job.state, "total": job.total}
 
 
@@ -295,7 +325,7 @@ def pin(player_id: int, db: Session = Depends(get_db)):
     try:
         return queries.set_pin(db, player_id, True)
     except KeyError:
-        raise HTTPException(404, f"player {player_id} not found")
+        raise HTTPException(404, f"player {player_id} not found") from None
 
 
 @app.delete("/api/players/{player_id}/pin")
@@ -303,7 +333,7 @@ def unpin(player_id: int, db: Session = Depends(get_db)):
     try:
         return queries.set_pin(db, player_id, False)
     except KeyError:
-        raise HTTPException(404, f"player {player_id} not found")
+        raise HTTPException(404, f"player {player_id} not found") from None
 
 
 if __name__ == "__main__":

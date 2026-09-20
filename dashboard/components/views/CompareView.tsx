@@ -1,12 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  CartesianGrid, Legend, Line, LineChart, ResponsiveContainer,
-  Tooltip, XAxis, YAxis,
-} from "recharts";
-import { apiGet } from "../../lib/api";
+import {CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, XAxis, YAxis, } from "recharts";
+import { ApiState, useApi } from "../../lib/useApi";
 import EmptyState from "../EmptyState";
+import { ChartTip, GRID_STROKE, TICK } from "../ChartKit";
 
 interface ComparePoint {
   hunt_id: number; date: string;
@@ -16,21 +14,13 @@ interface ComparePoint {
 interface CompareData { points: ComparePoint[]; window: number; scope: string[]; }
 
 export default function CompareView({ scope, variantId, clearScope, partySize }: { scope: number[]; variantId: number | string | null; clearScope: () => void; partySize: number | null }) {
-  const [data, setData] = useState<CompareData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const key = scope.join(",");
-
-  useEffect(() => {
-    if (scope.length === 0) { setData(null); return; }
-    apiGet<CompareData>("/compare", {
+  const { data, error, loading } = useApi<CompareData>(
+    "/compare",
+    scope.length === 0 ? null : {
       player_ids: scope.join(","),
       ...(variantId !== null && { variant_id: variantId }),
       ...(partySize != null && { players: partySize }),
-    })
-      .then(setData)
-      .catch((e: Error) => setError(e.message));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, variantId, partySize]);
+    });
 
   if (scope.length === 0) {
     return (
@@ -39,8 +29,7 @@ export default function CompareView({ scope, variantId, clearScope, partySize }:
       </EmptyState>
     );
   }
-  if (error) return <p className="error">{error} — is the API running?</p>;
-  if (!data) return <p>Loading…</p>;
+  if (error || loading || !data) return <ApiState error={error} loading={loading} />;
   if (data.points.length === 0) {
     return (
       <EmptyState what="hunts for this scope">
@@ -64,11 +53,11 @@ export default function CompareView({ scope, variantId, clearScope, partySize }:
       <h2>{label} vs party ({data.points.length} hunts, {data.window}-hunt rolling)</h2>
       <ResponsiveContainer width="100%" height={340}>
         <LineChart data={rows}>
-          <CartesianGrid stroke="#2c313e" />
-          <XAxis dataKey="x" tick={{ fill: "#9aa1b2", fontSize: 11 }} interval="preserveStartEnd" />
-          <YAxis tick={{ fill: "#9aa1b2", fontSize: 11 }}
-            label={{ value: "DPS", fill: "#9aa1b2", fontSize: 11, angle: -90, position: "insideLeft" }} />
-          <Tooltip contentStyle={{ background: "#1d2029", border: "1px solid #2c313e" }} />
+          <CartesianGrid stroke={GRID_STROKE} />
+          <XAxis dataKey="x" tick={TICK} interval="preserveStartEnd" />
+          <YAxis tick={TICK}
+            label={{ value: "DPS", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: -90, position: "insideLeft" }} />
+          <ChartTip />
           <Legend />
           <Line type="monotone" dataKey="you" name={label} stroke="#e8b64c" dot={false} strokeWidth={2} />
           <Line type="monotone" dataKey="party" name="party avg" stroke="#5aa9e6" dot={false} strokeWidth={2} />

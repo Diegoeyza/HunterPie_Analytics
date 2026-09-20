@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { apiGet } from "../../lib/api";
 import { fmtDps, fmtTime } from "../../lib/format";
+import { ApiState, useApi } from "../../lib/useApi";
 import DataTable from "../DataTable";
-import SearchSelect from "../SearchSelect";
+import { MonsterSelect, StarsSelect, WeaponSelect } from "../FilterBar";
 import { useFilterOptions } from "../useFilterOptions";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
 
@@ -97,52 +97,24 @@ export default function HighScoreView({ scope, variantId, clearScope, partySize 
   const [stars, setStars] = useState("");
   const [sortBy, setSortBy] = useState<"time" | "dps">("dps");
   const [topN, setTopN] = useState("10");
-  const [rows, setRows] = useState<HighScore[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setError(null);
-    apiGet<{ scores: HighScore[] }>("/high-scores", {
-      ...(scope.length > 0 && { player_ids: scope.join(",") }),
-      ...(variantId !== null && { variant_id: variantId }),
-      ...(monster && { monster_id: Number(monster) }),
-      ...(weapon && { weapon_id: Number(weapon) }),
-      ...(stars && { stars: Number(stars) }),
-      sort_by: sortBy,
-      ...(topN && { limit: Number(topN) }),
-      ...(partySize != null && { players: partySize }),
-    }).then((d) => setRows(d.scores)).catch((e: Error) => setError(e.message));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope.join(","), variantId, monster, weapon, stars, sortBy, topN, partySize]);
-
-  const starOptions = useMemo(
-    () => (monster ? (opts?.monster_stars[Number(monster)] ?? []) : opts?.stars ?? []),
-    [opts, monster],
-  );
-
-  if (error) return <p className="error">{error} — is the API running on :8000?</p>;
-  if (!rows) return <p>Loading…</p>;
+  const { data, error, loading } = useApi<{ scores: HighScore[] }>("/high-scores", {
+    ...(scope.length > 0 && { player_ids: scope.join(",") }),
+    ...(variantId !== null && { variant_id: variantId }),
+    ...(monster && { monster_id: Number(monster) }),
+    ...(weapon && { weapon_id: Number(weapon) }),
+    ...(stars && { stars: Number(stars) }),
+    sort_by: sortBy,
+    ...(topN && { limit: Number(topN) }),
+    ...(partySize != null && { players: partySize }),
+  });
+  const rows = data?.scores ?? null;
 
   const filters = (
     <div className="filters">
-      <SearchSelect
-        label="Monster"
-        value={monster}
-        options={(opts?.monsters ?? []).map((m) => ({ value: String(m.id), label: m.name }))}
-        onChange={(v) => { setMonster(v); setStars(""); }}
-      />
-      <SearchSelect
-        label="Weapon"
-        value={weapon}
-        options={(opts?.weapons ?? []).map((w) => ({ value: String(w.id), label: w.name }))}
-        onChange={setWeapon}
-      />
-      <label>Stars
-        <select value={stars} onChange={(e) => setStars(e.target.value)}>
-          <option value="">All</option>
-          {starOptions.map((s) => <option key={s} value={s}>{s}★</option>)}
-        </select>
-      </label>
+      <MonsterSelect value={monster} opts={opts}
+        onChange={(v) => { setMonster(v); setStars(""); }} />
+      <WeaponSelect value={weapon} onChange={setWeapon} opts={opts} />
+      <StarsSelect value={stars} onChange={setStars} monster={monster} opts={opts} />
       <label>Top
         <select value={topN} onChange={(e) => setTopN(e.target.value)}>
           <option value="3">3</option>
@@ -162,6 +134,15 @@ export default function HighScoreView({ scope, variantId, clearScope, partySize 
       </div>
     </div>
   );
+
+  if (error || loading || !rows) {
+    return (
+      <div className="card">
+        {filters}
+        <ApiState error={error} loading={loading} />
+      </div>
+    );
+  }
 
   if (rows.length === 0) {
     if (scope.length > 0) {

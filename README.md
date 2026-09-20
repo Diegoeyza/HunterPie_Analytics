@@ -73,21 +73,28 @@ Run `./import.sh` after each hunting session to pull in new data.
 | Tab | What it shows |
 |-----|---------------|
 | **Progress** | DPS per hunt + rolling average, clear time trend. Filters: monster, quest, stars, weapon, hunter. |
+| **Growth** | Instance-weighted DPS improvement with per-group trends (median, best, slope, clear time). |
 | **Weapons** | Average DPS, peak hit*, hunt count, clear rate by weapon type. |
 | **Damage curves** | Per-hunt cumulative damage or DPS (5s rolling avg) for all party members, monster HP overlay, enrage shading. |
+| **Hunts** | Every run, latest first — click a row for party damage, DPS and the damage curve. |
 | **Quests** | Per-quest aggregates: clear rate, best DPS, enrage uptime. |
-| **Records** | Personal bests per monster: fastest clear, highest DPS. |
+| **Leaderboard** | Best players by DPS over cleared hunts (monster/stars/weapon/min-hunts filters). |
+| **High Scores** | One row per cleared hunt, ranked by DPS or clear time. |
 | **Compare** | Scoped hunters vs whole-party DPS, hunt by hunt. |
 | **Activity** | Hunts per day, clear rate, total damage. |
 | **Synergy** | Clear time and damage share by teammate pairing. |
+| **Buffs** | Abnormality/buff uptime per player per hunt (table + timeline). |
+| **Review** | Rename flags from ingest — merge case-variant hunters or keep them separate. |
 
 \* *Peak hit = largest single damage frame (~1s sampling), not sustained DPS.*
 
 ### Scope bar
 
 Star hunters in the top bar to focus views on specific players.
-Scope applies to Progress, Weapons, Damage curves, Compare, and Synergy.
-Stored in `localStorage` — survives refreshes.
+Scope applies to Progress, Growth, Weapons, Damage curves, Hunts, Leaderboard,
+High Scores, Compare, Synergy, and Buffs (Quests and Activity stay global).
+Scope, party size, and the active tab sync to the URL (`?tab=&scope=&party=`) —
+shareable links, back-button safe. Stored in `localStorage` too — survives refreshes.
 
 ### Damage curves features
 
@@ -102,39 +109,55 @@ Stored in `localStorage` — survives refreshes.
 ### Backend (`backend/`)
 
 - **Framework**: FastAPI + SQLAlchemy + SQLite
-- **Tables**: `players`, `weapons`, `monsters`, `hunts`, `hunt_players`, `dps_snapshots`, `monster_events`, `monster_health_steps`, `player_pins`
+- **Tables**: `players`, `player_aliases`, `weapons`, `monsters`, `hunts`, `hunt_players`, `dps_snapshots`, `monster_events`, `monster_health_steps`, `player_abnormalities`, `weapon_identities`, `player_pins`, `imported_files`
+- **Query layer**: `queries.py` (metrics) + `filters.py` (shared scope/party/visibility + strict parsing) + `engagement.py` (DPS windows) + `variants.py` (gear fingerprints)
 - **API port**: `:8000` (or `$PORT`)
 - **DB path**: `backend/hunts.db` (or `$HUNTS_DB`)
-- **Schema**: `db/schema.sql`
-- **Migration**: Pre-Alembic — `init_db()` runs `ALTER TABLE` for new columns on existing DBs
+- **Schema**: `db/schema.sql` (+ `test_schema_drift` fails on models/schema drift)
+- **Migrations**: versioned, `PRAGMA user_version` in `app/db.py:MIGRATIONS` — `init_db()` upgrades any old DB in place
 
 ### Dashboard (`dashboard/`)
 
 - **Framework**: Next.js 15 + Recharts 3 + TypeScript
 - **Port**: `:3000`
 - **API URL**: `http://localhost:8000` (or `$NEXT_PUBLIC_API_URL`)
-- **Pattern**: Tab registry — add a view by creating a file in `components/views/` and adding an entry to `lib/registry.tsx`
+- **Pattern**: Tab registry — add a view by creating a file in `components/views/` and adding an entry to `lib/registry.tsx`. Data via `useApi()` (`lib/useApi.tsx`), filters via `components/FilterBar.tsx`, charts via `components/ChartKit.tsx`.
 
 ### Key files
 
 ```
 backend/
-  app/api.py            FastAPI routes + CORS
+  app/api.py            FastAPI routes + validation (422/409) + CORS
   app/queries.py        All metric queries (one function per tab)
-  app/ingest.py         upsert_hunt() — atomic, idempotent, n-player
-  app/import_hunt.py    Poogie JSON parser + CLI
-  app/seed.py           Deterministic demo data generator
-  app/db.py             init_db() with pre-Alembic migration
-  app/models.py         SQLAlchemy models (9 tables)
-  tests/                19 tests (import + API)
+  app/filters.py        Shared scope/party/visibility + strict param parsing
+  app/engagement.py     DPS engagement windows (batched)
+  app/variants.py       Weapon-variant clustering + filter resolution
+  app/ingest.py         upsert_hunt() — validated, atomic, idempotent, n-player
+  app/import_hunt.py    Poogie JSON parser + CLI (logging, split-quest flags)
+  app/import_job.py     Background imports: single-flight, cancel, manifest
+  app/seed.py           Deterministic demo data generator (importer-identical)
+  app/db.py             Shared engine + per-connection pragmas + migrations
+  app/models.py         SQLAlchemy models (13 tables)
+  bench.py              1000-hunt endpoint latency bench
+  tests/                71 tests (import + API + ingest + jobs + drift)
 
 dashboard/
-  app/page.tsx          Root page, scope state, tab rendering
-  lib/registry.tsx      Tab registry (TABS array)
-  lib/api.ts            Typed fetch helpers
+  app/page.tsx          Root page: URL-synced tab/scope/party, health, toasts
+  lib/registry.tsx      Tab registry (13 TABS)
+  lib/api.ts            Typed fetch helpers + cache
+  lib/useApi.tsx        SWR-lite data hook + ApiState
+  lib/url.ts            Query-param state helpers
+  lib/format.ts         fmtTime/fmtDps/fmtPct/fmtInt/fmtDate/roundDps
   components/views/     One file per tab
-  components/ScopeBar.tsx   Hunter pin/scope UI
+  components/ScopeBar.tsx   Hunter pin/scope/party UI
+  components/FilterBar.tsx  Shared Monster/Stars/Weapon/Hunter selects
+  components/ChartKit.tsx   Theme-aware chart constants
+  components/Modal.tsx      Single modal system
+  components/Toast.tsx      Toast notifications
 
+Makefile              setup/seed/dev/test/lint/build/bench/import/clean
+docker-compose.yml    API + dashboard containers (DB on ./data volume)
+.github/workflows/ci.yml  pytest + tsc on push/PR
 db/schema.sql           Source of truth for schema
 docs/ADDING_A_VIEW.md   How to add new tabs/metrics
 ```
@@ -161,18 +184,25 @@ See [docs/ADDING_A_VIEW.md](docs/ADDING_A_VIEW.md) for details.
 ## Tests
 
 ```sh
-# Backend (19 tests)
+make test   # backend pytest + dashboard typecheck
+
+# Backend (71 tests) — granular:
 cd backend && ../.venv/bin/python -m pytest tests -q
 
 # Dashboard (type check)
 cd dashboard && npx tsc --noEmit
+
+# Lint
+.venv/bin/python -m ruff check backend/app backend/tests
+
+# Perf bench (1000 hunts)
+make bench
 ```
 
 ## Known limitations
 
-- **Abnormality/buff uptime**: Counted by HunterPie but not stored yet (8 tracks per player reported as warnings on import)
-- **Multi-monster quests**: Only `monsters[0]` is imported (others reported as warnings)
-- **HunterPie/game versions**: Not in the JSON dump — defaults to `2.14.0.466` / `1.042.00.02`, override with `--hunterpie-version` / `--game-version`
+- **Multi-monster quests**: one hunt row per monster, each carrying full quest damage (flagged `is_split_quest`; per-hit attribution impossible from the dump)
+- **HunterPie/game versions**: Not in the JSON dump — defaults to `2.14.0.466-analytics` / `1.042.00.02`, override with `--hunterpie-version` / `--game-version`
 
 ## License
 

@@ -1,8 +1,6 @@
 """API boundary validation: 422s, 409s, strict id parsing."""
 import os
 
-from fastapi.testclient import TestClient
-
 from app import api
 from tests.test_api import _TEST_DBS, make_client, seed_two_hunts
 

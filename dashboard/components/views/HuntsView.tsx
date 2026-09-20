@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { createPortal } from "react-dom";
 import {
   CartesianGrid, Legend, Line, LineChart, ReferenceArea,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { apiGet, seriesColor, type HuntSummary } from "../../lib/api";
-import { fmtDps, fmtPct, fmtTime } from "../../lib/format";
+import { seriesColor, type HuntSummary } from "../../lib/api";
+import { fmtDps, fmtInt, fmtPct, fmtTime } from "../../lib/format";
 import { type Metric, computeDps, smoothDps, computeBurst } from "../../lib/metrics";
+import { ApiState, useApi } from "../../lib/useApi";
 import ChartTooltip from "../ChartTooltip";
+import { TICK } from "../ChartKit";
 import DataTable from "../DataTable";
 import EmptyState from "../EmptyState";
 import HunterCard from "../HunterCard";
+import Modal from "../Modal";
 import SearchSelect from "../SearchSelect";
 
 interface CurvePoint { t: number; dmg: number; }
@@ -88,7 +90,7 @@ const columns: ColumnDef<HuntSummary>[] = [
   {
     id: "result", accessorFn: (r) => (r.cleared ? 1 : 0), header: "Result",
     cell: ({ row }) => (
-      <span style={{ color: row.original.cleared ? "#58b368" : "#e05c5c" }}>
+      <span style={{ color: row.original.cleared ? "var(--good)" : "var(--bad)" }}>
         {row.original.cleared ? "Cleared" : "Failed"}
       </span>
     ),
@@ -99,24 +101,10 @@ const columns: ColumnDef<HuntSummary>[] = [
  *  and the cumulative damage curve with enrage bands. Closes on backdrop
  *  click, the × button, or Escape. */
 function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }) {
-  const [curve, setCurve] = useState<HuntCurve | null>(null);
   const [metric, setMetric] = useState<Metric>("damage");
-
-  useEffect(() => {
-    setCurve(null);
-    apiGet<HuntCurve>(`/hunts/${hunt.id}/curve`).then(setCurve, () => setCurve(null));
-  }, [hunt.id]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
+  const { data } = useApi<HuntCurve>(`/hunts/${hunt.id}/curve`);
+  // Keyed fetch: ignore a stale previous-hunt curve while the new one loads.
+  const curve = data && data.hunt_id === hunt.id ? data : null;
 
   const members = useMemo(() => {
     if (!curve) return [];
@@ -202,24 +190,20 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
     ["Result", hunt.cleared ? "Cleared" : "Failed"],
     ["Clear time", fmtTime(hunt.clear_s)],
     ["Carts", String(hunt.carts)],
-    ["Team damage", team > 0 ? Math.round(team).toLocaleString() : "…"],
-    ["Max HP", curve?.quest.max_hp ? Math.round(curve.quest.max_hp).toLocaleString() : "…"],
+    ["Team damage", team > 0 ? fmtInt(team) : "…"],
+    ["Max HP", curve?.quest.max_hp ? fmtInt(curve.quest.max_hp) : "…"],
     ["Enrages", curve ? String(enrages.length) : "…"],
   ];
 
-  return createPortal(
-    <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="modal-panel" role="dialog" aria-modal="true" aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <h2>{title}</h2>
-          <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
-            ×
-          </button>
-        </div>
-        <div className="modal-body">
+  return (
+    <Modal label={title} onClose={onClose}>
+      <div className="modal-head">
+        <h2>{title}</h2>
+        <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+      </div>
+      <div className="modal-body">
           <div className="quest-stats">
             {stats.map(([label, value]) => (
               <div className="quest-stat" key={label}>
@@ -261,21 +245,21 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                     <XAxis
                       dataKey="t" minTickGap={40}
                       tickFormatter={(v: number) => `${Math.round(v)}s`}
-                      tick={{ fontSize: 11 }} stroke="#9aa1b2"
+                      tick={TICK} stroke="var(--chart-tick, #9aa1b2)"
                     />
                     <YAxis
                       tickFormatter={(v: number) => (metric === "damage" && v >= 1000
                         ? `${Math.round(v / 100) / 10}k` : metric === "damage" ? `${v}` : `${Math.round(v * 10) / 10}`)}
-                      tick={{ fontSize: 11 }} stroke="#9aa1b2" width={48}
+                      tick={TICK} stroke="var(--chart-tick, #9aa1b2)" width={48}
                     />
                     <Tooltip
-                      content={<ChartTooltip metric={metric} events={enrages} colorOf={() => "#e05c5c"} />}
+                      content={<ChartTooltip metric={metric} events={enrages} colorOf={() => "var(--bad, #e05c5c)"} />}
                     />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     {enrages.map((e, i) => (
                       <ReferenceArea
                         key={i} x1={e.start} x2={e.end ?? undefined}
-                        fill="#e05c5c" fillOpacity={0.14} strokeDasharray="3 3"
+                        fill="var(--bad, #e05c5c)" fillOpacity={0.14} strokeDasharray="3 3"
                       />
                     ))}
                     {curve.players.map((p, i) => (
@@ -292,30 +276,21 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
             </>
           )}
         </div>
-      </div>
-    </div>,
-    document.body
+    </Modal>
   );
 }
 
 export default function HuntsView({ scope, partySize }: { scope: number[]; partySize: number | null }) {
-  const [hunts, setHunts] = useState<HuntSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [monsterFilter, setMonsterFilter] = useState<string>("");
   const [resultFilter, setResultFilter] = useState<"" | "cleared" | "failed">("");
   const [selected, setSelected] = useState<HuntSummary | null>(null);
 
-  const scopeKey = scope.join(",");
-  useEffect(() => {
-    setHunts(null);
-    const params: Record<string, string | number> = { limit: 500 };
-    if (scope.length > 0) params.player_ids = scopeKey;
-    if (partySize != null) params.players = partySize;
-    apiGet<{ hunts: HuntSummary[] }>("/hunts", params)
-      .then((d) => setHunts(d.hunts))
-      .catch((e: Error) => setError(e.message));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey, partySize]);
+  const { data, error, loading } = useApi<{ hunts: HuntSummary[] }>("/hunts", {
+    limit: 500,
+    ...(scope.length > 0 && { player_ids: scope.join(",") }),
+    ...(partySize != null && { players: partySize }),
+  });
+  const hunts = data?.hunts ?? null;
 
   const monsters = useMemo(
     () => [...new Set((hunts ?? []).map((h) => h.monster))].sort(),
@@ -329,8 +304,7 @@ export default function HuntsView({ scope, partySize }: { scope: number[]; party
     return out;
   }, [hunts, monsterFilter, resultFilter]);
 
-  if (error) return <p className="error">{error} — is the API running on :8000?</p>;
-  if (!hunts) return <p>Loading…</p>;
+  if (error || loading || !hunts) return <ApiState error={error} loading={loading} />;
   if (hunts.length === 0) {
     return (
       <EmptyState what="hunts">

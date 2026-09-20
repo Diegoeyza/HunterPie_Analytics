@@ -1,0 +1,25 @@
+services:
+  api:
+    build:
+      context: .
+      target: api
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ./data:/data
+      # Point at Windows HuntExports via $HUNT_EXPORTS, or ./seeds for demo.
+      - "${HUNT_EXPORTS:-./seeds}:/exports:ro"
+    environment:
+      HUNTS_DB: /data/hunts.db
+      HUNT_EXPORTS: /exports
+
+  dashboard:
+    build:
+      context: .
+      target: dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:${PORT:-8000}
+    depends_on:
+      - api

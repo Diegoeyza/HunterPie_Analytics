@@ -5,14 +5,16 @@ then expose it with one route in api.py. No other files change.
 """
 from __future__ import annotations
 
+from datetime import UTC
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from . import filters
 from .engagement import (
     batch_engagement_s,
     hunt_duration_s,
 )
-from . import filters
 from .filters import FilterError, parse_ids
 from .models import (
     DpsSnapshot,
@@ -23,12 +25,12 @@ from .models import (
     MonsterHealthStep,
     Player,
     PlayerAbnormality,
+    PlayerAlias,
     PlayerPin,
     Weapon,
 )
 from .variants import (
     UNKNOWN_VARIANT_ID,
-    cluster_weapon_variants,  # re-exported: tests import it from here
     gear_variant_label,
     identity_label_map,
     player_variants,
@@ -71,6 +73,9 @@ __all__ = [
     "activity",
     "compare",
     "progress_improvement",
+    "list_aliases",
+    "dismiss_alias",
+    "merge_alias",
 ]
 
 
@@ -151,14 +156,14 @@ def list_pins(session: Session) -> dict:
 
 
 def set_pin(session: Session, player_id: int, pinned: bool) -> dict:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     player = session.get(Player, player_id)
     if player is None:
         raise KeyError(player_id)
     existing = session.get(PlayerPin, player_id)
     if pinned and existing is None:
-        session.add(PlayerPin(player_id=player_id, pinned_at=datetime.now(timezone.utc).replace(tzinfo=None)))
+        session.add(PlayerPin(player_id=player_id, pinned_at=datetime.now(UTC).replace(tzinfo=None)))
         session.commit()
     elif not pinned and existing is not None:
         session.delete(existing)
@@ -169,7 +174,15 @@ def set_pin(session: Session, player_id: int, pinned: bool) -> dict:
 def health(session: Session) -> dict:
     hunts = session.execute(
         select(func.count(Hunt.id)).where(filters.visible())).scalar_one()
-    return {"status": "ok", "hunts": hunts}
+    latest = session.execute(
+        select(Hunt.hunterpie_version, Hunt.game_version)
+        .where(filters.visible())
+        .order_by(Hunt.started_at.desc()).limit(1)
+    ).one_or_none()
+    out = {"status": "ok", "hunts": hunts}
+    if latest is not None:
+        out["hunterpie_version"], out["game_version"] = latest
+    return out
 
 
 def hunt_list(session: Session, limit: int = 200,
@@ -702,7 +715,7 @@ def quest_hunts(session: Session, key: str,
         else:
             raise ValueError(f"bad quest key: {key!r}")
     except (ValueError, IndexError):
-        raise KeyError(key)
+        raise KeyError(key) from None
     if party is not None:
         hunt_ids = [hid for (hid,) in session.execute(
             select(Hunt.id).where(Hunt.id.in_(hunt_ids),
@@ -1194,3 +1207,77 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
         results.sort(key=lambda r: r["overall_pct_improvement"], reverse=True)
         return {"top_hunters": results[:top_n]}
 
+
+
+def list_aliases(session: Session) -> dict:
+    """Rename-variant sightings awaiting review (oldest first)."""
+    rows = session.execute(
+        select(PlayerAlias, Player.display_name)
+        .join(Player, Player.id == PlayerAlias.player_id)
+        .order_by(PlayerAlias.created_at)
+    ).all()
+    return {"aliases": [{
+        "id": a.id, "alias": a.alias, "player_id": pid,
+        "player": pname, "created_at": a.created_at.isoformat(),
+    } for a, pname in rows for pid in (a.player_id,)]}
+
+
+def dismiss_alias(session: Session, alias_id: int) -> dict:
+    """Drop a review item, keeping the players separate (explicit keep)."""
+    row = session.get(PlayerAlias, alias_id)
+    if row is None:
+        raise KeyError(alias_id)
+    session.delete(row)
+    session.commit()
+    return {"id": alias_id, "dismissed": True}
+
+
+def merge_alias(session: Session, alias_id: int) -> dict:
+    """Merge the alias-named player into the alias target (explicit merge).
+
+    Every FK row of the source player (hunt memberships, snapshots,
+    abnormalities, pins) is reassigned to the target; same-hunt
+    memberships combine damage; then the source row and alias die.
+    """
+    alias = session.get(PlayerAlias, alias_id)
+    if alias is None:
+        raise KeyError(alias_id)
+    source = session.execute(
+        select(Player).where(Player.display_name == alias.alias)
+    ).scalar_one_or_none()
+    target = session.get(Player, alias.player_id)
+    if source is None or target is None or source.id == target.id:
+        raise KeyError(alias_id)
+    moved = {"hunts": 0, "snapshots": 0, "abnormalities": 0}
+    for hp in session.execute(
+            select(HuntPlayer).where(HuntPlayer.player_id == source.id)
+    ).scalars().all():
+        clash = session.get(HuntPlayer, (hp.hunt_id, target.id))
+        if clash is None:
+            hp.player_id = target.id
+        else:
+            clash.total_damage = (clash.total_damage or 0.0) + (hp.total_damage or 0.0)
+            clash.peak_dps = max(clash.peak_dps or 0.0, hp.peak_dps or 0.0)
+            session.delete(hp)
+        moved["hunts"] += 1
+    for snap in session.execute(
+            select(DpsSnapshot).where(DpsSnapshot.player_id == source.id)
+    ).scalars().all():
+        snap.player_id = target.id
+        moved["snapshots"] += 1
+    for ab in session.execute(
+            select(PlayerAbnormality).where(PlayerAbnormality.player_id == source.id)
+    ).scalars().all():
+        ab.player_id = target.id
+        moved["abnormalities"] += 1
+    if session.get(PlayerPin, target.id) is None and \
+            session.get(PlayerPin, source.id) is not None:
+        session.add(PlayerPin(player_id=target.id))
+    old_pin = session.get(PlayerPin, source.id)
+    if old_pin is not None:
+        session.delete(old_pin)
+    session.delete(source)
+    session.delete(alias)
+    session.commit()
+    return {"id": alias_id, "merged": alias.alias, "into": target.display_name,
+            **moved}

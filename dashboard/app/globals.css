@@ -10,6 +10,8 @@
   --bad: #e05c5c;
   --row-hover: #232733;
   --input-bg: #14161c;
+  --chart-grid: #2c313e;
+  --chart-tick: #9aa1b2;
   color-scheme: dark;
 }
 
@@ -25,6 +27,8 @@
   --bad: #c04545;
   --row-hover: #eef1f6;
   --input-bg: #ffffff;
+  --chart-grid: #d8dee8;
+  --chart-tick: #5d6675;
   color-scheme: light;
 }
 
@@ -391,4 +395,30 @@ button:focus-visible, select:focus-visible, input:focus-visible,
 @media (max-width: 900px) {
   .filters label { width: 100%; }
   .filters label > *:last-child { flex: 1; }
+}
+
+/* Toasts (v2): bottom-right stack, auto-dismiss */
+.toasts {
+  position: fixed; right: 16px; bottom: 16px; z-index: 100;
+  display: flex; flex-direction: column; gap: 8px; max-width: min(420px, 90vw);
+}
+.toast {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-left: 3px solid var(--good);
+  border-radius: 8px; padding: 10px 12px; font-size: 13px;
+  display: flex; align-items: center; gap: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.toast.error { border-left-color: var(--bad); }
+.toast button {
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; font-size: 13px; padding: 0 2px;
+}
+
+/* SearchSelect clear button (v2) */
+.combo input:has(+ .combo-clear) { padding-right: 26px; }
+.combo-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; font-size: 13px; padding: 2px 4px;
 }

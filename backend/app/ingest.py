@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -42,7 +42,7 @@ REQUIRED_HUNT_FIELDS = (
 
 def _coerce_ts(value: datetime | str) -> datetime:
     if isinstance(value, datetime):
-        return value if value.tzinfo is None else value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value if value.tzinfo is None else value.astimezone(UTC).replace(tzinfo=None)
     return datetime.fromisoformat(value)
 
 
@@ -204,7 +204,7 @@ def upsert_hunt(session: Session, payload: dict,
         raise ValueError("hunt must include at least one player")
 
     warnings: list[str] = []
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     started_at = _coerce_ts(payload["started_at"])
     ended_at = _coerce_ts(payload["ended_at"]) if payload.get("ended_at") else None
     if ended_at is not None and ended_at < started_at:
