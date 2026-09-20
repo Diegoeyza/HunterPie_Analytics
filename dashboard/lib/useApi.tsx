@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiGetCached, apiInvalidate } from "./api";
 
 export type ApiParams = Record<string, string | number | null | undefined>;
@@ -36,9 +36,6 @@ export function useApi<T>(path: string, params?: ApiParams | null): UseApiResult
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
-  const cancelled = useRef(false);
-
-  useEffect(() => () => { cancelled.current = true; }, []);
 
   useEffect(() => {
     if (key === null) {
@@ -46,11 +43,13 @@ export function useApi<T>(path: string, params?: ApiParams | null): UseApiResult
       setError(null);
       return;
     }
+    // Per-request liveness flag (no shared ref: StrictMode double-effects
+    // and Fast Refresh must never permanently block later resolutions).
     let live = true;
     setError(null);
     apiGetCached<T>(path, params ?? undefined)
-      .then((d) => { if (live && !cancelled.current) setData(d); })
-      .catch((e: Error) => { if (live && !cancelled.current) setError(e.message); });
+      .then((d) => { if (live) setData(d); })
+      .catch((e: Error) => { if (live) setError(e.message); });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, nonce]);
