@@ -62,14 +62,18 @@ def find_hunt_by_payload(session: Session, payload: dict) -> Hunt | None:
     Lets callers skip ensure_monster/ensure_weapon (and their commit) for
     files that are already imported.
 
-    Match order: (quest_id_external, monster_id) first — stable across
-    renames/reorders — then the composite dedup_hash fallback.
+    Match order: (quest_id_external, monster_id, started_at) first — the
+    external id is a per-SESSION hash (every quest uploaded in one gaming
+    session shares it), so it only identifies a quest together with its
+    start time. Still stable across renames/reorders of the same quest.
+    Then the composite dedup_hash fallback.
     """
     quest_id = payload.get("quest_id_external")
     if quest_id:
         hit = session.execute(
             select(Hunt).where(Hunt.quest_id_external == quest_id,
-                               Hunt.monster_id == payload["monster_id"])
+                               Hunt.monster_id == payload["monster_id"],
+                               Hunt.started_at == _coerce_ts(payload["started_at"]))
         ).scalar_one_or_none()
         if hit is not None:
             return hit

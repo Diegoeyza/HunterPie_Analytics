@@ -83,10 +83,10 @@ def test_event_end_before_start_rejected(session):
 
 
 def test_external_id_dedup_survives_rename(session):
-    """Same quest_id_external + monster, different player names = dupe."""
+    """Same quest_id_external + monster + start, different player names =
+    dupe (re-uploads preserve the quest start; only the roster changed)."""
     h1, c1, _ = upsert_hunt(session, base_payload(quest_id_external="same-q"))
-    alt = base_payload(quest_id_external="same-q",
-                       started_at=datetime(2026, 2, 1, 12, 0, 5))
+    alt = base_payload(quest_id_external="same-q")
     alt["players"] = [{"display_name": "DiegoRenamed", "weapon_id": 1,
                        "total_damage": 9000, "peak_dps": 120}]
     alt["snapshots"] = []
