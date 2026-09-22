@@ -58,6 +58,36 @@ def test_idempotent_retry_same_quest_id(session):
     assert len(session.execute(select(Hunt)).scalars().all()) == 1
 
 
+def test_same_session_repeat_quests_coexist(session):
+    """The external id is a per-session hash shared by every quest in a
+    gaming session: same (external, monster) with a different start is a
+    NEW hunt, not a duplicate (regression: the external-first match
+    dropped farmed repeats of the same quest)."""
+    h1, c1, _ = upsert_hunt(session, base_payload(quest_id_external="sess-1"))
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="sess-1",
+        started_at=datetime(2026, 2, 1, 12, 30, 0),
+        ended_at=datetime(2026, 2, 1, 12, 40, 0),
+    ))
+    assert (c1, c2) == (True, True)
+    assert h1.id != h2.id
+    assert len(session.execute(select(Hunt)).scalars().all()) == 2
+
+
+def test_same_quest_rename_stays_dupe(session):
+    """Same external id + same start with a renamed roster is still the
+    same quest (the reason the external check exists)."""
+    h1, c1, _ = upsert_hunt(session, base_payload(quest_id_external="sess-1"))
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="sess-1",
+        players=[{"display_name": "DIEGO", "weapon_id": 1,
+                  "total_damage": 9000, "peak_dps": 120}],
+        snapshots=[],
+    ))
+    assert (c1, c2) == (True, False)
+    assert h1.id == h2.id
+
+
 def test_dedup_hash_fallback_without_external_id(session):
     h1, c1, _ = upsert_hunt(session, base_payload())
     h2, c2, _ = upsert_hunt(session, base_payload())
