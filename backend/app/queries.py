@@ -416,20 +416,16 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
         select(MonsterHealthStep).where(MonsterHealthStep.hunt_id == hunt_id)
         .order_by(MonsterHealthStep.ts_offset_seconds)
     ).scalars().all()
-    # Sibling hunts = all (visible) hunts from the same quest: same
-    # quest_id_external OR same started_at. The external id is stable
-    # across re-imports/renames; started_at covers legacy rows without an
-    # external id (and the multi-monster tests). One row per monster, any
+    # Sibling hunts = all (visible) hunts from the same quest instance:
+    # same started_at (microsecond precision, identical for every monster
+    # row imported from one file). quest_id_external must NOT be used here:
+    # it is a per-SESSION hash shared by every quest of a gaming session, so
+    # matching on it merges unrelated same-monster quests (e.g. three
+    # back-to-back Arkvelds) into one chart. One row per monster, any
     # number. Resolved once so both quest_hp curves and quest-wide events
     # use the same set.
-    from sqlalchemy import or_ as _or
     sib_stmt = select(Hunt).where(filters.visible())
-    if hunt.quest_id_external:
-        sib_stmt = sib_stmt.where(_or(
-            Hunt.quest_id_external == hunt.quest_id_external,
-            Hunt.started_at == hunt.started_at))
-    else:
-        sib_stmt = sib_stmt.where(Hunt.started_at == hunt.started_at)
+    sib_stmt = sib_stmt.where(Hunt.started_at == hunt.started_at)
     siblings = session.execute(
         sib_stmt.order_by(Hunt.id)).scalars().all()
     if not siblings:
