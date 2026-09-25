@@ -188,6 +188,42 @@ def test_curve_and_404():
     assert client.get("/api/hunts/9999/curve").status_code == 404
 
 
+def test_curve_quest_hp_ignores_session_mates():
+    """Same quest_id_external but different started_at = different quests of
+    one session (the external id is per-session, not per-quest): quest_hp=1
+    must return only the selected hunt's HP, not every session-mate."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    client, s = make_client()
+    s.add_all([Monster(id=27, name="Arkveld"),
+               Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn")])
+    s.flush()
+    for hid, start in ((1, datetime(2026, 9, 21, 22, 16)),
+                       (2, datetime(2026, 9, 21, 22, 30))):
+        upsert_hunt(s, {
+            "quest_id_external": "BEE84F9D", "dedup_hash": f"bee{hid}",
+            "monster_id": 27, "_monster_name": "Arkveld",
+            "started_at": start, "ended_at": datetime(2026, 9, 21, 22, 35),
+            "quest_time_seconds": 300.0, "cart_count": 0, "cleared": True,
+            "hunterpie_version": "t", "game_version": "g",
+            "players": [{"display_name": "Isi", "weapon_id": 6,
+                         "total_damage": 9000.0, "peak_dps": 60.0,
+                         "is_supporter": False}],
+            "snapshots": [{"display_name": "Isi", "ts_offset_seconds": 10.0,
+                           "cumulative_damage": 4500.0, "instant_dps": 40.0}],
+            "hp_steps": [{"ts_offset_seconds": 10.0, "hp_fraction": 0.9},
+                         {"ts_offset_seconds": 20.0, "hp_fraction": 0.8}],
+            "events": [],
+        })
+    hunts = client.get("/api/hunts").json()["hunts"]
+    assert len(hunts) == 2
+    quest = client.get(
+        f"/api/hunts/{hunts[0]['id']}/curve", params={"quest_hp": 1}).json()
+    assert len(quest["quest_hp"]) == 1
+    assert quest["quest_hp"][0]["hunt_id"] == hunts[0]["id"]
+
+
 def test_curve_quest_hp_returns_all_quest_monsters():
     """Multi-monster quest: quest_hp=1 returns every sibling hunt's HP
     steps so the curve view can draw all monsters' HP at once."""
