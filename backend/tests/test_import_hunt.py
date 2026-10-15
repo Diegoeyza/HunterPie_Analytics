@@ -71,6 +71,44 @@ def test_payload_mapping():
     assert len(payload["abnormalities"]) == 0  # sample doc has empty activations
 
 
+def test_supporter_flag_passed_through():
+    """REFramework dumps tag CPU companions is_supporter; the importer must
+    carry it through (previously hardcoded False)."""
+    doc = sample_doc(players=[
+        {"name": "Isi", "weapon": 5, "damages": [
+            {"damage": 100.0, "dealt_at": "2026-09-06T03:36:00Z"}]},
+        {"name": "NPC 5", "weapon": 5, "is_supporter": True, "damages": []},
+    ])
+    [(payload, _)] = poogie_to_payloads(doc, {31: "Tetranadon"}, "hv", "gv")
+    by_name = {p["display_name"]: p for p in payload["players"]}
+    assert by_name["NPC 5"]["is_supporter"] is True
+    assert by_name["Isi"]["is_supporter"] is False
+
+
+def test_weapon_name_passed_through():
+    """REFramework dumps resolve the weapon model name from its id; the
+    importer must carry it into the payload (and thus hunt_players)."""
+    doc = sample_doc(players=[
+        {"name": "Isi", "weapon": 5, "weapon_name": "G. Resounding Galahad",
+         "damages": [{"damage": 100.0, "dealt_at": "2026-09-06T03:36:00Z"}]},
+    ])
+    [(payload, _)] = poogie_to_payloads(doc, {31: "Tetranadon"}, "hv", "gv")
+    assert payload["players"][0]["weapon_name"] == "G. Resounding Galahad"
+
+
+def test_weapon_name_stored_in_hunt_players():
+    from app.import_hunt import import_doc
+    from app.models import HuntPlayer
+    s = make_session()
+    doc = sample_doc(players=[
+        {"name": "Isi", "weapon": 5, "weapon_name": "G. Resounding Galahad",
+         "damages": [{"damage": 100.0, "dealt_at": "2026-09-06T03:36:00Z"}]},
+    ])
+    import_doc(s, doc, {31: "Tetranadon"}, "hv", "gv")
+    stored = s.execute(select(HuntPlayer.weapon_name)).scalars().all()
+    assert stored == ["G. Resounding Galahad"]
+
+
 def test_end_to_end_import_and_redup():
     from app.import_hunt import import_doc
     s = make_session()

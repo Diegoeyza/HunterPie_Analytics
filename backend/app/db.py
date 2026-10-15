@@ -48,7 +48,7 @@ EXTRA_COLUMNS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-LATEST_VERSION = 2
+LATEST_VERSION = 3
 
 
 def _sqlite_url(db_path: str | Path) -> str:
@@ -179,7 +179,14 @@ def _migrate_v2(conn) -> None:
         "ON players (canonical)"))
 
 
-MIGRATIONS: dict[int, object] = {1: _migrate_v1, 2: _migrate_v2}
+def _migrate_v3(conn) -> None:
+    """Per-hunt weapon model name (REFramework mod: weapon id -> localized)."""
+    _add_missing_columns(conn, "hunt_players", [
+        ("weapon_name", "TEXT"),
+    ])
+
+
+MIGRATIONS: dict[int, object] = {1: _migrate_v1, 2: _migrate_v2, 3: _migrate_v3}
 
 
 def migrate(engine=None, db_path: str | Path = DEFAULT_DB_PATH) -> int:

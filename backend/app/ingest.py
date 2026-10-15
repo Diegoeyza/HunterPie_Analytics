@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -56,6 +56,23 @@ def compute_dedup_hash(monster_id: int, player_keys: list[str], started_at: date
     return hashlib.sha256(core.encode()).hexdigest()[:32]
 
 
+CROSS_SOURCE_WINDOW_SECONDS = 180
+"""Two dumps of the same quest from different tools (HunterPie fork vs the
+REFramework mod) never share an external id and their start timestamps can
+differ by a few seconds. Treat same monster + identical roster starting
+within this window as the same hunt so running both sources cannot
+double-count. Distinct hunts are minutes apart, so the window is safe."""
+
+
+def _hunt_player_names(session: Session, hunt_id: int) -> set[str]:
+    rows = session.execute(
+        select(Player.display_name)
+        .join(HuntPlayer, HuntPlayer.player_id == Player.id)
+        .where(HuntPlayer.hunt_id == hunt_id)
+    ).scalars().all()
+    return set(rows)
+
+
 def find_hunt_by_payload(session: Session, payload: dict) -> Hunt | None:
     """Cheap pre-check: content dedup hit without touching reference rows.
 
@@ -66,7 +83,9 @@ def find_hunt_by_payload(session: Session, payload: dict) -> Hunt | None:
     external id is a per-SESSION hash (every quest uploaded in one gaming
     session shares it), so it only identifies a quest together with its
     start time. Still stable across renames/reorders of the same quest.
-    Then the composite dedup_hash fallback.
+    Then the composite dedup_hash fallback. Finally a source-agnostic
+    tolerant match (same monster + identical roster within a time window)
+    so two tools recording the same hunt dedup.
     """
     quest_id = payload.get("quest_id_external")
     if quest_id:
@@ -82,9 +101,30 @@ def find_hunt_by_payload(session: Session, payload: dict) -> Hunt | None:
         names = sorted(p["display_name"] for p in payload.get("players", []))
         dh = compute_dedup_hash(
             payload["monster_id"], names, _coerce_ts(payload["started_at"]))
-    return session.execute(
+    hit = session.execute(
         select(Hunt).where(Hunt.dedup_hash == dh)
     ).scalar_one_or_none()
+    if hit is not None:
+        return hit
+
+    # Tolerant cross-source match: same monster, identical roster, start
+    # within the window. Guards against double-counting when both the
+    # HunterPie fork and the REFramework mod dump the same quest.
+    players = payload.get("players") or []
+    if not players:
+        return None
+    want = {p["display_name"] for p in players}
+    started = _coerce_ts(payload["started_at"])
+    lo = started - timedelta(seconds=CROSS_SOURCE_WINDOW_SECONDS)
+    hi = started + timedelta(seconds=CROSS_SOURCE_WINDOW_SECONDS)
+    candidates = session.execute(
+        select(Hunt).where(Hunt.monster_id == payload["monster_id"],
+                           Hunt.started_at >= lo, Hunt.started_at <= hi)
+    ).scalars().all()
+    for cand in candidates:
+        if _hunt_player_names(session, cand.id) == want:
+            return cand
+    return None
 
 
 def find_rename_candidates(session: Session, display_name: str) -> list[Player]:
@@ -287,6 +327,7 @@ def upsert_hunt(session: Session, payload: dict,
                     gear_raw=gear.get("raw"),
                     gear_element=gear.get("element"),
                     gear_affinity=gear.get("affinity"),
+                    weapon_name=p.get("weapon_name"),
                 )
             )
         for s in payload.get("snapshots", []):

@@ -172,9 +172,31 @@ def record_file(session, path: Path, hunts_created: int,
     session.commit()
 
 
-def run_import(db_path: str | Path, src: str | Path, force: bool = False,
+def _scan(src) -> list[Path]:
+    """All *.json under one or more source dirs, in the given order.
+
+    A missing/absent dir is skipped (either ingestion source may be
+    uninstalled). Later dirs cannot shadow earlier ones because the importer
+    dedups; the order lets the richer source (HunterPie) win ties.
+    """
+    roots = src if isinstance(src, (list, tuple)) else [src]
+    out: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        path = Path(root)
+        if not path.is_dir():
+            continue
+        for f in sorted(path.glob("*.json")):
+            key = str(f)
+            if key not in seen:
+                seen.add(key)
+                out.append(f)
+    return out
+
+
+def run_import(db_path: str | Path, src, force: bool = False,
                progress=None, should_stop=None) -> dict:
-    """Import all *.json in src into the DB at db_path.
+    """Import all *.json in src (a dir or list of dirs) into the DB.
 
     progress(snapshot: dict) is called after every file (and once at
     start) with the running counts; used by the background job to feed
@@ -182,11 +204,10 @@ def run_import(db_path: str | Path, src: str | Path, force: bool = False,
     cancellation. Returns the final result dict.
     """
     db_path = Path(db_path)
-    src = Path(src)
     init_db(db_path)
     maker = sessionmaker(bind=get_engine(db_path), future=True)
 
-    files = sorted(src.glob("*.json"))
+    files = _scan(src)
     names = load_monster_names(None)
     cache: dict = {}  # reference-row lookup cache shared across the job
     result = {"scanned": 0, "imported": 0, "imported_ids": [],
@@ -256,7 +277,7 @@ def run_import(db_path: str | Path, src: str | Path, force: bool = False,
     return result
 
 
-def start_import_job(db_path: str | Path, src: str | Path,
+def start_import_job(db_path: str | Path, src,
                      force: bool = False) -> ImportJob:
     """Spawn a daemon thread running the import; returns the live job.
 
@@ -271,7 +292,7 @@ def start_import_job(db_path: str | Path, src: str | Path,
             raise JobBusyError(
                 f"import job {running.job_id} already running "
                 f"({running.scanned}/{running.total} files)")
-    total = len(list(Path(src).glob("*.json")))
+    total = len(_scan(src))
     job = ImportJob(job_id=uuid.uuid4().hex[:12], force=force, total=total)
     with _JOBS_LOCK:
         _JOBS[job.job_id] = job

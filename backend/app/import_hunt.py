@@ -48,6 +48,12 @@ DEFAULT_GAME_VERSION = "1.042.00.02"
 DEFAULT_EXPORTS_DIR = Path("/mnt/c/Program Files/HunterPie/HuntExports")
 """Default HuntExports location (also the import.sh default and the
 dashboard Import button source). Override with $HUNT_EXPORTS."""
+
+DEFAULT_RF_EXPORTS_DIR = Path(
+    "/mnt/c/Program Files (x86)/Steam/steamapps/common/MonsterHunterWilds"
+    "/reframework/data/HuntExports")
+"""REFramework mod dump dir (complementary source). Scanned after the
+HunterPie dir so the richer fork dump wins on ties; skipped when absent."""
 DEFAULT_NAMES_XML = Path("/mnt/c/Program Files/HunterPie/Languages/en-us.xml")
 # Bundled Wilds names so `seeds/` import without a HunterPie install.
 BUNDLED_NAMES_JSON = Path(__file__).resolve().parent / "data" / "wilds_monster_names.json"
@@ -159,7 +165,7 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
     started = parse_ts(doc["started_at"])
     finished = parse_ts(doc["finished_at"]) if doc.get("finished_at") else None
 
-    monsters = doc.get("monsters", [])
+    monsters = doc.get("monsters") or []
     if not monsters:
         raise ValueError("dump has no monsters")
     if len(monsters) > 1:
@@ -170,23 +176,25 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
     # Same hunter listed twice = disconnect/rejoin: merge damage frames so
     # each hunt keeps one row per hunter (UNIQUE hunt_id/player_id).
     merged: dict[str, dict] = {}
-    for p in doc.get("players", []):
+    for p in doc.get("players") or []:
         name = p.get("name")
         entry = merged.setdefault(name, {"weapon": p.get("weapon"),
                                          "gear": None,
+                                         "is_supporter": bool(p.get("is_supporter", False)),
+                                         "weapon_name": p.get("weapon_name"),
                                          "damages": [], "abnormalities": []})
         # Gear fingerprint (fork >= gear build, local player only):
         # first non-null snapshot wins; stats are taken at quest start.
         if entry["gear"] is None and p.get("gear"):
             entry["gear"] = p["gear"]
-        entry["damages"].extend(p.get("damages", []))
-        entry["abnormalities"].extend(p.get("abnormalities", []))
-        entry_total = sum(f.get("damage", 0) for f in p.get("damages", []))
+        entry["damages"].extend(p.get("damages") or [])
+        entry["abnormalities"].extend(p.get("abnormalities") or [])
+        entry_total = sum(f.get("damage", 0) for f in p.get("damages") or [])
         if entry_total > entry.get("_best_total", -1):
             entry["_best_total"] = entry_total
             entry["weapon"] = p.get("weapon")
-    if len(merged) != len(doc.get("players", [])):
-        warnings.append(f"merged {len(doc.get('players', [])) - len(merged)} duplicate "
+    if len(merged) != len(doc.get("players") or []):
+        warnings.append(f"merged {len(doc.get('players') or []) - len(merged)} duplicate "
                         f"player entr{'y' if len(doc.get('players', [])) - len(merged) == 1 else 'ies'} "
                         f"(disconnect/rejoin)")
 
@@ -239,7 +247,8 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
             "gear": p.get("gear"),
             "total_damage": total,
             "peak_dps": peak,  # ~1s sampling: max single-frame damage
-            "is_supporter": False,  # dump has no supporter flag; revisit if seen
+            "is_supporter": bool(p.get("is_supporter", False)),
+            "weapon_name": p.get("weapon_name"),
         })
         cum, prev = 0.0, None
         for f in frames:
@@ -258,7 +267,7 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
         for ab in p["abnormalities"]:
             ab_id = ab["id"]
             category = ab_id.split("_")[0] if "_" in ab_id else "Unknown"
-            for act in ab.get("activations", []):
+            for act in ab.get("activations") or []:
                 abnormalities.append({
                     "display_name": name,
                     "abnormality_id": ab_id,
@@ -269,7 +278,7 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
                 })
 
     events = []
-    for a in (m.get("enrage") or {}).get("activations", []):
+    for a in (m.get("enrage") or {}).get("activations") or []:
         events.append({
             "event_type": "enrage",
             "start_offset_seconds": (parse_ts(a["started_at"]) - started).total_seconds(),
@@ -356,9 +365,11 @@ def import_file(db_path: str, file_path: str, hunterpie_version: str,
 def main() -> None:
     ap = argparse.ArgumentParser(description="Import fork HuntExports JSON into hunts.db")
     ap.add_argument("--db", required=True)
-    src = ap.add_mutually_exclusive_group(required=True)
+    src = ap.add_mutually_exclusive_group(required=False)
     src.add_argument("--file")
-    src.add_argument("--dir", help="import all *.json (re-imports dedup safely)")
+    src.add_argument("--dir", action="append",
+                     help="import all *.json from this dir (repeatable; "
+                          "re-imports dedup safely)")
     ap.add_argument("--hunterpie-version", default=DEFAULT_HUNTERPIE_VERSION)
     ap.add_argument("--game-version", default=DEFAULT_GAME_VERSION)
     ap.add_argument("--names-xml", default=None)
@@ -368,6 +379,15 @@ def main() -> None:
         import_file(args.db, args.file, args.hunterpie_version,
                     args.game_version, args.names_xml)
         return
+
+    # No --dir: scan every known source that exists (either may be absent).
+    dirs = args.dir or [str(d) for d in (DEFAULT_EXPORTS_DIR,
+                                         DEFAULT_RF_EXPORTS_DIR) if d.is_dir()]
+    if not dirs:
+        print("no export dirs found (looked in:\n"
+              f"  {DEFAULT_EXPORTS_DIR}\n  {DEFAULT_RF_EXPORTS_DIR})")
+        return
+    print("Importing from: " + ", ".join(dirs))
     from .import_job import run_import
 
     def _show(snap: dict) -> None:
@@ -375,7 +395,7 @@ def main() -> None:
               f"({snap['imported']} new, {snap['duplicates']} dupes, "
               f"{snap['skipped_manifest']} skipped)", end="", flush=True)
 
-    result = run_import(args.db, args.dir, progress=_show)
+    result = run_import(args.db, dirs, progress=_show)
     print()
     print(f"scanned={result['scanned']} imported={result['imported']} "
           f"duplicates={result['duplicates']} "

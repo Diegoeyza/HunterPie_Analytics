@@ -15,7 +15,7 @@ import { GRID_STROKE, TICK } from "../ChartKit";
 import { useFilterOptions } from "../useFilterOptions";
 
 interface CurvePoint { t: number; dmg: number; }
-interface CurvePlayer { player: string; weapon: string | null; variant: string | null; points: CurvePoint[]; }
+interface CurvePlayer { player: string; weapon: string | null; weapon_name?: string | null; variant: string | null; points: CurvePoint[]; }
 interface CurveEvent { type: string; start: number; end: number | null; monster?: string | null; hunt_id?: number | null; }
 interface CurveQuest {
   quest_id: number | null; stars: number | null; level: number | null;
@@ -342,7 +342,7 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
                   !scope.includes(nameToId.get(p.player) ?? -1);
                 return (
                   <Line key={p.player} type="monotone" dataKey={p.player}
-                    name={`${p.player}${p.weapon ? ` (${p.weapon}${p.variant ? ` · ${p.variant}` : ""})` : ""}`}
+                    name={`${p.player}${p.weapon_name ? ` (${p.weapon_name})` : p.weapon ? ` (${p.weapon}${p.variant ? ` · ${p.variant}` : ""})` : ""}`}
                     stroke={seriesColor(i)} dot={false} strokeWidth={dimmed ? 1 : 2}
                     strokeOpacity={dimmed ? 0.25 : 1} connectNulls />
                 );

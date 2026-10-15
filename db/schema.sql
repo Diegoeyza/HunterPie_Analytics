@@ -79,6 +79,7 @@ CREATE TABLE hunt_players (
     gear_raw      REAL,  -- fork gear fingerprint (local player only); NULL = pre-gear export
     gear_element  REAL,
     gear_affinity REAL,
+    weapon_name   TEXT,  -- localized weapon model name (REFramework mod); NULL otherwise
     PRIMARY KEY (hunt_id, player_id),
     CHECK (total_damage >= 0),
     CHECK (peak_dps >= 0)

@@ -144,6 +144,9 @@ class HuntPlayer(Base):
     gear_raw: Mapped[float | None] = mapped_column(Float)
     gear_element: Mapped[float | None] = mapped_column(Float)
     gear_affinity: Mapped[float | None] = mapped_column(Float)
+    # Localized weapon model name (e.g. "G. Resounding Galahad"), captured by
+    # the REFramework mod via weapon id. NULL for fork hunts / unresolved ids.
+    weapon_name: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
         Index("idx_hunt_players_player", "player_id"),

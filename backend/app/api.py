@@ -27,7 +27,7 @@ from .filters import (
     FilterError,
     parse_ids,
 )
-from .import_hunt import DEFAULT_EXPORTS_DIR
+from .import_hunt import DEFAULT_EXPORTS_DIR, DEFAULT_RF_EXPORTS_DIR
 from .import_job import JobBusyError, cancel_job, get_job, start_import_job
 
 log = logging.getLogger(__name__)
@@ -297,11 +297,22 @@ def import_hunts(db: Session = Depends(get_db), force: bool = False):
     dashboard, which the manifest otherwise keeps deleted).
     A second POST while a job runs gets 409 (single-flight).
     """
-    src = Path(os.environ.get("HUNT_EXPORTS", str(DEFAULT_EXPORTS_DIR)))
-    if not src.is_dir():
-        raise HTTPException(404, f"hunt exports dir not found: {src}")
+    # Scan every existing source dir (either the HunterPie fork and/or the
+    # REFramework mod may be installed). $HUNT_EXPORTS may list several
+    # dirs separated by os.pathsep; otherwise use both known defaults.
+    env = os.environ.get("HUNT_EXPORTS")
+    if env:
+        dirs = [Path(p) for p in env.split(os.pathsep) if p]
+    else:
+        dirs = [d for d in (DEFAULT_EXPORTS_DIR, DEFAULT_RF_EXPORTS_DIR)
+                if d.is_dir()]
+    dirs = [d for d in dirs if d.is_dir()]
+    if not dirs:
+        raise HTTPException(404, "no hunt exports dir found "
+                                 f"({DEFAULT_EXPORTS_DIR} / "
+                                 f"{DEFAULT_RF_EXPORTS_DIR})")
     try:
-        job = start_import_job(_session_db_path(db), src, force=force)
+        job = start_import_job(_session_db_path(db), dirs, force=force)
     except JobBusyError as e:
         raise HTTPException(409, str(e)) from None
     return {"job_id": job.job_id, "state": job.state, "total": job.total}
