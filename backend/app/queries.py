@@ -385,15 +385,17 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
     # weapon per player comes from hunt_players, not the snapshot join above
     hp_rows = session.execute(
         select(HuntPlayer.player_id, Weapon.name, HuntPlayer.gear_raw,
-               HuntPlayer.gear_element, HuntPlayer.gear_affinity)
+               HuntPlayer.gear_element, HuntPlayer.gear_affinity,
+               HuntPlayer.weapon_name)
         .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
         .where(HuntPlayer.hunt_id == hunt_id)
     ).all()
     labels = identity_label_map(session)
     weapons: dict[int, dict] = {}
-    for pid, wname, raw, element, affinity in hp_rows:
+    for pid, wname, raw, element, affinity, model in hp_rows:
         weapons[pid] = {
             "name": wname,
+            "model": model,
             "variant": gear_variant_label(labels, wname, raw, element,
                                            affinity),
         }
@@ -402,6 +404,7 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
         w = weapons.get(snap.player_id, {})
         s = series.setdefault(snap.player_id,
                               {"player": name, "weapon": w.get("name"),
+                               "weapon_name": w.get("model"),
                                "variant": w.get("variant"),
                                "points": []})
         s["points"].append({"t": snap.ts_offset_seconds, "dmg": snap.cumulative_damage,

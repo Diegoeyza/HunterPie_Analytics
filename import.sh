@@ -3,7 +3,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 HUNTS_DB="${HUNTS_DB:-backend/hunts.db}"
-HUNT_EXPORTS="/mnt/c/Program Files/HunterPie/HuntExports"
+# Ingestion sources. Either may be absent (HunterPie fork and/or the
+# REFramework mod). HunterPie is scanned first so its richer dump wins ties.
+PIE_EXPORTS="/mnt/c/Program Files/HunterPie/HuntExports"
+RF_EXPORTS="/mnt/c/Program Files (x86)/Steam/steamapps/common/MonsterHunterWilds/reframework/data/HuntExports"
 
 abspath() {
   case "$1" in
@@ -13,23 +16,27 @@ abspath() {
 }
 
 if [ "${1:-}" = "--dir" ]; then
-  SRC=(--dir "$(abspath "${2:-$HUNT_EXPORTS}")")
+  SRC=(--dir "$(abspath "${2:-}")")
 elif [ "${1:-}" = "--file" ]; then
   SRC=(--file "$(abspath "${2:?pass a .json path}")")
-elif [ -d "$HUNT_EXPORTS" ]; then
-  echo "Importing from $HUNT_EXPORTS ..."
-  SRC=(--dir "$(abspath "$HUNT_EXPORTS")")
-elif [ -d "seeds" ] && ls seeds/*.json >/dev/null 2>&1; then
-  echo "Importing from seeds/ ..."
-  SRC=(--dir "$(abspath seeds)")
 else
-  echo "Usage: ./import.sh [--file path.json | [--dir /path/to/HuntExports]]"
-  echo ""
-  echo "No HuntExports folder found at:"
-  echo "  $HUNT_EXPORTS"
-  echo ""
-  echo "Pass --dir to specify the correct path, or place .json files in seeds/."
-  exit 1
+  SRC=()
+  for d in "$PIE_EXPORTS" "$RF_EXPORTS"; do
+    if [ -d "$d" ]; then SRC+=(--dir "$(abspath "$d")"); fi
+  done
+  if [ ${#SRC[@]} -eq 0 ]; then
+    if [ -d seeds ] && ls seeds/*.json >/dev/null 2>&1; then
+      echo "No export dirs found; importing seeds/ ..."
+      SRC=(--dir "$(abspath seeds)")
+    else
+      echo "No HuntExports found at:"
+      echo "  $PIE_EXPORTS"
+      echo "  $RF_EXPORTS"
+      echo ""
+      echo "Pass --dir/--file, or place .json files in seeds/."
+      exit 1
+    fi
+  fi
 fi
 
 # The app package lives in backend/, so run from there.

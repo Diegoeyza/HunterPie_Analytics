@@ -19,7 +19,7 @@ import Modal from "../Modal";
 import SearchSelect from "../SearchSelect";
 
 interface CurvePoint { t: number; dmg: number; }
-interface CurvePlayer { player: string; weapon: string | null; points: CurvePoint[]; }
+interface CurvePlayer { player: string; weapon: string | null; weapon_name?: string | null; points: CurvePoint[]; }
 interface CurveEvent { type: string; start: number; end: number | null; monster?: string | null; }
 interface HuntCurve {
   hunt_id: number; monster: string; started_at: string;
@@ -115,7 +115,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
         const total = p.points.length > 0 ? p.points[p.points.length - 1].dmg : 0;
         const eng = engagementOf(curve, i);
         return {
-          player: p.player, caption: p.weapon ?? "Unknown",
+          player: p.player, caption: p.weapon_name ?? p.weapon ?? "Unknown",
           total_damage: total,
           dps: eng ? total / eng : null,
           share: team > 0 ? total / team : 0, shareLabel: "of hunt",

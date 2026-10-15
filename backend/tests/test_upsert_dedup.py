@@ -126,3 +126,44 @@ def test_sos_flag_warns(session):
         session, base_payload(quest_id_external="q-sos", is_sos=True, joined_mid_hunt=True)
     )
     assert any("untrusted-flags" in w for w in warnings)
+
+
+def test_cross_source_same_hunt_dedups(session):
+    """HunterPie fork and the REFramework mod dump the same quest with
+    different external ids and a few seconds off -> one hunt, not two."""
+    h1, c1, _ = upsert_hunt(session, base_payload(
+        quest_id_external="pie-hash",
+        started_at=datetime(2026, 2, 1, 12, 0, 3)))
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="rf-hash",
+        started_at=datetime(2026, 2, 1, 12, 0, 7)))
+    assert (c1, c2) == (True, False)
+    assert h1.id == h2.id
+    assert len(session.execute(select(Hunt)).scalars().all()) == 1
+
+
+def test_cross_source_far_apart_coexist(session):
+    """Outside the window they are separate hunts (farming repeats)."""
+    h1, c1, _ = upsert_hunt(session, base_payload(
+        quest_id_external="pie-hash",
+        started_at=datetime(2026, 2, 1, 12, 0, 3)))
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="rf-hash",
+        started_at=datetime(2026, 2, 1, 12, 30, 0),
+        ended_at=datetime(2026, 2, 1, 12, 40, 0)))
+    assert (c1, c2) == (True, True)
+    assert h1.id != h2.id
+
+
+def test_cross_source_different_roster_coexist(session):
+    """Same monster + same window but a different roster is a different hunt."""
+    h1, c1, _ = upsert_hunt(session, base_payload(quest_id_external="pie-hash"))
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="rf-hash",
+        players=[{"display_name": "Someone Else", "weapon_id": 1,
+                  "total_damage": 9000, "peak_dps": 120}],
+        snapshots=[],
+        events=[],
+    ))
+    assert (c1, c2) == (True, True)
+    assert h1.id != h2.id
