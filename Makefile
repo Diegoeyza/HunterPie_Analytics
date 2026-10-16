@@ -3,7 +3,7 @@
 VENV := .venv/bin/python
 DB ?= backend/hunts.db
 
-.PHONY: setup seed dev test lint build bench import clean
+.PHONY: setup seed dev test lint build bench import package clean
 
 setup: ## Install backend + dashboard dependencies
 	python3 -m venv .venv
@@ -31,6 +31,9 @@ bench: ## 1000-hunt endpoint latency bench — HUNTS=2000 for more
 
 import: ## Import HuntExports (default dir, seeds/, or FILE=path.json)
 	./import.sh $${FILE:+--file $(FILE)}
+
+package: ## Build shareable bundles into dist/ (mod zip + app source zip)
+	./package.sh
 
 clean: ## Remove build artifacts (never the DB)
 	rm -rf dashboard/.next dashboard/tsconfig.tsbuildinfo backend/.pytest_cache
