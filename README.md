@@ -1,25 +1,28 @@
 # HunterPie Analytics
 
-Post-hunt dashboard for **Monster Hunter Wilds** via [HunterPie v2](https://github.com/HunterPie/HunterPie).
+Post-hunt dashboard for **Monster Hunter Wilds**. Imports per-hunt JSON dumps
+(quest-end snapshots) into SQLite and visualises them with Next.js + Recharts.
 
-Imports per-hunt JSON dumps (quest-end snapshots) into SQLite and visualises them
-with Next.js + Recharts.
+Two sources feed it, and they complement each other:
+
+- **HunterPie** ([analytics-export fork](https://github.com/Diegoeyza/HunterPie)) — damage, weapon classes, DPS curves.
+- **HuntDumper** (`reframework/hunt_dumper.lua`, a [REFramework](https://github.com/praydog/REFramework) mod) — quest awards (hunter highlights), the local player's weapon name, CPU-supporter flags, HP curve.
 
 ## How it works
 
 ```
-HunterPie (analytics-export fork)
-  → quest-end JSON dumped to HuntExports/
-    → import_hunt.py parses + upserts into SQLite
-      → FastAPI serves /api/* endpoints
-        → Next.js dashboard fetches and renders
+HunterPie fork ──┐
+                 ├─→ quest-end JSON in HuntExports/
+HuntDumper mod ──┘     → import_hunt.py parses + upserts into SQLite
+                          → FastAPI serves /api/* endpoints
+                            → Next.js dashboard fetches and renders
 ```
 
 ## Prerequisites
 
 - Python 3.10+
 - Node.js 18+
-- [HunterPie](https://github.com/HunterPie/HunterPie) with the [analytics-export fork](https://github.com/Diegoeyza/HunterPie) for real data
+- For real data: [HunterPie](https://github.com/HunterPie/HunterPie) with the [analytics-export fork](https://github.com/Diegoeyza/HunterPie) and/or the [REFramework](https://github.com/praydog/REFramework) mod (`reframework/hunt_dumper.lua`).
 
 ## Quick start
 
@@ -75,6 +78,7 @@ Run `./import.sh` after each hunting session to pull in new data.
 | **Progress** | DPS per hunt + rolling average, clear time trend. Filters: monster, quest, stars, weapon, hunter. |
 | **Growth** | Instance-weighted DPS improvement with per-group trends (median, best, slope, clear time). |
 | **Weapons** | Average DPS, peak hit*, hunt count, clear rate by weapon type. |
+| **Highlights** | Quest-end hunter highlights (the 30 awards) + average damage share, per monster/weapon/hunter. REFramework hunts. |
 | **Damage curves** | Per-hunt cumulative damage or DPS (5s rolling avg) for all party members, monster HP overlay, enrage shading. |
 | **Hunts** | Every run, latest first — click a row for party damage, DPS and the damage curve. |
 | **Quests** | Per-quest aggregates: clear rate, best DPS, enrage uptime. |
@@ -109,7 +113,7 @@ shareable links, back-button safe. Stored in `localStorage` too — survives ref
 ### Backend (`backend/`)
 
 - **Framework**: FastAPI + SQLAlchemy + SQLite
-- **Tables**: `players`, `player_aliases`, `weapons`, `monsters`, `hunts`, `hunt_players`, `dps_snapshots`, `monster_events`, `monster_health_steps`, `player_abnormalities`, `weapon_identities`, `player_pins`, `imported_files`
+- **Tables**: `players`, `player_aliases`, `weapons`, `monsters`, `hunts`, `hunt_players`, `dps_snapshots`, `monster_events`, `monster_health_steps`, `player_abnormalities`, `weapon_identities`, `player_pins`, `imported_files`, `awards`, `hunt_player_awards`
 - **Query layer**: `queries.py` (metrics) + `filters.py` (shared scope/party/visibility + strict parsing) + `engagement.py` (DPS windows) + `variants.py` (gear fingerprints)
 - **API port**: `:8000` (or `$PORT`)
 - **DB path**: `backend/hunts.db` (or `$HUNTS_DB`)
@@ -137,13 +141,13 @@ backend/
   app/import_job.py     Background imports: single-flight, cancel, manifest
   app/seed.py           Deterministic demo data generator (importer-identical)
   app/db.py             Shared engine + per-connection pragmas + migrations
-  app/models.py         SQLAlchemy models (13 tables)
+  app/models.py         SQLAlchemy models (15 tables)
   bench.py              1000-hunt endpoint latency bench
-  tests/                71 tests (import + API + ingest + jobs + drift)
+  tests/                89 tests (import + API + ingest + jobs + drift + highlights)
 
 dashboard/
   app/page.tsx          Root page: URL-synced tab/scope/party, health, toasts
-  lib/registry.tsx      Tab registry (13 TABS)
+  lib/registry.tsx      Tab registry (14 TABS)
   lib/api.ts            Typed fetch helpers + cache
   lib/useApi.tsx        SWR-lite data hook + ApiState
   lib/url.ts            Query-param state helpers
@@ -155,7 +159,7 @@ dashboard/
   components/Modal.tsx      Single modal system
   components/Toast.tsx      Toast notifications
 
-Makefile              setup/seed/dev/test/lint/build/bench/import/clean
+Makefile              setup/seed/dev/test/lint/build/bench/import/package/clean
 docker-compose.yml    API + dashboard containers (DB on ./data volume)
 .github/workflows/ci.yml  pytest + tsc on push/PR
 db/schema.sql           Source of truth for schema
@@ -186,7 +190,7 @@ See [docs/ADDING_A_VIEW.md](docs/ADDING_A_VIEW.md) for details.
 ```sh
 make test   # backend pytest + dashboard typecheck
 
-# Backend (71 tests) — granular:
+# Backend (89 tests) — granular:
 cd backend && ../.venv/bin/python -m pytest tests -q
 
 # Dashboard (type check)
@@ -203,6 +207,15 @@ make bench
 
 - **Multi-monster quests**: one hunt row per monster, each carrying full quest damage (flagged `is_split_quest`; per-hit attribution impossible from the dump)
 - **HunterPie/game versions**: Not in the JSON dump — defaults to `2.14.0.466-analytics` / `1.042.00.02`, override with `--hunterpie-version` / `--game-version`
+
+## Sharing / packaging
+
+See [docs/SHARING.md](docs/SHARING.md) for how to hand this to someone else —
+the REFramework mod, the HunterPie fork, and this app are independent pieces.
+
+```sh
+make package   # builds dist/: REFramework mod zip + full app source zip
+```
 
 ## License
 

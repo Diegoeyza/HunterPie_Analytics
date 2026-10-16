@@ -25,6 +25,9 @@ obj/
 # Playwright MCP browser state
 .playwright-mcp/
 
+# Packaging output (built by ./package.sh / make package)
+dist/
+
 # OS / editor
 .DS_Store
 Thumbs.db
