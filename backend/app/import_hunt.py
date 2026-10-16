@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .db import init_db, make_session
-from .ingest import find_hunt_by_payload, upsert_hunt
+from .ingest import upsert_hunt
 from .models import Monster, Weapon
 
 log = logging.getLogger(__name__)
@@ -164,6 +164,9 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
     warnings: list[str] = []
     started = parse_ts(doc["started_at"])
     finished = parse_ts(doc["finished_at"]) if doc.get("finished_at") else None
+    # Only trust weapon_name from dumps that carry the explicit mod marker
+    # (`source`): older mod versions emitted swapped per-player names.
+    trust_name = bool(doc.get("source"))
 
     monsters = doc.get("monsters") or []
     if not monsters:
@@ -181,12 +184,21 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
         entry = merged.setdefault(name, {"weapon": p.get("weapon"),
                                          "gear": None,
                                          "is_supporter": bool(p.get("is_supporter", False)),
-                                         "weapon_name": p.get("weapon_name"),
+                                         "short_hunter_id": p.get("short_hunter_id"),
+                                         "weapon_name": p.get("weapon_name") if trust_name else None,
+                                         "awards": None,
                                          "damages": [], "abnormalities": []})
         # Gear fingerprint (fork >= gear build, local player only):
         # first non-null snapshot wins; stats are taken at quest start.
         if entry["gear"] is None and p.get("gear"):
             entry["gear"] = p["gear"]
+        # Awards/hunter highlights (REFramework mod): keep the first non-empty.
+        if entry["awards"] is None and p.get("awards"):
+            entry["awards"] = p["awards"]
+        if entry["short_hunter_id"] is None and p.get("short_hunter_id"):
+            entry["short_hunter_id"] = p["short_hunter_id"]
+        if trust_name and entry["weapon_name"] is None and p.get("weapon_name"):
+            entry["weapon_name"] = p["weapon_name"]
         entry["damages"].extend(p.get("damages") or [])
         entry["abnormalities"].extend(p.get("abnormalities") or [])
         entry_total = sum(f.get("damage", 0) for f in p.get("damages") or [])
@@ -229,6 +241,17 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
     return out
 
 
+def _doc_source(doc: dict) -> str:
+    """Which tool produced this dump. Our mod marks it explicitly; older mod
+    dumps are detected by their awards payload. HunterPie's fork dump has
+    neither, so it is the authoritative 'hunterpie' source."""
+    if doc.get("source"):
+        return str(doc["source"])
+    marked = "awards_meta" in doc or any(
+        "awards" in p for p in (doc.get("players") or []))
+    return "reframework" if marked else "hunterpie"
+
+
 def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
                      started: datetime, finished: datetime | None,
                      names: dict[int, str],
@@ -248,7 +271,9 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
             "total_damage": total,
             "peak_dps": peak,  # ~1s sampling: max single-frame damage
             "is_supporter": bool(p.get("is_supporter", False)),
+            "short_hunter_id": p.get("short_hunter_id"),
             "weapon_name": p.get("weapon_name"),
+            "awards": p.get("awards") or [],
         })
         cum, prev = 0.0, None
         for f in frames:
@@ -316,6 +341,8 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
         "abnormalities": abnormalities,
         "events": events,
         "hp_steps": hp_steps,
+        "awards_meta": doc.get("awards_meta"),
+        "source": _doc_source(doc),
         "hunterpie_version": hunterpie_version,
         "game_version": game_version,
     }
@@ -327,12 +354,9 @@ def import_doc(session, doc: dict, names: dict[int, str],
     results = []
     for payload, warnings in poogie_to_payloads(doc, names, hunterpie_version,
                                                 game_version):
-        # Cheap content-dedup check first: already-imported hunts skip the
-        # reference-row writes (and their commit) entirely.
-        existing = find_hunt_by_payload(session, payload)
-        if existing is not None:
-            results.append((existing, False, warnings))
-            continue
+        # Always go through upsert_hunt: it owns dedup AND the cross-source
+        # rules (a later HunterPie dump refreshes a mod-created hunt, the mod
+        # only contributes awards). An early skip here would bypass those.
         ensure_monster(session, payload["monster_id"], names)
         for p in payload["players"]:
             p["weapon_id"] = ensure_weapon(session, p.pop("_weapon_enum"))

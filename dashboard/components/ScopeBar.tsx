@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   apiGetCached, apiInvalidate, apiSend, variantLabel, UNKNOWN_VARIANT_ID,
-  type Pin, type PlayerVariants, type VariantOption,
+  type Pin, type PlayerVariants, type PlayerWeaponNames, type VariantOption,
 } from "../lib/api";
 import { useFilterOptions } from "./useFilterOptions";
 import SearchSelect from "./SearchSelect";
@@ -67,11 +67,31 @@ export function storeVariant(id: number | string | null) {
   } catch { /* private mode: variant just won't persist */ }
 }
 
+const WEAPON_NAME_KEY = "hp.weaponname";
+
+export function loadWeaponName(): string | null {
+  try {
+    const v = localStorage.getItem(WEAPON_NAME_KEY);
+    return v || null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeWeaponName(name: string | null) {
+  try {
+    if (name) localStorage.setItem(WEAPON_NAME_KEY, name);
+    else localStorage.removeItem(WEAPON_NAME_KEY);
+  } catch { /* private mode: weapon name just won't persist */ }
+}
+
 interface Props {
   scope: number[];
   onScope: (ids: number[]) => void;
   variantId: number | string | null;
   onVariant: (id: number | string | null) => void;
+  weaponName: string | null;
+  onWeaponName: (name: string | null) => void;
   partySize: number | null;
   onParty: (size: number | null) => void;
 }
@@ -96,11 +116,12 @@ function groupLabel(members: { weapon_type: string; raw: number; element: number
  *  With exactly one scoped hunter who has gear data, a weapon-variant
  *  filter appears next to the hunter chips, with an edit button that
  *  opens the label-once naming menu. */
-export default function ScopeBar({ scope, onScope, variantId, onVariant, partySize, onParty }: Props) {
+export default function ScopeBar({ scope, onScope, variantId, onVariant, weaponName, onWeaponName, partySize, onParty }: Props) {
   const opts = useFilterOptions();
   const players = opts?.players ?? [];
   const [pins, setPins] = useState<Pin[]>([]);
   const [variants, setVariants] = useState<PlayerVariants | null>(null);
+  const [weaponNames, setWeaponNames] = useState<PlayerWeaponNames | null>(null);
   const [open, setOpen] = useState(false);
   const [variantMenu, setVariantMenu] = useState(false);
   const [query, setQuery] = useState("");
@@ -115,16 +136,25 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, partySi
       .then(setVariants).catch(() => {});
   };
 
-  // Variant options only exist for a single scoped hunter with gear data.
+  const loadWeaponNames = (playerId: number) => {
+    apiGetCached<PlayerWeaponNames>(`/players/${playerId}/weapon-names`)
+      .then(setWeaponNames).catch(() => {});
+  };
+
+  // Variant options only exist for a single scoped hunter with gear data;
+  // weapon names only for the local player (from the REFramework mod).
   const scopeKey = scope.join(",");
   useEffect(() => {
     setVariants(null);
+    setWeaponNames(null);
     setVariantMenu(false);
     if (scope.length !== 1) {
       if (variantId !== null) onVariant(null);
+      if (weaponName !== null) onWeaponName(null);
       return;
     }
     loadVariants(scope[0]);
+    loadWeaponNames(scope[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeKey]);
 
@@ -139,6 +169,15 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, partySi
     if (!ok) onVariant(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variants]);
+
+  // Drop a persisted weapon name the hunter no longer has.
+  useEffect(() => {
+    if (weaponName === null || weaponNames === null) return;
+    if (!weaponNames.weapons.some((w) => w.name === weaponName)) {
+      onWeaponName(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weaponNames]);
 
   const pinnedIds = new Set(pins.map((p) => p.player_id));
   const byId = new Map(players.map((p) => [p.id, p.name]));
@@ -197,6 +236,14 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, partySi
       label: `Unknown (pre-gear hunts) · ${variants!.unknown_hunts} hunt${variants!.unknown_hunts === 1 ? "" : "s"}`,
     }] : []),
   ];
+
+  // Weapon names (local player, from the REFramework mod) — a concrete weapon
+  // like "Onyx Choros", as opposed to the gear-fingerprint build filter.
+  const hasWeaponNames = (weaponNames?.weapons.length ?? 0) > 0;
+  const weaponNameOptions = (weaponNames?.weapons ?? []).map((w) => ({
+    value: w.name,
+    label: `${w.name} · ${w.hunts} hunt${w.hunts === 1 ? "" : "s"}`,
+  }));
 
   const row = (p: { id: number; name: string }) => (
     <div key={p.id} className="scope-row">
@@ -289,6 +336,17 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, partySi
                 onChanged={() => { apiInvalidate(); loadVariants(scope[0]); }} />
             </div>
           )}
+        </div>
+      )}
+      {hasWeaponNames && (
+        <div className="scope-variant">
+          <SearchSelect
+            label="Weapon name"
+            value={weaponName ?? ""}
+            options={weaponNameOptions}
+            placeholder="All weapons"
+            onChange={(v) => onWeaponName(v === "" ? null : v)}
+          />
         </div>
       )}
     </div>

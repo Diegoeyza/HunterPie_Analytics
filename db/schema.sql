@@ -25,6 +25,16 @@ CREATE TABLE weapons (
     weapon_type TEXT NOT NULL  -- GS, LS, SnS, DB, ...
 );
 
+-- Quest-end award definitions (the 30 "hunter highlights"); localized
+-- name/explanation/unit captured by the REFramework mod. unit: 0=count,
+-- 1=time (seconds), 2=none.
+CREATE TABLE awards (
+    id      INTEGER PRIMARY KEY,   -- award id 0..29
+    name    TEXT NOT NULL,
+    explain TEXT,
+    unit    INTEGER NOT NULL DEFAULT 2
+);
+
 CREATE TABLE monsters (
     id      INTEGER PRIMARY KEY,
     name    TEXT NOT NULL,
@@ -57,6 +67,7 @@ CREATE TABLE hunts (
     is_split_quest          BOOLEAN NOT NULL DEFAULT 0,  -- multi-monster: total_damage is shared
     hunterpie_version       TEXT NOT NULL,   -- Phase 4 version-mismatch gating needs this stored
     game_version            TEXT NOT NULL,
+    source                  TEXT NOT NULL DEFAULT 'hunterpie',  -- hunterpie | reframework
     created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK (player_count >= 1),
     CHECK (cart_count >= 0)
@@ -79,13 +90,27 @@ CREATE TABLE hunt_players (
     gear_raw      REAL,  -- fork gear fingerprint (local player only); NULL = pre-gear export
     gear_element  REAL,
     gear_affinity REAL,
-    weapon_name   TEXT,  -- localized weapon model name (REFramework mod); NULL otherwise
+    weapon_name   TEXT,  -- localized name, LOCAL player only (REFramework mod); NULL otherwise
     PRIMARY KEY (hunt_id, player_id),
     CHECK (total_damage >= 0),
     CHECK (peak_dps >= 0)
 );
 CREATE INDEX idx_hunt_players_player ON hunt_players(player_id);
 CREATE INDEX idx_hunt_players_weapon ON hunt_players(weapon_id);
+
+-- Per-player quest awards (hunter highlights). channels holds the award-0
+-- uint32[4] array as JSON; count is 0 for undefinable rows.
+CREATE TABLE hunt_player_awards (
+    hunt_id   INTEGER NOT NULL REFERENCES hunts(id) ON DELETE CASCADE,
+    player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    award_id  INTEGER NOT NULL REFERENCES awards(id),
+    count     REAL NOT NULL DEFAULT 0,
+    channels  TEXT,
+    PRIMARY KEY (hunt_id, player_id, award_id),
+    CHECK (count >= 0)
+);
+CREATE INDEX idx_hunt_player_awards_player ON hunt_player_awards(player_id);
+CREATE INDEX idx_hunt_player_awards_award ON hunt_player_awards(award_id);
 
 CREATE TABLE weapon_identities (
     id            INTEGER PRIMARY KEY,

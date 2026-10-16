@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import ProgressView from "../components/views/ProgressView";
 import GrowthView from "../components/views/GrowthView";
 import WeaponsView from "../components/views/WeaponsView";
+import HighlightsView from "../components/views/HighlightsView";
 import CurveView from "../components/views/CurveView";
 import HuntsView from "../components/views/HuntsView";
 import QuestsView from "../components/views/QuestsView";
@@ -19,6 +20,9 @@ export interface ViewCtx {
   /** Weapon-variant scope (WeaponIdentity id, 0 = unknown-gear hunts).
    *  Only set with exactly one scoped hunter. Null = all variants. */
   variantId: number | string | null;
+  /** Weapon-name scope (local player, from the REFramework mod; e.g.
+   *  "Onyx Choros"). Only set with exactly one scoped hunter. */
+  weaponName: string | null;
   /** Reset the hunter scope (passed to views for scope-aware empty states). */
   clearScope: () => void;
   /** Set the hunter scope to the given player ids. */
@@ -40,19 +44,25 @@ export const TABS: TabDef[] = [
     id: "progress",
     title: "Progress",
     blurb: "FR-3.1 — rolling DPS and clear time per hunt, filterable by monster, quest, stars, weapon, hunter.",
-    render: (ctx) => <ProgressView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
+    render: (ctx) => <ProgressView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
   },
   {
     id: "growth",
     title: "Growth",
     blurb: "Instance-weighted DPS change with per-group trends (median, best, slope, clear time). Single hunter drill-down, multi-hunter scope, monster/star/weapon/variant filters.",
-    render: (ctx) => <GrowthView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} setScope={ctx.setScope} />,
+    render: (ctx) => <GrowthView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} setScope={ctx.setScope} />,
   },
   {
     id: "weapons",
     title: "Weapons",
     blurb: "FR-3.2 — avg/peak DPS, hunt count and clear rate by weapon type.",
-    render: (ctx) => <WeaponsView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
+    render: (ctx) => <WeaponsView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
+  },
+  {
+    id: "highlights",
+    title: "Highlights",
+    blurb: "Quest-end hunter highlights (awards) and average damage share, per monster/weapon/hunter. REFramework hunts only.",
+    render: (ctx) => <HighlightsView scope={ctx.scope} weaponName={ctx.weaponName} partySize={ctx.partySize} />,
   },
   {
     id: "curves",
@@ -63,8 +73,8 @@ export const TABS: TabDef[] = [
   {
     id: "hunts",
     title: "Hunts",
-    blurb: "Every run, latest first — click a row for party damage, DPS and the damage curve.",
-    render: (ctx) => <HuntsView scope={ctx.scope} partySize={ctx.partySize} />,
+    blurb: "Every run, latest first — click a row for party damage, DPS, hunter highlights and the damage curve.",
+    render: (ctx) => <HuntsView scope={ctx.scope} weaponName={ctx.weaponName} partySize={ctx.partySize} />,
   },
   {
     id: "quests",
@@ -76,13 +86,13 @@ export const TABS: TabDef[] = [
     id: "leaderboard",
     title: "Leaderboard",
     blurb: "Best players by DPS over cleared hunts — filterable by monster, stars, weapon and min hunts.",
-    render: (ctx) => <LeaderboardView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
+    render: (ctx) => <LeaderboardView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
   },
   {
     id: "high-scores",
     title: "High Scores",
     blurb: "One row per cleared hunt, ranked by top DPS or fastest clear. Scoped to the hunters bar above; filterable by monster, weapon and stars.",
-    render: (ctx) => <HighScoreView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
+    render: (ctx) => <HighScoreView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
   },
   {
     id: "compare",

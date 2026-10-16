@@ -80,6 +80,20 @@ class Monster(Base):
     species: Mapped[str | None] = mapped_column(Text)
 
 
+class Award(Base):
+    """Quest-end award definition (the 30 hunter highlights).
+
+    unit: 0 = count, 1 = time (seconds), 2 = none. Names/explanation are
+    localized at capture time by the REFramework mod.
+    """
+    __tablename__ = "awards"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    explain: Mapped[str | None] = mapped_column(Text)
+    unit: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+
+
 class Hunt(Base):
     __tablename__ = "hunts"
 
@@ -113,6 +127,11 @@ class Hunt(Base):
                                                 default=False)
     hunterpie_version: Mapped[str] = mapped_column(Text, nullable=False)
     game_version: Mapped[str] = mapped_column(Text, nullable=False)
+    # Authoritative source: "hunterpie" (owns damage/weapons/curves) or
+    # "reframework" (the mod; only its awards are kept when both exist).
+    source: Mapped[str] = mapped_column(Text, nullable=False,
+                                        default="hunterpie",
+                                        server_default="hunterpie")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
 
     monster: Mapped[Monster] = relationship()
@@ -144,8 +163,9 @@ class HuntPlayer(Base):
     gear_raw: Mapped[float | None] = mapped_column(Float)
     gear_element: Mapped[float | None] = mapped_column(Float)
     gear_affinity: Mapped[float | None] = mapped_column(Float)
-    # Localized weapon model name (e.g. "G. Resounding Galahad"), captured by
-    # the REFramework mod via weapon id. NULL for fork hunts / unresolved ids.
+    # Localized weapon name for the LOCAL player only (REFramework mod; the
+    # weapon id -> name lookup is reliable but remote players come out
+    # swapped, so only self is recorded). NULL otherwise.
     weapon_name: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
@@ -153,6 +173,30 @@ class HuntPlayer(Base):
         Index("idx_hunt_players_weapon", "weapon_id"),
         CheckConstraint("total_damage >= 0", name="ck_hp_damage"),
         CheckConstraint("peak_dps >= 0", name="ck_hp_peak"),
+    )
+
+
+class HuntPlayerAward(Base):
+    """Per-player quest award (hunter highlight) for one hunt.
+
+    `channels` holds the award-0 uint32[4] array as JSON; `count` is the
+    scalar value (0 where the award is channel-based).
+    """
+    __tablename__ = "hunt_player_awards"
+
+    hunt_id: Mapped[int] = mapped_column(
+        ForeignKey("hunts.id", ondelete="CASCADE"), primary_key=True)
+    player_id: Mapped[int] = mapped_column(
+        ForeignKey("players.id", ondelete="CASCADE"), primary_key=True)
+    award_id: Mapped[int] = mapped_column(
+        ForeignKey("awards.id"), primary_key=True)
+    count: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    channels: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        Index("idx_hunt_player_awards_player", "player_id"),
+        Index("idx_hunt_player_awards_award", "award_id"),
+        CheckConstraint("count >= 0", name="ck_hpa_count"),
     )
 
 

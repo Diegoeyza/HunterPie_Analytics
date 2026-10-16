@@ -6,7 +6,7 @@ import { useApi } from "../lib/useApi";
 import { apiInvalidate } from "../lib/api";
 import { parseIds, readParam, writeParams } from "../lib/url";
 import { TABS, type ViewCtx } from "../lib/registry";
-import ScopeBar, { DEFAULT_PARTY_SIZE, loadParty, loadScope, loadVariant, storeParty, storeScope, storeVariant } from "../components/ScopeBar";
+import ScopeBar, { DEFAULT_PARTY_SIZE, loadParty, loadScope, loadVariant, loadWeaponName, storeParty, storeScope, storeVariant, storeWeaponName } from "../components/ScopeBar";
 import HuntsManager from "../components/HuntsManager";
 import ImportButton from "../components/ImportButton";
 import ThemeToggle from "../components/ThemeToggle";
@@ -42,6 +42,7 @@ export default function Home() {
   const [tab, setTab] = useState(TABS[0].id);
   const [scope, setScope] = useState<number[]>([]);
   const [variantId, setVariantId] = useState<number | string | null>(null);
+  const [weaponName, setWeaponName] = useState<string | null>(null);
   const [partySize, setPartySize] = useState<number | null>(DEFAULT_PARTY_SIZE);
   const [scopeReady, setScopeReady] = useState(false);
   const healthQ = useApi<Health>("/health");
@@ -51,8 +52,10 @@ export default function Home() {
     const ids = initialScope();
     setScope(ids);
     setPartySize(initialParty());
-    // A persisted variant only survives with the same single-hunter scope.
+    // A persisted variant/weapon-name only survives with the same
+    // single-hunter scope.
     setVariantId(ids.length === 1 ? loadVariant() : null);
+    setWeaponName(ids.length === 1 ? loadWeaponName() : null);
     setScopeReady(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -64,7 +67,10 @@ export default function Home() {
 
   const changeScope = (ids: number[]) => {
     setScope(ids);
-    if (ids.length !== 1) changeVariant(null);
+    if (ids.length !== 1) {
+      changeVariant(null);
+      changeWeaponName(null);
+    }
     storeScope(ids);
     writeParams({ scope: ids.length > 0 ? ids.join(",") : null });
   };
@@ -74,6 +80,11 @@ export default function Home() {
     storeVariant(id);
   };
 
+  const changeWeaponName = (name: string | null) => {
+    setWeaponName(name);
+    storeWeaponName(name);
+  };
+
   const changeParty = (size: number | null) => {
     setPartySize(size);
     storeParty(size);
@@ -81,7 +92,7 @@ export default function Home() {
   };
 
   const active = TABS.find((t) => t.id === tab) ?? TABS[0];
-  const ctx: ViewCtx = { scope, variantId: scope.length === 1 ? variantId : null, clearScope: () => changeScope([]), setScope: changeScope, partySize };
+  const ctx: ViewCtx = { scope, variantId: scope.length === 1 ? variantId : null, weaponName: scope.length === 1 ? weaponName : null, clearScope: () => changeScope([]), setScope: changeScope, partySize };
   const health = healthQ.data;
   const versions = health?.hunterpie_version ?? health?.game_version
     ? `HunterPie ${health?.hunterpie_version ?? "?"} · game ${health?.game_version ?? "?"}`
@@ -105,6 +116,8 @@ export default function Home() {
         <ScopeBar scope={scope} onScope={changeScope}
           variantId={scope.length === 1 ? variantId : null}
           onVariant={changeVariant}
+          weaponName={scope.length === 1 ? weaponName : null}
+          onWeaponName={changeWeaponName}
           partySize={partySize} onParty={changeParty} />
       )}
       <nav className="tabs">

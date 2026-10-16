@@ -48,7 +48,7 @@ EXTRA_COLUMNS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-LATEST_VERSION = 3
+LATEST_VERSION = 7
 
 
 def _sqlite_url(db_path: str | Path) -> str:
@@ -186,7 +186,96 @@ def _migrate_v3(conn) -> None:
     ])
 
 
-MIGRATIONS: dict[int, object] = {1: _migrate_v1, 2: _migrate_v2, 3: _migrate_v3}
+def _migrate_v4(conn) -> None:
+    """Weapon models + hunter-highlight awards (REFramework mod).
+
+    weapon_models/awards/hunt_player_awards are new tables (created by
+    create_all before migrations run); this step adds the FK column on the
+    existing hunt_players and backfills model rows from any pre-existing
+    weapon_name strings."""
+    _add_missing_columns(conn, "hunt_players", [
+        ("weapon_model_id", "INTEGER"),
+    ])
+    try:
+        conn.execute(text(
+            "INSERT OR IGNORE INTO weapon_models (weapon_type, name) "
+            "SELECT COALESCE(w.name, 'Unknown'), hp.weapon_name "
+            "FROM hunt_players hp "
+            "LEFT JOIN weapons w ON w.id = hp.weapon_id "
+            "WHERE hp.weapon_name IS NOT NULL AND hp.weapon_name <> '' "
+            "GROUP BY hp.weapon_name"))
+        conn.execute(text(
+            "UPDATE hunt_players SET weapon_model_id = ("
+            "SELECT id FROM weapon_models wm "
+            "WHERE wm.name = hunt_players.weapon_name) "
+            "WHERE weapon_model_id IS NULL AND weapon_name IS NOT NULL"))
+    except Exception as e:  # table may be absent on very old DBs; log, continue
+        log.warning("migrate v4: weapon_models backfill skipped: %s", e)
+    try:
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_hunt_players_model "
+            "ON hunt_players (weapon_model_id)"))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_weapon_models_type "
+            "ON weapon_models (weapon_type)"))
+    except Exception as e:  # weapon_models predates/removed; log, continue
+        log.warning("migrate v4: weapon-model indexes skipped: %s", e)
+    conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_hunt_player_awards_player "
+        "ON hunt_player_awards (player_id)"))
+    conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_hunt_player_awards_award "
+        "ON hunt_player_awards (award_id)"))
+
+
+def _migrate_v5(conn) -> None:
+    """Drop the REFramework weapon-model columns.
+
+    Damage and per-player weapons come from HunterPie (the fork already
+    records the weapon class per player); only quest awards remain
+    REFramework-sourced. Reverts the model-name experiment (schema v3/v4)."""
+    # Indexes must go before the columns they cover (SQLite DROP COLUMN
+    # refuses to leave a dangling index).
+    conn.execute(text("DROP INDEX IF EXISTS idx_hunt_players_model"))
+    conn.execute(text("DROP INDEX IF EXISTS idx_weapon_models_type"))
+    for col in ("weapon_model_id", "weapon_name"):
+        if col in _table_columns(conn, "hunt_players"):
+            try:
+                conn.execute(text(f"ALTER TABLE hunt_players DROP COLUMN {col}"))
+            except Exception as e:  # old SQLite may not support DROP COLUMN
+                log.warning("migrate v5: drop hunt_players.%s skipped: %s", col, e)
+    conn.execute(text("DROP TABLE IF EXISTS weapon_models"))
+
+
+def _migrate_v6(conn) -> None:
+    """Tag each hunt with its authoritative source.
+
+    HunterPie owns damage/weapons/curves; the REFramework mod only adds awards,
+    so a hunt whose awards came from the mod was created by it."""
+    _add_missing_columns(conn, "hunts", [
+        ("source", "TEXT NOT NULL DEFAULT 'hunterpie'"),
+    ])
+    conn.execute(text(
+        "UPDATE hunts SET source='reframework' WHERE id IN "
+        "(SELECT DISTINCT hunt_id FROM hunt_player_awards)"))
+    conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_hunts_source ON hunts (source)"))
+
+
+def _migrate_v7(conn) -> None:
+    """Re-add hunt_players.weapon_name (LOCAL player only).
+
+    Reintroduced deliberately (see v5): the mod's weapon id->name lookup is
+    reliable, but its per-player map is not, so only the local player's
+    weapon name is recorded — enough for a hunter-scoped weapon-name filter."""
+    _add_missing_columns(conn, "hunt_players", [
+        ("weapon_name", "TEXT"),
+    ])
+
+
+MIGRATIONS: dict[int, object] = {1: _migrate_v1, 2: _migrate_v2, 3: _migrate_v3,
+                                 4: _migrate_v4, 5: _migrate_v5, 6: _migrate_v6,
+                                 7: _migrate_v7}
 
 
 def migrate(engine=None, db_path: str | Path = DEFAULT_DB_PATH) -> int:
