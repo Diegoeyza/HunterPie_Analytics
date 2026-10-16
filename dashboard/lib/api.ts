@@ -121,9 +121,6 @@ export interface FilterOptions {
   monster_stars: Record<number, number[]>;
 }
 
-/** Award unit: 0 = count, 1 = time (seconds), 2 = none. */
-export const AWARD_UNIT = { COUNT: 0, TIME: 1, NONE: 2 } as const;
-
 export interface HuntHighlightAward { id: number; count: number; channels?: number[]; }
 export interface HuntHighlightPlayer {
   player_id: number; player: string; is_supporter: boolean;

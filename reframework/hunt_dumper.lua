@@ -223,7 +223,6 @@ local function quest_users()
         if u then
             out[i - 1] = {
                 name = safe_str(safe(function() return u:get_PlName() end)),
-                short = safe_str(safe(function() return u:get_ShortHunterId() end)),
                 is_self = safe(function() return u:get_IsSelf() end),
             }
         end
@@ -605,7 +604,6 @@ local function finish_session()
             end
             players[#players + 1] = {
                 name = u.name,
-                short_hunter_id = u.short,
                 weapon_name = u.is_self and self_name or nil,
                 gear = nil,
                 damages = { { damage = damage, dealt_at = iso(finished) } },

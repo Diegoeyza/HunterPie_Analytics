@@ -139,3 +139,17 @@ def test_player_weapon_names_and_filter():
     assert [h["id"] for h in hit["hunts"]] == [hid]
     miss = client.get("/api/hunts", params={"weapon_name": "Nope"}).json()
     assert miss["hunts"] == []
+
+
+def test_damage_share_uses_full_party_under_scope():
+    """A single-hunter scope narrows whose rows are shown, but the damage-share
+    denominator stays the full non-supporter party (not just the scoped hunter,
+    which would always read 100%)."""
+    client, s = make_client(seed_rich)
+    from app.models import Player
+    isi = s.execute(select(Player).where(Player.display_name == "Isi")).scalar_one()
+    body = client.get("/api/highlights",
+                      params={"player_ids": str(isi.id)}).json()
+    shares = {row["player"]: row["avg_share"] for row in body["damage_share"]}
+    assert set(shares) == {"Isi"}  # only the scoped hunter is listed
+    assert abs(shares["Isi"] - (1000.0 / 1500.0)) < 1e-9

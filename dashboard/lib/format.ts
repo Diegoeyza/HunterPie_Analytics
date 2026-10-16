@@ -32,8 +32,5 @@ export function fmtAward(value: number | null | undefined, unit: number): string
     ? fmtInt(value) : value.toFixed(1);
 }
 
-/** Award unit constants (mirror backend). */
-export const AWARD_UNIT = { COUNT: 0, TIME: 1, NONE: 2 } as const;
-
 /** Round DPS for chart points (one decimal keeps tooltips readable). */
 export const roundDps = (d: number): number => Math.round(d * 10) / 10;
