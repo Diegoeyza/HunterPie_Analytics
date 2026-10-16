@@ -6,8 +6,8 @@ import {
   CartesianGrid, Legend, Line, LineChart, ReferenceArea,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { seriesColor, type HuntSummary } from "../../lib/api";
-import { fmtDps, fmtInt, fmtPct, fmtTime } from "../../lib/format";
+import { seriesColor, type HuntSummary, type HuntHighlights } from "../../lib/api";
+import { fmtAward, fmtDps, fmtInt, fmtPct, fmtTime } from "../../lib/format";
 import { type Metric, computeDps, smoothDps, computeBurst } from "../../lib/metrics";
 import { ApiState, useApi } from "../../lib/useApi";
 import ChartTooltip from "../ChartTooltip";
@@ -84,6 +84,16 @@ const columns: ColumnDef<HuntSummary>[] = [
     meta: { cls: "num" },
   },
   {
+    id: "highlights", accessorFn: (r) => r.highlight_count ?? 0,
+    header: "Highlights", meta: { cls: "num" },
+    cell: ({ row }) => {
+      const n = row.original.highlight_count ?? 0;
+      if (!n) return "—";
+      const names = row.original.highlight_names ?? [];
+      return <span title={names.join(", ")}>{n}</span>;
+    },
+  },
+  {
     id: "carts", accessorKey: "carts", header: "Carts",
     meta: { cls: "num" },
   },
@@ -105,6 +115,8 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
   const { data } = useApi<HuntCurve>(`/hunts/${hunt.id}/curve`);
   // Keyed fetch: ignore a stale previous-hunt curve while the new one loads.
   const curve = data && data.hunt_id === hunt.id ? data : null;
+  const hlQ = useApi<HuntHighlights>(`/hunts/${hunt.id}/highlights`);
+  const highlights = hlQ.data && hlQ.data.hunt_id === hunt.id ? hlQ.data : null;
 
   const members = useMemo(() => {
     if (!curve) return [];
@@ -273,6 +285,48 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                 </ResponsiveContainer>
               </div>
               <p className="blurb">Red bands: enrage windows. DPS uses engagement time (own first→last hit), same as Damage curves tab.</p>
+              {highlights && highlights.awards.length > 0 && (
+                <>
+                  <h3 className="chart-title">Hunter highlights</h3>
+                  <div className="table-wrap">
+                    <table className="grid">
+                      <thead>
+                        <tr>
+                          <th>Award</th>
+                          {highlights.players.map((p) => (
+                            <th key={p.player_id} className="num">
+                              {p.player}{p.is_supporter ? " (NPC)" : ""}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {highlights.awards.map((a) => (
+                          <tr key={a.id}>
+                            <td title={a.explain ?? undefined}>{a.name}</td>
+                            {highlights.players.map((p) => {
+                              const e = p.awards.find((x) => x.id === a.id);
+                              return (
+                                <td key={p.player_id} className="num">
+                                  {e ? fmtAward(e.count, a.unit) : "—"}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                        <tr>
+                          <td><strong>Damage share</strong></td>
+                          {highlights.players.map((p) => (
+                            <td key={p.player_id} className="num">
+                              {fmtPct(p.damage_share, 1)}
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>
@@ -280,7 +334,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
   );
 }
 
-export default function HuntsView({ scope, partySize }: { scope: number[]; partySize: number | null }) {
+export default function HuntsView({ scope, weaponName, partySize }: { scope: number[]; weaponName: string | null; partySize: number | null }) {
   const [monsterFilter, setMonsterFilter] = useState<string>("");
   const [resultFilter, setResultFilter] = useState<"" | "cleared" | "failed">("");
   const [selected, setSelected] = useState<HuntSummary | null>(null);
@@ -288,6 +342,7 @@ export default function HuntsView({ scope, partySize }: { scope: number[]; party
   const { data, error, loading } = useApi<{ hunts: HuntSummary[] }>("/hunts", {
     limit: 500,
     ...(scope.length > 0 && { player_ids: scope.join(",") }),
+    ...(weaponName && { weapon_name: weaponName }),
     ...(partySize != null && { players: partySize }),
   });
   const hunts = data?.hunts ?? null;
@@ -339,7 +394,7 @@ export default function HuntsView({ scope, partySize }: { scope: number[]; party
       <DataTable
         data={filtered}
         columns={columns}
-        initialSort={[{ id: "id", desc: true }]}
+        initialSort={[{ id: "date", desc: true }]}
         getRowId={(r) => String(r.id)}
         onRowClick={setSelected}
         isSelected={(r) => r.id === selected?.id}

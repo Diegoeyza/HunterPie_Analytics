@@ -1,11 +1,20 @@
 from datetime import datetime
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.ingest import find_rename_candidates, upsert_hunt
-from app.models import Base, DpsSnapshot, Hunt, HuntPlayer, Monster, Weapon
+from app.models import (
+    Base,
+    DpsSnapshot,
+    Hunt,
+    HuntPlayer,
+    HuntPlayerAward,
+    Monster,
+    Player,
+    Weapon,
+)
 
 
 @pytest.fixture
@@ -167,3 +176,91 @@ def test_cross_source_different_roster_coexist(session):
     ))
     assert (c1, c2) == (True, True)
     assert h1.id != h2.id
+
+
+_RF_AWARDS_META = [{"id": 4, "name": "Established Hunter", "unit": 0}]
+
+
+def _rf_award():
+    return [{"id": 4, "count": 9000}]
+
+
+def test_hunterpie_dump_refreshes_reframework_hunt(session):
+    """The mod's per-player weapons are unreliable, so when HunterPie's dump
+    for the same hunt arrives later it overwrites the core (weapons/curves)
+    and the mod's awards are kept."""
+    h1, c1, _ = upsert_hunt(session, base_payload(
+        quest_id_external="rf-1", source="reframework",
+        awards_meta=_RF_AWARDS_META,
+        players=[{"display_name": "Diego", "weapon_id": None,
+                  "total_damage": 9000, "peak_dps": 120,
+                  "weapon_name": "Onyx Choros", "awards": _rf_award()},
+                 {"display_name": "Fabius", "weapon_id": None,
+                  "total_damage": 500, "peak_dps": 10, "is_supporter": True}],
+        snapshots=[], events=[]))
+    assert c1 is True
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="pie-1",
+        started_at=datetime(2026, 2, 1, 12, 0, 5),
+        ended_at=datetime(2026, 2, 1, 12, 10, 5),
+        players=[{"display_name": "Diego", "weapon_id": 1,
+                  "total_damage": 9000, "peak_dps": 120},
+                 {"display_name": "Fabius", "weapon_id": 1,
+                  "total_damage": 500, "peak_dps": 10}]))
+    assert c2 is False and h1.id == h2.id
+    row = session.get(Hunt, h1.id)
+    assert row.source == "hunterpie"
+    # Weapons come from HunterPie; the mod's CPU-supporter flag is preserved.
+    fabius = session.execute(
+        select(HuntPlayer).join(Player)
+        .where(Player.display_name == "Fabius")).scalar_one()
+    assert fabius.weapon_id == 1 and fabius.is_supporter is True
+    # HunterPie has no weapon names, so the mod's local-player name survives.
+    diego = session.execute(
+        select(HuntPlayer).join(Player)
+        .where(Player.display_name == "Diego")).scalar_one()
+    assert diego.weapon_name == "Onyx Choros"
+    assert row.player_count == 1
+    assert session.execute(select(func.count()).select_from(HuntPlayerAward)
+                           ).scalar_one() == 1
+
+
+def test_reframework_dump_enriches_hunterpie_hunt(session):
+    """If HunterPie's hunt exists first, the mod contributes only what
+    HunterPie lacks (weapon name, supporter flag, awards) — never weapons."""
+    h1, c1, _ = upsert_hunt(session, base_payload(quest_id_external="pie-1"))
+    assert c1 is True
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="rf-1", source="reframework",
+        awards_meta=_RF_AWARDS_META,
+        started_at=datetime(2026, 2, 1, 12, 0, 5),
+        ended_at=datetime(2026, 2, 1, 12, 10, 5),
+        players=[{"display_name": "Diego", "weapon_id": None,
+                  "total_damage": 9000, "peak_dps": 120,
+                  "weapon_name": "Onyx Choros", "awards": _rf_award()}],
+        snapshots=[], events=[]))
+    assert c2 is False and h1.id == h2.id
+    hp = session.execute(select(HuntPlayer)).scalar_one()
+    assert hp.weapon_id == 1              # HunterPie's weapon class, untouched
+    assert hp.weapon_name == "Onyx Choros"  # added by the mod
+    assert session.get(Hunt, h1.id).source == "hunterpie"
+    assert session.execute(select(func.count()).select_from(HuntPlayerAward)
+                           ).scalar_one() == 1
+
+
+def test_cross_source_subset_roster_dedup(session):
+    """The two sources disagree on CPU support hunters: the fork lists them,
+    the mod may not. A subset roster in the same window is the same hunt."""
+    h1, c1, _ = upsert_hunt(session, base_payload(
+        quest_id_external="rf-hash",
+        players=[{"display_name": "Diego", "weapon_id": 1,
+                  "total_damage": 9000, "peak_dps": 120}]))
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="pie-hash",
+        players=[{"display_name": "Diego", "weapon_id": 1,
+                  "total_damage": 9000, "peak_dps": 120},
+                 {"display_name": "Fabius", "weapon_id": 1,
+                  "is_supporter": True, "total_damage": 500, "peak_dps": 10}]))
+    assert (c1, c2) == (True, False)
+    assert h1.id == h2.id
+    assert len(session.execute(select(Hunt)).scalars().all()) == 1

@@ -6,9 +6,10 @@
 -- in the same schema the analytics importer (backend/app/import_hunt.py) already
 -- reads, so `./import.sh` and the dashboard Import button work unchanged.
 --
--- R1 scope: real monster id (active em set), max HP, polled HP curve, quest
--- metadata, player identity + weapon, and quest-end damage TOTALS (per-player
--- per-second frames are deferred to R2). Never throws into the game.
+-- Scope: real monster id (active em set), max HP, polled HP curve, quest
+-- metadata, player identity, quest-end damage TOTALS, the 30 quest awards and
+-- the LOCAL player's weapon name. Per-player weapon classes/curves come from
+-- HunterPie. Never throws into the game.
 --
 -- @repo local (Hunterpie_Analytics/reframework)
 --
@@ -21,7 +22,7 @@ local imgui = imgui
 local os = os
 local io = io
 
-local VERSION = "0.5.0"
+local VERSION = "0.9.2"
 local OUT_SUBDIR = "HuntExports"
 local CONFIG_FILE = "hunt_dumper.json"
 local GAME_TYPE = 2
@@ -135,7 +136,9 @@ local function dlog(fmt, ...) if config.debug then log.info(string.format("[Hunt
 -- ---------------------------------------------------------------------------
 
 local state = nil
-local awards = {} -- userIndex+1 -> damage (from the shared sync, multiplayer)
+local awards = {} -- userIndex+1 -> { index, awards={id->count}, channels } (multiplayer)
+local weapon_name, self_weapon_id -- self weapon name lookup (defined below)
+
 
 -- find the cQuestAwardSync object inside a hook's args and its userIndex
 local function find_award_sync(args)
@@ -243,20 +246,28 @@ end
 local function begin_session()
     if not config.enabled then return end
     math.randomseed(os.time())
+    local meta = quest_meta()
+    -- Record the local weapon id at quest start (compared to the reward-screen
+    -- reading, which the older build used and which looked stable).
+    local self_wtype = meta.start_weapon_type
+    local self_wid_start = self_weapon_id()
     state = {
         started = utc_now(),
         hash = gen_hash(),
         em_ids = get_active_em_ids(),
-        meta = quest_meta(),
+        meta = meta,
         users = quest_users(),
         hp = {},          -- [bossIndex] = { {t, norm}, ... }
         max_hp = nil,
         last_poll = 0,
         finished = false,
+        self_wtype = self_wtype,
+        self_wid_start = self_wid_start,
     }
     awards = {}
-    dlog("quest start: em_ids=%s lv=%s weapon=%s",
-        tostring(#state.em_ids), tostring(state.meta.level), tostring(state.meta.start_weapon_type))
+    dlog("quest start: em_ids=%s lv=%s self_type=%s self_id=%s",
+        tostring(#state.em_ids), tostring(state.meta.level),
+        tostring(self_wtype), tostring(self_wid_start))
 end
 
 local function poll()
@@ -311,10 +322,36 @@ local function union_float(v)
     return bits_to_float(bits)
 end
 
--- Self player's damage is award id 4 of get_QuestAwardInfo(). Solo never
--- calls setSharedQuestAwardInfo; multiplayer calls it for every player.
-local DAMAGE_AWARD_INDEX = 4
-local function read_self_award_damage()
+-- award id 4 = damage (field award05). All 30 award ids (0..29) live on the
+-- cQuestAwardSync packet as award01..award30; award01 is a uint32[4] channel
+-- array (better_hunter_highlights). Solo never calls setSharedQuestAwardInfo,
+-- so the self player's awards come from get_QuestAwardInfo() instead.
+local AWARD_MAX_ID = 29
+local DAMAGE_AWARD_ID = 4
+
+-- Read every award field off a cQuestAwardSync object -> { awards={id->v}, channels={4} }
+local function read_award_sync(sync)
+    local rec = { awards = {} }
+    local a1 = safe(function() return sync["award01"] end)
+    if a1 ~= nil then
+        local ch = {}
+        for k = 0, 3 do
+            ch[#ch + 1] = safe(function() return a1:get_Item(k) end) or 0
+        end
+        rec.channels = ch
+        rec.awards[0] = (ch[1] or 0) + (ch[2] or 0) + (ch[3] or 0) + (ch[4] or 0)
+    end
+    for aid = 1, AWARD_MAX_ID do
+        local v = safe(function() return sync[string.format("award%02d", aid + 1)] end)
+        if type(v) == "number" then rec.awards[aid] = v end
+    end
+    return rec
+end
+
+-- Self player's awards (solo path). get_QuestAwardInfo() is a flat array of
+-- ace.UnionValue indexed by award id (id 4 = damage). Best effort: unknown
+-- indices yield nil and are dropped.
+local function read_self_awards()
     local MM = safe(sdk.find_type_definition, "app.MissionManager")
     local mgr = MM and safe(function() return sdk.get_managed_singleton("app.MissionManager") end)
     local dir = mgr and typecall("app.MissionManager", "get_QuestDirector", mgr)
@@ -322,8 +359,16 @@ local function read_self_award_damage()
     if not param then return nil end
     local arr = typecall("app.cQuestFlowParam", "get_QuestAwardInfo", param)
     if not arr then return nil end
-    local items = collect(arr, 40)
-    return union_float(items[DAMAGE_AWARD_INDEX + 1])
+    local items = collect(arr, 48)
+    local rec = { awards = {}, raw = {} }
+    for i = 1, #items do
+        local v = union_float(items[i])
+        if v ~= nil then
+            rec.raw[i - 1] = v
+            if (i - 1) <= AWARD_MAX_ID then rec.awards[i - 1] = v end
+        end
+    end
+    return rec
 end
 
 local function on_award_sync(args)
@@ -331,11 +376,40 @@ local function on_award_sync(args)
     local sync, at = find_award_sync(args)
     if not sync then return end
     local idx = safe(function() return sdk.to_int64(args[at - 1]) end) or 0
-    local v = safe(function() return sync["award05"] end)
-    if type(v) == "number" then
-        awards[idx + 1] = { index = idx, damage = v }
-        dlog("shared award: idx=%d damage=%.0f", idx, v)
+    local rec = read_award_sync(sync)
+    rec.index = idx
+    awards[idx + 1] = rec
+    dlog("shared awards: idx=%d ids=%d", idx, (function() local n = 0 for _ in pairs(rec.awards) do n = n + 1 end return n end)())
+end
+
+-- Localized award names/explanations/units for ids 0..29 (cached once).
+local award_meta_cache = nil
+local function clean_text(s)
+    if type(s) ~= "string" then return s end
+    return (s:gsub("\r\n", " "):gsub("\n", " "))
+end
+
+local function get_award_meta()
+    if award_meta_cache then return award_meta_cache end
+    local QD = safe(sdk.find_type_definition, "app.QuestDef")
+    local MU = safe(sdk.find_type_definition, "app.MessageUtil")
+    local nameM = QD and safe(function() return QD:get_method("Name(app.QuestDef.AwardID)") end)
+    local expM = QD and safe(function() return QD:get_method("Explain(app.QuestDef.AwardID)") end)
+    local unitM = QD and safe(function() return QD:get_method("Unit(app.QuestDef.AwardID)") end)
+    local textM = MU and safe(function() return MU:get_method("getText(System.Guid, System.Int32)") end)
+    if not (nameM and textM) then return nil end
+    local out = {}
+    for id = 0, AWARD_MAX_ID do
+        local g = safe(function() return nameM:call(nil, id) end)
+        local name = g and safe(function() return textM:call(nil, g, 0) end)
+        local eg = expM and safe(function() return expM:call(nil, id) end)
+        local explain = eg and safe(function() return textM:call(nil, eg, 0) end)
+        local unit = unitM and safe(function() return unitM:call(nil, id) end)
+        out[#out + 1] = { id = id, name = clean_text(safe_str(name)),
+                          explain = clean_text(safe_str(explain)), unit = unit }
     end
+    award_meta_cache = out
+    return out
 end
 
 -- ---------------------------------------------------------------------------
@@ -394,7 +468,6 @@ local function read_npc_players()
         if npc_id and valid ~= false and member_index ~= nil then
             result[#result + 1] = {
                 name = NPC_NAMES[npc_id] or ("NPC " .. tostring(npc_id)),
-                weapon = obj_get(m, "WeaponType"),
                 gear = nil,
                 damages = {}, -- per-NPC damage not exposed via managed API
                 is_supporter = true,
@@ -405,7 +478,10 @@ local function read_npc_players()
 end
 
 -- ---------------------------------------------------------------------------
--- Weapon names: EquipDataSetting._Weapon<Type>.get_Values()[weapon_id]._Name
+-- Self weapon name: EquipDataSetting._Weapon<Type>.get_Values()[id]._Name
+-- Only the LOCAL player's weapon is resolved: findPlayerInfo_MemberIndex does
+-- not line up with the UserInfoList order, so remote weapons come out swapped.
+-- HunterPie owns per-player weapon classes; this is the local weapon's name.
 -- ---------------------------------------------------------------------------
 
 local WEAPON_FIELDS = { "_WeaponLongSword", "_WeaponShortSword", "_WeaponTwinSword",
@@ -440,22 +516,18 @@ local function get_weapon_arrays()
     return weapon_arrays
 end
 
-local function weapon_name(wtype, wid)
+-- get_WeaponID() is a 1-based position into the type's weapon array (NOT a
+-- 0-based index and NOT the entry's _Index); resolve with list[id].
+weapon_name = function(wtype, wid)
     if wtype == nil or wid == nil then return nil end
     local key = tostring(wtype) .. ":" .. tostring(wid)
     if weapon_name_cache[key] ~= nil then return weapon_name_cache[key] or nil end
     local list = get_weapon_arrays()[wtype]
-    -- get_WeaponID() is a 1-based position into the type's weapon array
-    -- (e.g. Whistle id 85 with an 85-entry array -> the last entry),
-    -- NOT a 0-based index and NOT the entry's data id.
-    local entry
-    if list then
-        entry = list[wid]
-        if entry == nil then
-            for _, e in ipairs(list) do
-                local ix = safe(function() return e:get_field("_Index") end)
-                if ix ~= nil and ix == wid then entry = e break end
-            end
+    local entry = list and list[wid]
+    if entry == nil and list then
+        for _, e in ipairs(list) do
+            local ix = safe(function() return e:get_field("_Index") end)
+            if ix ~= nil and ix == wid then entry = e break end
         end
     end
     local name = entry and localized(safe(function() return entry:get_field("_Name") end))
@@ -463,24 +535,7 @@ local function weapon_name(wtype, wid)
     return name
 end
 
--- member index -> { type = weapon type, id = weapon id }
-local function member_weapon_map()
-    local map = {}
-    local pm = safe(function() return sdk.get_managed_singleton("app.PlayerManager") end)
-    local members = pm and typecall("app.PlayerManager", "getQuestMembers", pm)
-    for _, m in ipairs(collect(members, 8)) do
-        local ch = m and typecall("app.cPlayerManageInfo", "get_Character", m)
-        if ch then
-            local mi = obj_get(m, "MemberIndex")
-            local wtype = typecall("app.HunterCharacter", "get_WeaponType", ch)
-            local wid = typecall("app.HunterCharacter", "get_WeaponID", ch)
-            if mi ~= nil then map[mi] = { type = wtype, id = wid } end
-        end
-    end
-    return map
-end
-
-local function self_weapon_id()
+self_weapon_id = function()
     local pm = safe(function() return sdk.get_managed_singleton("app.PlayerManager") end)
     local info = pm and typecall("app.PlayerManager", "getMasterPlayer", pm)
     local ch = info and typecall("app.cPlayerManageInfo", "get_Character", info)
@@ -515,33 +570,46 @@ local function finish_session()
     local started = state.started
     local finished = state.finished
 
-    -- self damage from get_QuestAwardInfo()[4] (covers solo; multiplayer also
-    -- captures every player via the shared award sync)
-    local self_damage = read_self_award_damage()
-    local self_type = state.meta.start_weapon_type
-    local self_id = self_weapon_id()
-    local mwmap = member_weapon_map()
+    -- awards: multiplayer fills `awards` via the shared sync (per userIndex);
+    -- solo falls back to the self player's get_QuestAwardInfo().
+    local self_awards = read_self_awards()
+    -- Local weapon name read at the reward screen (the older build did this
+    -- and it looked stable); keep the quest-start reading for calibration.
+    local self_wid = self_weapon_id()
+    local self_name = weapon_name(state.self_wtype, self_wid)
+    local self_name_start = weapon_name(state.self_wtype, state.self_wid_start)
 
-    -- players: name + weapon (type + id + localized name) + damage total
+    local function awards_list_for(rec)
+        if not rec or not rec.awards then return nil end
+        local ids = {}
+        for id in pairs(rec.awards) do ids[#ids + 1] = id end
+        table.sort(ids)
+        local out = {}
+        for _, id in ipairs(ids) do
+            out[#out + 1] = { id = id, count = rec.awards[id], channels = (id == 0) and rec.channels or nil }
+        end
+        return out
+    end
+
+    -- players: name + damage + awards (weapons come from HunterPie)
     local players = {}
     local n_players = 0
     for i = 0, 3 do
         local u = state.users[i]
         if u and u.name then
+            local rec = awards[i + 1]
+            if u.is_self and rec == nil then rec = self_awards end
             local damage = 0
-            local a = awards[i + 1]
-            if a then damage = a.damage end
-            if u.is_self and self_damage then damage = self_damage end
-            local mw = mwmap[i]
-            local wtype = (mw and mw.type) or (u.is_self and self_type) or nil
-            local wid = (mw and mw.id) or (u.is_self and self_id) or nil
+            if rec and rec.awards and rec.awards[DAMAGE_AWARD_ID] then
+                damage = rec.awards[DAMAGE_AWARD_ID]
+            end
             players[#players + 1] = {
                 name = u.name,
-                weapon = wtype,
-                weapon_id = wid,
-                weapon_name = weapon_name(wtype, wid),
+                short_hunter_id = u.short,
+                weapon_name = u.is_self and self_name or nil,
                 gear = nil,
                 damages = { { damage = damage, dealt_at = iso(finished) } },
+                awards = awards_list_for(rec),
                 is_hunterpie_user = false,
             }
             n_players = n_players + 1
@@ -601,6 +669,13 @@ local function finish_session()
         },
         players = players,
         monsters = monsters,
+        awards_meta = get_award_meta(),
+        source = "reframework",
+        -- calibration aid: raw self weapon ids + resolved names at both ends
+        self_weapon = { type = state.self_wtype,
+                        id_start = state.self_wid_start,
+                        name_start = self_name_start,
+                        id_finish = self_wid, name_finish = self_name },
         hash = state.hash,
     }
 
@@ -648,7 +723,7 @@ register_hooks()
 
 re.on_draw_ui(function()
     if imgui.tree_node("HuntDumper") then
-        imgui.text("v" .. VERSION .. "  (R1: totals + HP curve)")
+        imgui.text("v" .. VERSION .. "  (totals + HP curve + awards)")
         imgui.separator()
         local changed
         changed, config.enabled = imgui.checkbox("Enabled", config.enabled)

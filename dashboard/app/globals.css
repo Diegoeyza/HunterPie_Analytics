@@ -231,6 +231,38 @@ main {
 .seg button:hover { color: var(--text); }
 .seg button.on { background: var(--panel-2); color: var(--text); }
 
+/* Multi-select popover (details/summary) for the highlights filter */
+.multiselect { position: relative; display: inline-flex; }
+.multiselect > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 10px; font-size: 13px; line-height: 1.2;
+}
+.multiselect > summary::marker { content: ""; }
+.multiselect > summary::-webkit-details-marker { display: none; }
+.multiselect > summary::after {
+  content: "▾"; color: var(--muted); font-size: 10px; line-height: 1;
+}
+.multiselect[open] > summary { border-color: var(--accent); }
+.multiselect-menu {
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0;
+  max-height: 280px; overflow: auto; min-width: 220px;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+.multiselect-actions { display: flex; gap: 6px; padding: 2px 2px 6px; }
+.multiselect-actions button {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 2px 8px; cursor: pointer; font-size: 12px;
+}
+.multiselect-item {
+  display: flex; gap: 8px; align-items: center; padding: 4px 6px;
+  border-radius: 6px; cursor: pointer;
+}
+.multiselect-item:hover { background: var(--row-hover); }
+
 /* Searchable combobox (replaces native selects for large option lists) */
 .combo { position: relative; display: inline-block; min-width: 160px; }
 .combo input {

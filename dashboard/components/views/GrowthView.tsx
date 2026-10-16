@@ -95,7 +95,7 @@ function GrowthFilters({
   );
 }
 
-export default function GrowthView({ scope, variantId, clearScope, setScope, partySize }: { scope: number[]; variantId: number | string | null; clearScope: () => void; setScope: (ids: number[]) => void; partySize: number | null }) {
+export default function GrowthView({ scope, variantId, weaponName, clearScope, setScope, partySize }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; setScope: (ids: number[]) => void; partySize: number | null }) {
   const opts = useFilterOptions();
   const [weapon, setWeapon] = useState("");
   const [monster, setMonster] = useState("");
@@ -109,6 +109,7 @@ export default function GrowthView({ scope, variantId, clearScope, setScope, par
     ...(selectedPlayerId !== null ? { player_id: selectedPlayerId }
       : scope.length > 1 ? { player_ids: scope.join(",") } : {}),
     ...(weapon && { weapon_id: Number(weapon) }),
+    ...(weaponName && { weapon_name: weaponName }),
     ...(monster && { monster_id: Number(monster) }),
     ...(stars && { stars: Number(stars) }),
     ...(variantId !== null && { variant_id: variantId }),

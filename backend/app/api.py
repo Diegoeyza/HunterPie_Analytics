@@ -103,9 +103,21 @@ def health(db: Session = Depends(get_db)):
 def hunts(limit: int = Query(200, ge=1, le=MAX_LIMIT),
           include_ignored: bool = False,
           player_ids: str | None = None, players: int | None = None,
+          weapon_name: str | None = None,
           db: Session = Depends(get_db)):
     return queries.hunt_list(db, limit, include_ignored,
-                             _ids(player_ids), party=_party(players))
+                             _ids(player_ids), party=_party(players),
+                             weapon_name=weapon_name)
+
+
+@app.get("/api/highlights")
+def highlights(monster_id: int | None = None,
+               stars: int | None = None, player_ids: str | None = None,
+               players: int | None = None, weapon_name: str | None = None,
+               db: Session = Depends(get_db)):
+    """Aggregate hunter-highlight (award) leaderboards + damage share."""
+    return queries.highlights(db, _ids(player_ids), monster_id, stars,
+                              party=_party(players), weapon_name=weapon_name)
 
 
 @app.get("/api/progress")
@@ -116,10 +128,12 @@ def progress(monster_id: int | None = None, weapon_id: int | None = None,
              variant_id: str | None = None,
              limit: int | None = Query(None, ge=1, le=MAX_LIMIT),
              players: int | None = None,
+             weapon_name: str | None = None,
              db: Session = Depends(get_db)):
     return queries.progress(db, monster_id, weapon_id, player_id,
                             quest_id, stars, _ids(player_ids),
-                            window, variant_id, limit, party=_party(players))
+                            window, variant_id, limit, party=_party(players),
+                            weapon_name=weapon_name)
 
 
 @app.get("/api/progress/improvement")
@@ -131,21 +145,24 @@ def progress_improvement(player_id: int | None = None,
                          stars: int | None = None,
                          variant_id: str | None = None,
                          players: int | None = None,
+                         weapon_name: str | None = None,
                          db: Session = Depends(get_db)):
     return queries.progress_improvement(db, player_id, top_n, weapon_id,
                                         _ids(player_ids),
                                         monster_id, stars, variant_id,
-                                        party=_party(players))
+                                        party=_party(players),
+                                        weapon_name=weapon_name)
 
 
 
 @app.get("/api/weapons")
 def weapons(player_ids: str | None = None, monster_id: int | None = None,
             stars: int | None = None, variant_id: str | None = None,
-            players: int | None = None,
+            players: int | None = None, weapon_name: str | None = None,
             db: Session = Depends(get_db)):
     return queries.weapon_matrix(db, _ids(player_ids), monster_id,
-                                 stars, variant_id, party=_party(players))
+                                 stars, variant_id, party=_party(players),
+                                 weapon_name=weapon_name)
 
 
 @app.get("/api/hunts/{hunt_id}/curve")
@@ -162,6 +179,15 @@ def curve(hunt_id: int, max_points: int = Query(500, ge=1, le=MAX_POINTS),
 def abnormalities(hunt_id: int, db: Session = Depends(get_db)):
     try:
         return queries.hunt_abnormalities(db, hunt_id)
+    except KeyError:
+        raise HTTPException(404, f"hunt {hunt_id} not found") from None
+
+
+@app.get("/api/hunts/{hunt_id}/highlights")
+def hunt_highlights(hunt_id: int, db: Session = Depends(get_db)):
+    """Per-hunt hunter highlights (awards + damage share) for every player."""
+    try:
+        return queries.hunt_highlights(db, hunt_id)
     except KeyError:
         raise HTTPException(404, f"hunt {hunt_id} not found") from None
 
@@ -202,10 +228,12 @@ def high_scores(player_ids: str | None = None, monster_id: int | None = None,
                 limit: int | None = Query(None, ge=1, le=MAX_LIMIT),
                 variant_id: str | None = None,
                 include_ignored: bool = False, players: int | None = None,
+                weapon_name: str | None = None,
                 db: Session = Depends(get_db)):
     return queries.high_scores(db, _ids(player_ids), monster_id,
                                weapon_id, stars, sort_by, limit, variant_id,
-                               include_ignored, party=_party(players))
+                               include_ignored, party=_party(players),
+                               weapon_name=weapon_name)
 
 
 @app.patch("/api/hunts/{hunt_id}/ignore")
@@ -222,11 +250,11 @@ def leaderboard(player_ids: str | None = None,
                 monster_id: int | None = None, stars: int | None = None,
                 weapon_id: int | None = None, variant_id: str | None = None,
                 min_hunts: int = Query(1, ge=1, le=1000),
-                players: int | None = None,
+                players: int | None = None, weapon_name: str | None = None,
                 db: Session = Depends(get_db)):
     return queries.leaderboard(db, _ids(player_ids), monster_id,
                                stars, weapon_id, variant_id, min_hunts,
-                               party=_party(players))
+                               party=_party(players), weapon_name=weapon_name)
 
 
 @app.get("/api/activity")
@@ -268,6 +296,12 @@ def dismiss_alias(alias_id: int, db: Session = Depends(get_db)):
 @app.get("/api/players/{player_id}/variants")
 def player_variants(player_id: int, db: Session = Depends(get_db)):
     return queries.player_variants(db, player_id)
+
+
+@app.get("/api/players/{player_id}/weapon-names")
+def player_weapon_names(player_id: int, db: Session = Depends(get_db)):
+    """Weapon names this hunter used (REFramework mod; local player only)."""
+    return queries.player_weapon_names(db, player_id)
 
 
 @app.patch("/api/weapon-identities/{identity_id}")

@@ -120,8 +120,25 @@ HunterPie's live meter) — needs a play-by-play damage hook; R1 records totals.
   `via.gui.message.get`), `_Index` (the id), `_Attack`, `_ModelId`.
   Type→field order matches `app.WeaponDef.TYPE` (0..13).
 - Verified end-to-end: a hunt with the Hunter's Horn "Onyx Choros" (Whistle,
-  id 85) imported and surfaced as `weapon_name = "Onyx Choros"` in the curve
-  payload. Stored as `hunt_players.weapon_name` (migration v3).
+  id 85) resolved to the localized name "Onyx Choros".
+- **Decision (2026-10-16).** Per-player weapons from the mod are
+  unreliable: `findPlayerInfo_MemberIndex(i)` does **not** line up with the
+  dump's `userIndex` (`UserInfoList`) order, so weapons come out swapped
+  (Mizutsune hunt: the HH went to the wrong hunter). Damage and per-player
+  weapon **classes** therefore come from HunterPie exclusively (its
+  per-player `Weapon` enum). The mod emits the weapon **name** for the
+  **local player only** (`hunt_players.weapon_name`, migration v7 — the id->
+  name lookup itself is reliable; only the player attribution was not). That
+  name powers the hunter-scoped "Weapon name" filter (e.g. "Onyx Choros");
+  HunterPie has no weapon-name field, so it can't be a HunterPie-only filter.
+  HunterPie's gear fingerprints (`weapon-identities`) still power the separate
+  build/variant filter.
+- Cross-source authority: the mod marks its dump `source="reframework"`; hunts
+  carry `hunts.source` (v6). A later HunterPie dump **refreshes** a mod-created
+  hunt's core (damage/weapons/curves/quest fields) while keeping the mod's
+  awards **and** its CPU-supporter flags (HunterPie lists supporters as
+  normal players); a mod dump only attaches awards to an existing HunterPie
+  hunt. The mod's unreliable weapons are nulled on mod-only hunts.
 - Note: reloading the mod's scripts mid-hunt resets its session state, so no
   dump is written for that hunt — the mod must be loaded before quest start.
   A script reload (not a full game restart) is otherwise sufficient.
@@ -140,5 +157,24 @@ HunterPie's live meter) — needs a play-by-play damage hook; R1 records totals.
   bakes a small id->name map: 4=Fabius, 6=Rosso, 9=Olivia, 12=Nadia,
   15=Griffin, 17=Kai, 25=Mina, 27=Alessa, 29=Nightmist (unknown -> "NPC <id>").
   `get_PorterID()` is a different namespace (e.g. 29/27/20) and is unused.
+
+## Hunter highlights (quest awards)
+
+- The 30 quest-end awards (`awardId` 0..29; id 4 = damage) live on the
+  `cQuestAwardSync` packet as `award01`..`award30`. `award01` is a
+  `System.UInt32[4]` channel array; the rest are scalar counts. In
+  multiplayer the packet arrives via `setSharedQuestAwardInfo` per
+  `userIndex`; solo uses `cQuestFlowParam.get_QuestAwardInfo()` (a flat
+  `ace.UnionValue[]` indexed by award id).
+- Localized name/explanation/unit come from
+  `app.QuestDef.Name/Explain/Unit(app.QuestDef.AwardID)` +
+  `app.MessageUtil.getText(guid, 0)`; unit 1 = time (mm'ss"cc), 0 = count.
+- The mod emits per-player `awards` + a top-level `awards_meta`; the importer
+  stores them in `hunt_player_awards` / `awards`. Award 0 is a channel array:
+  its count is the sum of the 4 channels. Verified live on a 4-player hunt
+  (all 30 awards, localized names/units, damage share). HunterPie's fork
+  exports no awards, so this is REFramework-only (fork hunts show no
+  highlights).
+
 
 

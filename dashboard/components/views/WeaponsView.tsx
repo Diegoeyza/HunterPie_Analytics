@@ -35,7 +35,7 @@ const columns: ColumnDef<WeaponRow>[] = [
   },
 ];
 
-export default function WeaponsView({ scope, variantId, clearScope, partySize }: { scope: number[]; variantId: number | string | null; clearScope: () => void; partySize: number | null }) {
+export default function WeaponsView({ scope, variantId, weaponName, clearScope, partySize }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; partySize: number | null }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [stars, setStars] = useState("");
@@ -45,6 +45,7 @@ export default function WeaponsView({ scope, variantId, clearScope, partySize }:
     ...(monster && { monster_id: Number(monster) }),
     ...(stars && { stars: Number(stars) }),
     ...(variantId !== null && { variant_id: variantId }),
+    ...(weaponName && { weapon_name: weaponName }),
     ...(partySize != null && { players: partySize }),
   });
   const rows = data?.weapons ?? null;

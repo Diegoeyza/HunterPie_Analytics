@@ -108,10 +108,41 @@ export interface ImportJobStatus {
 }
 export interface Option { id: number; name: string; }
 export interface QuestOption { quest_id: number | null; monster: string; monster_id: number; stars: number | null; }
+export interface PlayerWeaponNames {
+  weapons: { name: string; hunts: number }[];
+  /** Hunts for this hunter with no weapon name (HunterPie-fork-only hunts). */
+  unknown_hunts: number;
+}
+export interface AwardMeta { id: number; name: string; explain: string | null; unit: number; }
 export interface FilterOptions {
   monsters: Option[]; weapons: Option[]; players: Option[];
+  awards: AwardMeta[];
   quests: QuestOption[]; stars: number[];
   monster_stars: Record<number, number[]>;
+}
+
+/** Award unit: 0 = count, 1 = time (seconds), 2 = none. */
+export const AWARD_UNIT = { COUNT: 0, TIME: 1, NONE: 2 } as const;
+
+export interface HuntHighlightAward { id: number; count: number; channels?: number[]; }
+export interface HuntHighlightPlayer {
+  player_id: number; player: string; is_supporter: boolean;
+  total_damage: number; damage_share: number;
+  awards: HuntHighlightAward[];
+}
+export interface HuntHighlights {
+  hunt_id: number; monster: string | null; started_at: string; cleared: boolean;
+  awards: AwardMeta[]; players: HuntHighlightPlayer[];
+}
+export interface HighlightLeader {
+  player_id: number; player: string; total: number; hunts: number; best: number;
+}
+export interface HighlightAward extends AwardMeta { leaders: HighlightLeader[]; }
+export interface DamageShareRow {
+  player_id: number; player: string; avg_share: number; hunts: number;
+}
+export interface Highlights {
+  awards: HighlightAward[]; damage_share: DamageShareRow[];
 }
 export interface Pin { player_id: number; name: string; pinned_at: string; }
 export interface VariantOption {
@@ -135,6 +166,9 @@ export interface HuntSummary {
   quest_id: number | null; quest_stars: number | null;
   clear_s: number | null; cleared: boolean; carts: number; players: number;
   ignored: boolean;
+  /** Distinct non-damage awards scored by anyone in the hunt (REFramework). */
+  highlight_count?: number;
+  highlight_names?: string[];
 }
 
 export const PALETTE = [

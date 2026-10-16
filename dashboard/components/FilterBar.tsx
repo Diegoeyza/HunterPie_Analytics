@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import SearchSelect from "./SearchSelect";
 import { useFilterOptions } from "./useFilterOptions";
-import type { FilterOptions } from "../lib/api";
+import type { AwardMeta, FilterOptions } from "../lib/api";
 
 /** Shared filter selects: one options-mapping + stars-narrowing logic for
  *  every view (replaces 6 copies of the Monster/Stars pair). Views keep
@@ -56,6 +56,36 @@ export function WeaponSelect({ value, onChange, opts }: {
       options={(o?.weapons ?? []).map((w) => ({ value: String(w.id), label: w.name }))}
       onChange={onChange}
     />
+  );
+}
+
+/** Multi-select of highlights (awards) to show. Native <details> popover so
+ *  it needs no external state; controlled by the selected id list. */
+export function AwardMultiSelect({ options, value, onChange, label = "Highlights" }: {
+  options: AwardMeta[]; value: number[]; onChange: (ids: number[]) => void;
+  label?: string;
+}) {
+  if (options.length === 0) return null;
+  const all = options.map((o) => o.id);
+  const toggle = (id: number) =>
+    onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+  return (
+    <details className="multiselect">
+      <summary>{label} ({value.length}/{options.length})</summary>
+      <div className="multiselect-menu">
+        <div className="multiselect-actions">
+          <button type="button" onClick={() => onChange(all)}>All</button>
+          <button type="button" onClick={() => onChange([])}>None</button>
+        </div>
+        {options.map((o) => (
+          <label key={o.id} className="multiselect-item">
+            <input type="checkbox" checked={value.includes(o.id)}
+              onChange={() => toggle(o.id)} />
+            <span>{o.name}</span>
+          </label>
+        ))}
+      </div>
+    </details>
   );
 }
 
