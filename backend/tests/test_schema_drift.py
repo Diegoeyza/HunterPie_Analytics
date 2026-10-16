@@ -68,6 +68,30 @@ def test_fresh_db_has_all_tables_and_version():
         Path(path).unlink(missing_ok=True)
 
 
+def test_fresh_db_has_no_reverted_weapon_model_artifacts():
+    """v4/v5 (the reverted REFramework weapon-model experiment) must leave no
+    trace on a fresh DB: no weapon_models table, no weapon_model_id column."""
+    import os
+
+    from sqlalchemy import text
+
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        dbmod.init_db(path)
+        eng = create_engine(f"sqlite:///{path}")
+        with eng.connect() as conn:
+            tables = {r[0] for r in conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='table'"))}
+            cols = {r[1] for r in conn.execute(text(
+                "PRAGMA table_info(hunt_players)"))}
+        assert "weapon_models" not in tables
+        assert "weapon_model_id" not in cols
+        assert "weapon_name" in cols  # v7: local-player weapon name
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
 def test_migrate_is_idempotent():
     import os
     fd, path = tempfile.mkstemp(suffix=".db")

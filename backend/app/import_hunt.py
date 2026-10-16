@@ -184,7 +184,6 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
         entry = merged.setdefault(name, {"weapon": p.get("weapon"),
                                          "gear": None,
                                          "is_supporter": bool(p.get("is_supporter", False)),
-                                         "short_hunter_id": p.get("short_hunter_id"),
                                          "weapon_name": p.get("weapon_name") if trust_name else None,
                                          "awards": None,
                                          "damages": [], "abnormalities": []})
@@ -195,8 +194,6 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
         # Awards/hunter highlights (REFramework mod): keep the first non-empty.
         if entry["awards"] is None and p.get("awards"):
             entry["awards"] = p["awards"]
-        if entry["short_hunter_id"] is None and p.get("short_hunter_id"):
-            entry["short_hunter_id"] = p["short_hunter_id"]
         if trust_name and entry["weapon_name"] is None and p.get("weapon_name"):
             entry["weapon_name"] = p["weapon_name"]
         entry["damages"].extend(p.get("damages") or [])
@@ -238,6 +235,13 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
     is_split = len(out) > 1
     for payload, _ in out:
         payload["is_split_quest"] = is_split
+    # Awards/hunter highlights are quest-level (not per monster): keep them on
+    # the primary (first) hunt so a split quest can't double-count them across
+    # sibling rows in the aggregate highlight leaderboards.
+    for payload, _ in out[1:]:
+        for p in payload["players"]:
+            p["awards"] = []
+        payload["awards_meta"] = None
     return out
 
 
@@ -271,7 +275,6 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
             "total_damage": total,
             "peak_dps": peak,  # ~1s sampling: max single-frame damage
             "is_supporter": bool(p.get("is_supporter", False)),
-            "short_hunter_id": p.get("short_hunter_id"),
             "weapon_name": p.get("weapon_name"),
             "awards": p.get("awards") or [],
         })

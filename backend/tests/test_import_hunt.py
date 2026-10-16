@@ -123,6 +123,32 @@ def test_multi_monster_registers_each_monster():
     assert len(s.execute(select(Hunt)).scalars().all()) == 2
 
 
+def test_split_quest_awards_attach_to_primary_only():
+    """Quest-level awards/highlights live on the first (primary) monster hunt
+    only, so a split quest can't double-count them across sibling rows."""
+    doc = sample_doc(source="reframework",
+                     awards_meta=[{"id": 4, "name": "Established Hunter",
+                                   "unit": 0}])
+    step = lambda frac: {"percentage": frac,
+                         "time": "2026-09-06T03:34:00.0000000Z"}
+    base = doc["monsters"][0]
+    doc["monsters"] = [
+        {**base, "id": 31, "health_steps": [step(0.99), step(0.10)]},
+        {**base, "id": 1, "health_steps": [step(0.99), step(0.10)]},
+    ]
+    doc["players"][0]["awards"] = [{"id": 4, "count": 900}]
+    doc["players"][0]["weapon_name"] = "War Conga"
+    payloads = poogie_to_payloads(doc, {31: "Arkveld", 1: "Blangonga"}, "hv", "gv")
+    assert len(payloads) == 2
+    primary, sibling = payloads[0][0], payloads[1][0]
+    assert primary["players"][0]["awards"] == [{"id": 4, "count": 900}]
+    assert primary["awards_meta"]
+    assert sibling["players"][0]["awards"] == []
+    assert sibling["awards_meta"] is None
+    # weapon_name is per-hunt (local player), so it stays on every sibling
+    assert sibling["players"][0]["weapon_name"] == "War Conga"
+
+
 def test_environment_bystander_skipped():
     """A barely-touched second monster (1 HP sample at ~99% HP) is an
     environment bystander, not a quest target: only the real target

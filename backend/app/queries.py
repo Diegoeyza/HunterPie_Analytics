@@ -1189,29 +1189,39 @@ def highlights(session: Session, player_ids: list[int] | None = None,
 
     Supporters are excluded. Filterable by monster / stars / weapon name /
     hunter scope / party size, matching every other view."""
-    def _apply(stmt):
-        if player_ids:
-            stmt = stmt.where(HuntPlayer.player_id.in_(player_ids))
-        if monster_id is not None:
-            stmt = stmt.where(Hunt.monster_id == monster_id)
-        if stars is not None:
-            stmt = stmt.where(Hunt.quest_stars == stars)
-        if weapon_name is not None:
-            stmt = stmt.where(HuntPlayer.weapon_name == weapon_name)
-        return filters.party(stmt, party)
+    # Hunter scope and the weapon-name filter are HuntPlayer-level, so they
+    # select *which hunts* are in play. The party used as the damage-share
+    # denominator is always the full non-supporter party of each hunt (a
+    # single-hunter scope would otherwise push every share to 100%).
+    hunt_stmt = (select(HuntPlayer.hunt_id)
+                 .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
+                 .where(filters.visible()))
+    if player_ids:
+        hunt_stmt = hunt_stmt.where(HuntPlayer.player_id.in_(player_ids))
+    if weapon_name is not None:
+        hunt_stmt = hunt_stmt.where(HuntPlayer.weapon_name == weapon_name)
+    if monster_id is not None:
+        hunt_stmt = hunt_stmt.where(Hunt.monster_id == monster_id)
+    if stars is not None:
+        hunt_stmt = hunt_stmt.where(Hunt.quest_stars == stars)
+    hunt_ids = [hid for (hid,) in
+                session.execute(filters.party(hunt_stmt, party).distinct())]
+    if not hunt_ids:
+        return {"awards": [], "damage_share": []}
 
-    award_stmt = _apply(
+    meta = {a.id: a for a in session.execute(select(Award)).scalars()}
+    award_stmt = (
         select(HuntPlayerAward.award_id, HuntPlayerAward.count,
-               HuntPlayerAward.hunt_id, HuntPlayer.player_id,
-               Player.display_name)
+               HuntPlayer.player_id, Player.display_name)
         .join(HuntPlayer, (HuntPlayerAward.hunt_id == HuntPlayer.hunt_id)
               & (HuntPlayerAward.player_id == HuntPlayer.player_id))
         .join(Player, Player.id == HuntPlayer.player_id)
-        .join(Hunt, Hunt.id == HuntPlayerAward.hunt_id)
-        .where(HuntPlayer.is_supporter.is_(False), filters.visible()))
-    meta = {a.id: a for a in session.execute(select(Award)).scalars()}
+        .where(HuntPlayerAward.hunt_id.in_(hunt_ids),
+               HuntPlayer.is_supporter.is_(False)))
+    if player_ids:
+        award_stmt = award_stmt.where(HuntPlayer.player_id.in_(player_ids))
     agg: dict[tuple[int, int], dict] = {}
-    for aid, count, _hid, pid, name in session.execute(award_stmt):
+    for aid, count, pid, name in session.execute(award_stmt):
         d = agg.setdefault((aid, pid), {
             "player_id": pid, "player": name,
             "total": 0.0, "hunts": 0, "best": 0.0})
@@ -1235,27 +1245,29 @@ def highlights(session: Session, player_ids: list[int] | None = None,
             "leaders": leaders[:25],
         })
 
-    # Average damage share per player (share of the non-supporter party
-    # damage, averaged across each player's hunts).
-    ds_stmt = _apply(
+    # Average damage share: one query, then each hunt's denominator is the
+    # full non-supporter party; only the emitted rows follow the hunter scope.
+    ds_stmt = (
         select(HuntPlayer.hunt_id, HuntPlayer.player_id,
                Player.display_name, HuntPlayer.total_damage)
         .join(Player, Player.id == HuntPlayer.player_id)
-        .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
-        .where(HuntPlayer.is_supporter.is_(False), filters.visible()))
+        .where(HuntPlayer.hunt_id.in_(hunt_ids),
+               HuntPlayer.is_supporter.is_(False)))
+    rows = session.execute(ds_stmt).all()
     party_totals: dict[int, float] = {}
+    for hid, _pid, _name, dmg in rows:
+        party_totals[hid] = party_totals.get(hid, 0.0) + (dmg or 0.0)
+    scope = set(player_ids) if player_ids else None
     per_player: dict[int, dict] = {}
-    for hid, pid, name, dmg in session.execute(ds_stmt):
-        dmg = dmg or 0.0
-        party_totals[hid] = party_totals.get(hid, 0.0) + dmg
+    for hid, pid, name, dmg in rows:
+        if scope is not None and pid not in scope:
+            continue
+        total = party_totals.get(hid, 0.0)
         d = per_player.setdefault(pid, {"player_id": pid, "player": name,
                                         "shares": [], "hunts": set()})
         d["hunts"].add(hid)
-    # second pass needs per-hunt totals; re-walk the same selection
-    for hid, pid, _name, dmg in session.execute(ds_stmt):
-        total = party_totals.get(hid, 0.0)
         if total > 0:
-            per_player[pid]["shares"].append((dmg or 0.0) / total)
+            d["shares"].append((dmg or 0.0) / total)
     damage_share = [{
         "player_id": d["player_id"], "player": d["player"],
         "avg_share": sum(d["shares"]) / len(d["shares"]) if d["shares"] else 0.0,
