@@ -22,7 +22,7 @@ local imgui = imgui
 local os = os
 local io = io
 
-local VERSION = "0.9.2"
+local VERSION = "0.9.3"
 local OUT_SUBDIR = "HuntExports"
 local CONFIG_FILE = "hunt_dumper.json"
 local GAME_TYPE = 2
@@ -515,23 +515,40 @@ local function get_weapon_arrays()
     return weapon_arrays
 end
 
--- get_WeaponID() is a 1-based position into the type's weapon array (NOT a
--- 0-based index and NOT the entry's _Index); resolve with list[id].
+-- get_WeaponID() is a 0-based index into the type's weapon array in-quest;
+-- the mod's array (collect) is 1-based, so resolve with list[id + 1] (this
+-- fixes the off-by-one that showed "War Conga" as "War Bongo II"). Fall back
+-- to list[id] so a trailing entry still resolves.
 weapon_name = function(wtype, wid)
     if wtype == nil or wid == nil then return nil end
     local key = tostring(wtype) .. ":" .. tostring(wid)
     if weapon_name_cache[key] ~= nil then return weapon_name_cache[key] or nil end
     local list = get_weapon_arrays()[wtype]
-    local entry = list and list[wid]
+    local entry = list and (list[wid + 1] or list[wid])
     if entry == nil and list then
         for _, e in ipairs(list) do
             local ix = safe(function() return e:get_field("_Index") end)
-            if ix ~= nil and ix == wid then entry = e break end
+            if ix ~= nil and (ix == wid + 1 or ix == wid) then entry = e break end
         end
     end
     local name = entry and localized(safe(function() return entry:get_field("_Name") end))
     weapon_name_cache[key] = name or false
     return name
+end
+
+-- Calibration aid: names + _Index for the raw id and its two neighbours, so a
+-- single hunt confirms which slot is the equipped weapon.
+local function weapon_entry_probe(wtype, wid)
+    local list = get_weapon_arrays()[wtype]
+    if not list or wid == nil then return nil end
+    local function info(pos)
+        local e = list[pos]
+        if not e then return nil end
+        return { pos = pos,
+                 index = safe(function() return e:get_field("_Index") end),
+                 name = localized(safe(function() return e:get_field("_Name") end)) }
+    end
+    return { id = wid, minus1 = info(wid - 1), at = info(wid), plus1 = info(wid + 1) }
 end
 
 self_weapon_id = function()
@@ -673,7 +690,8 @@ local function finish_session()
         self_weapon = { type = state.self_wtype,
                         id_start = state.self_wid_start,
                         name_start = self_name_start,
-                        id_finish = self_wid, name_finish = self_name },
+                        id_finish = self_wid, name_finish = self_name,
+                        probe = weapon_entry_probe(state.self_wtype, self_wid) },
         hash = state.hash,
     }
 
