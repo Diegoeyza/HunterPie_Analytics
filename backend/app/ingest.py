@@ -504,6 +504,13 @@ def upsert_hunt(session: Session, payload: dict,
     cache = cache if cache is not None else {}
 
     source = payload.get("source", "hunterpie")
+    # Award definitions (idempotent) must exist before ANY path can write
+    # hunt_player_awards — including _enrich_from_reframework below, which
+    # adds the mod's awards to a hunt a HunterPie dump created first. On a
+    # fresh DB the awards table is empty there, and the FK on award_id would
+    # reject every enrich (only visible with PRAGMA foreign_keys=ON, which
+    # _on_connect sets for the app's engines).
+    ensure_awards(session, payload.get("awards_meta"))
     existing = find_hunt_by_payload(session, payload)
     if existing is not None:
         # HunterPie owns damage/weapons/curves; the REFramework mod adds awards.
@@ -513,9 +520,6 @@ def upsert_hunt(session: Session, payload: dict,
         elif source == "reframework" and existing.source == "hunterpie":
             _enrich_from_reframework(session, existing, payload)
         return existing, False, warnings
-
-    # Reference rows (idempotent) before the hunt transaction.
-    ensure_awards(session, payload.get("awards_meta"))
 
     try:
         hunt = Hunt(source=source,
