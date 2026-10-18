@@ -50,12 +50,14 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: hunterpie-fork
-      # The installer bundles the fork when present here.
+      # The installer bundles the fork (dist\HunterPie-Fork); the zip itself is
+      # also published as a standalone asset for HunterPie-only users.
       - name: Stage fork for the installer
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist\HunterPie-Fork | Out-Null
           Expand-Archive HunterPie-AnalyticsFork.zip -DestinationPath dist\HunterPie-Fork -Force
+          Copy-Item HunterPie-AnalyticsFork.zip dist\HunterPie-AnalyticsFork.zip
 
       - uses: actions/setup-node@v4
         with:
