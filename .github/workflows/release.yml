@@ -117,12 +117,19 @@ jobs:
           python packaging/msix/make_assets.py
           & packaging\msix\build-msix.ps1 -Version "1.0.0.0"
 
-      - name: HuntDumper (Lua) zip
+      - name: HuntDumper (Lua) zips
         shell: pwsh
         run: |
+          $ver = (Select-String -Path reframework\hunt_dumper.lua -Pattern '^local VERSION = "([^"]+)"').Matches[0].Groups[1].Value
+          # Flat drop-in bundle.
           New-Item -ItemType Directory -Force dist\hunt-dumper | Out-Null
           Copy-Item reframework\hunt_dumper.lua, reframework\INSTALL.txt dist\hunt-dumper
           Compress-Archive -Path dist\hunt-dumper\* -DestinationPath dist\hunt-dumper-lua.zip -Force
+          # Nexus/Vortex bundle (game-folder layout).
+          New-Item -ItemType Directory -Force dist\nexus\reframework\autorun | Out-Null
+          Copy-Item reframework\hunt_dumper.lua dist\nexus\reframework\autorun
+          Copy-Item packaging\nexus\README.txt dist\nexus
+          Compress-Archive -Path dist\nexus\* -DestinationPath "dist\HuntDumper-$ver.zip" -Force
 
       - name: Checksums
         shell: pwsh

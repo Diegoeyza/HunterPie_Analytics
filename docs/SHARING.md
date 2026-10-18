@@ -119,5 +119,8 @@ Tagged releases (`v*`) are built and signed entirely by CI
 | `HunterPieAnalytics-Setup-<ver>.exe` | One-click per-user installer (desktop app + bundled Lua mod + fork if built). |
 | `HunterPieAnalytics-<ver>.msix` | Microsoft Store package (dashboard only). |
 | `hunt-dumper-lua.zip` | REFramework mod + `INSTALL.txt`. |
+| `HuntDumper-<ver>.zip` | REFramework mod in game-folder layout (Vortex/Nexus). |
 | `HunterPie-AnalyticsFork.zip` | Prebuilt analytics-export fork (self-contained). |
 | `SHA256SUMS.txt` | Checksums for every artifact. |
+
+For publishing the mod on Nexus Mods, see [NEXUS.md](NEXUS.md).
