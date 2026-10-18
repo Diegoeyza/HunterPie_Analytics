@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build shareable bundles into dist/:
-#   hunt-dumper-<version>.zip          REFramework mod (drop-in) + install notes
+#   hunt-dumper-<version>.zip          REFramework mod (flat) + install notes
+#   HuntDumper-<version>.zip           REFramework mod, game-folder layout (Nexus/Vortex)
 #   HunterPie-Analytics-src-<sha>.zip  full app source (git-tracked files only)
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -21,6 +22,14 @@ cp reframework/INSTALL.txt "$DIST/hunt-dumper/INSTALL.txt"
 ( cd "$DIST/hunt-dumper" \
     && zip -q "../hunt-dumper-${MOD_VERSION}.zip" hunt_dumper.lua INSTALL.txt )
 rm -rf "$DIST/hunt-dumper"
+
+# 1b) Nexus/Vortex bundle: laid out for the game folder so it extracts straight
+#     into <game>\ (reframework\autorun\hunt_dumper.lua) or installs via Vortex.
+mkdir -p "$DIST/nexus/reframework/autorun"
+cp reframework/hunt_dumper.lua "$DIST/nexus/reframework/autorun/hunt_dumper.lua"
+cp packaging/nexus/README.txt "$DIST/nexus/README.txt"
+( cd "$DIST/nexus" && zip -q -r "../HuntDumper-${MOD_VERSION}.zip" . )
+rm -rf "$DIST/nexus"
 
 # 2) Full app source: exactly what git tracks (no venv/node_modules/DB).
 git archive --format=zip \

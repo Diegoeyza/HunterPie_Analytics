@@ -244,6 +244,7 @@ by CI, see `.github/workflows/release.yml`):
 | `HunterPieAnalytics-Setup-<ver>.exe` | One-click per-user installer (desktop app + bundled Lua mod) |
 | `HunterPieAnalytics-<ver>.msix` | Microsoft Store package (dashboard only) |
 | `hunt-dumper-lua.zip` | REFramework mod (`hunt_dumper.lua` + `INSTALL.txt`) |
+| `HuntDumper-<ver>.zip` | REFramework mod, game-folder layout (Vortex/Nexus) |
 | `HunterPie-AnalyticsFork.zip` | Prebuilt analytics-export fork (for HunterPie-only users) |
 
 Local, developer-oriented bundle (no Windows build tools needed):
@@ -260,7 +261,7 @@ iscc installer\HunterPieAnalytics.iss
 ```
 
 See [docs/RELEASING.md](docs/RELEASING.md) for signing/Store setup and how to
-cut a release.
+cut a release, and [docs/NEXUS.md](docs/NEXUS.md) for the Nexus Mods listing kit.
 
 ## License
 
