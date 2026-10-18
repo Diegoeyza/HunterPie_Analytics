@@ -122,13 +122,21 @@ jobs:
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\HunterPieAnalytics.iss
 
+      # Store package is optional: locate makeappx (Windows SDK) and skip
+      # cleanly if the runner doesn't have it, so the release still publishes.
       - name: MSIX (Store) package
+        continue-on-error: true
         shell: pwsh
         run: |
-          $sdk = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory |
-                 Sort-Object Name -Descending | Select-Object -First 1
-          $env:PATH = "$($sdk.FullName)\x64;${env:PATH}"
           python packaging/msix/make_assets.py
+          $makeappx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+            -Recurse -Filter makeappx.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
+          if (-not $makeappx) {
+            Write-Warning "makeappx.exe not found; skipping MSIX (Store package is optional)."
+            exit 0
+          }
+          $env:PATH = "$($makeappx.DirectoryName);${env:PATH}"
           & packaging\msix\build-msix.ps1 -Version "1.0.0.0"
 
       - name: HuntDumper (Lua) zips
