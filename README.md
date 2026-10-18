@@ -1,5 +1,255 @@
 # HunterPie Analytics
 
+**A post-hunt dashboard for Monster Hunter Wilds.** It graphs your hunts — DPS
+and clear-time trends, per-party **damage curves** with the monster's HP,
+weapon breakdowns, and the **30 quest-end awards** (hunter highlights). It runs
+entirely on your own PC, offline.
+
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/Diegoeyza/HunterPie_Analytics)](https://github.com/Diegoeyza/HunterPie_Analytics/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows-0078D4.svg)](#requirements)
+[![Game](https://img.shields.io/badge/game-Monster%20Hunter%20Wilds-c0392b.svg)](#requirements)
+[![CI](https://github.com/Diegoeyza/HunterPie_Analytics/actions/workflows/ci.yml/badge.svg)](https://github.com/Diegoeyza/HunterPie_Analytics/actions/workflows/ci.yml)
+
+![HunterPie Analytics — Progress, Damage curves, Growth and Highlights tabs](docs/images/hero.png)
+
+---
+
+## Table of contents
+
+- [What it is](#what-it-is)
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Install (players)](#install-players)
+- [Requirements](#requirements)
+- [FAQ & troubleshooting](#faq--troubleshooting)
+- [Privacy](#privacy)
+- [Credits](#credits)
+- [For developers](#for-developers)
+
+---
+
+## What it is
+
+HunterPie Analytics reads **quest-end JSON dumps** written by capture tools and
+turns them into an interactive dashboard: one row per hunt, per-player damage,
+damage-over-time curves, clear-time trends, weapon stats, and the game's own
+hunter-highlight awards. Everything is stored in a local SQLite database and
+viewed in its own desktop window — no browser, no terminal, no account.
+
+### Two capture sources — use either, or both
+
+The dashboard works with whatever you have. Each source contributes different
+data, and they merge per hunt (never double-counted):
+
+| You have | You get |
+|----------|---------|
+| **REFramework + HuntDumper mod** (included) | Quest awards (hunter highlights), monster HP curve, damage totals, your weapon name, CPU-supporter flags |
+| **HunterPie Analytics companion** (included) | Damage, weapon classes, DPS curves, buff/abnormality uptime |
+| **Both** | Everything above, merged per hunt |
+
+> **Already using HunterPie?** The standard HunterPie does **not** save hunt
+> data, so this dashboard can't read it. Use the bundled **HunterPie Analytics
+> companion** instead — it's the same HunterPie with local hunt export added,
+> and it reuses your existing HunterPie settings. See the
+> [FAQ](#faq--troubleshooting).
+
+## Features
+
+- **Damage curves** — cumulative damage or DPS (5-second rolling average) for
+  every party member on one grid, with the monster's HP overlay and enrage
+  markers. DPS is measured from each player's first hit, not quest start.
+- **Progress** — DPS per hunt plus a rolling average and clear-time trend.
+- **Growth** — instance-weighted DPS improvement over time, so you can see if
+  you're actually getting better, not just lucky with the monster roll.
+- **Highlights** — the 30 quest-end awards (hunter highlights) and average
+  damage share, per monster / weapon / hunter.
+- **Leaderboards & records** — best players by DPS, one row per cleared hunt
+  ranked by DPS or clear time.
+- **Weapons, Quests, Compare, Synergy, Activity, Buffs, Review** — weapon
+  breakdowns, per-quest clear stats, you-vs-party comparisons, teammate
+  pairings, daily activity, buff uptime, and hunter-name cleanup.
+
+Every tab shares a **filter bar** (monster, quest, stars, weapon, hunter) and a
+**hunter scope bar** — star yourself or teammates to focus the whole dashboard.
+Scope, party size and the active tab sync to the URL, so views are shareable
+and back-button safe.
+
+### The tabs
+
+| Tab | What it shows |
+|-----|---------------|
+| **Progress** | DPS per hunt + rolling average, clear-time trend. |
+| **Growth** | Instance-weighted DPS improvement with per-group trends. |
+| **Weapons** | Average/peak DPS, hunt count and clear rate per weapon type. |
+| **Highlights** | Quest-end awards (hunter highlights) + average damage share. REFramework hunts. |
+| **Damage curves** | Per-hunt cumulative damage / DPS for all party members, monster HP overlay, enrage markers. |
+| **Hunts** | Every run, latest first — click a row for party damage, DPS and the damage curve. |
+| **Quests** | Per-quest aggregates: clear rate, best DPS, enrage uptime. |
+| **Leaderboard** | Best players by DPS over cleared hunts. |
+| **High Scores** | One row per cleared hunt, ranked by DPS or clear time. |
+| **Compare** | Scoped hunters vs the whole party, hunt by hunt. |
+| **Activity** | Hunts per day, clear rate, total damage. |
+| **Synergy** | Clear time and damage share by teammate pairing. |
+| **Buffs** | Abnormality/buff uptime per player per hunt. HunterPie data. |
+| **Review** | Merge case-variant hunter names or keep them separate. |
+
+## Screenshots
+
+All screenshots are captured from the current build; the full set lives in
+[`docs/images/`](docs/images).
+
+| Progress | Damage curves |
+|:---:|:---:|
+| ![Progress tab](docs/images/progress.png) | ![Damage curves tab](docs/images/curves.png) |
+| Rolling DPS and clear-time trend per hunt. | Per-party damage curves with the monster HP curve and enrage markers. |
+
+| Growth | Highlights |
+|:---:|:---:|
+| ![Growth tab](docs/images/growth.png) | ![Highlights tab](docs/images/highlights.png) |
+| DPS improvement over time. | The 30 quest-end awards and damage share. |
+
+| Hunts | Quests |
+|:---:|:---:|
+| ![Hunts tab](docs/images/hunts.png) | ![Quests tab](docs/images/quests.png) |
+| Every run, expandable to the full curve. | Per-quest clear rate and stats. |
+
+| Weapons | High Scores |
+|:---:|:---:|
+| ![Weapons tab](docs/images/weapons.png) | ![High Scores tab](docs/images/high-scores.png) |
+| Average and peak DPS by weapon. | Best hunts by DPS or clear time. |
+
+More: [`leaderboard.png`](docs/images/leaderboard.png),
+[`compare.png`](docs/images/compare.png), [`synergy.png`](docs/images/synergy.png),
+[`activity.png`](docs/images/activity.png), [`buffs.png`](docs/images/buffs.png),
+[`review.png`](docs/images/review.png).
+
+## Install (players)
+
+You install **two things**: an in-game capture (a mod) and the dashboard. The
+capture tool is what actually records your hunts; the dashboard reads it.
+
+### 0. Download
+
+Grab the latest release from **[GitHub Releases](https://github.com/Diegoeyza/HunterPie_Analytics/releases)**
+(or from the file list on the mod page). Verify downloads with `SHA256SUMS.txt`.
+
+| File | What it's for |
+|------|---------------|
+| `HunterPieAnalytics-Setup-<ver>.exe` | **Recommended.** One-click installer: dashboard + bundled mod + companion. |
+| `HuntDumper-<ver>.zip` | The REFramework mod only (game-folder layout, Vortex-ready). |
+| `hunt-dumper-lua.zip` | The mod as a single `hunt_dumper.lua` + `INSTALL.txt`. |
+| `HunterPie-AnalyticsFork.zip` | Standalone HunterPie companion, for HunterPie-only users. |
+| `HunterPieAnalytics-<ver>.msix` | Microsoft Store / sideload package (dashboard only). |
+
+### 1. The in-game capture (REFramework mod)
+
+1. Install [REFramework](https://github.com/praydog/REFramework) for MH Wilds
+   (`dinput8.dll` in the game folder).
+2. Copy `hunt_dumper.lua` into `<game>\reframework\autorun\`
+   (or install `HuntDumper-<ver>.zip` with Vortex).
+3. Done — each quest writes a JSON dump to
+   `<game>\reframework\data\HuntExports\`.
+
+> Load the script **before** you start a quest. Reloading scripts mid-hunt
+> resets its state and skips that hunt (the next one is fine).
+
+### 2. The dashboard
+
+1. Run `HunterPieAnalytics-Setup-<ver>.exe` — a per-user install, **no admin
+   prompt**. (Or install the Store build.)
+2. Launch **HunterPie Analytics** from the Start Menu / desktop. The dashboard
+   opens in its own window.
+3. Click **Import**. Your hunts appear. Click **Import** again after each
+   session. A plain-language `GETTING_STARTED.txt` is installed alongside the app.
+
+The app auto-detects the export folders and shows what it found at the top of
+the window. To also record **DPS curves and weapon classes**, install
+**HunterPie** with the [analytics-export fork](https://github.com/Diegoeyza/HunterPie)
+or launch the bundled **HunterPie Analytics companion** (its own shortcut) — it
+reuses your existing HunterPie settings.
+
+### Uninstall
+
+Windows **Settings → Apps → HunterPie Analytics**, or run `unins000.exe` in the
+install folder. Your hunt history stays in `%LOCALAPPDATA%\HunterPieAnalytics`,
+so reinstalling later keeps your data. Uninstalling never deletes exported
+hunts.
+
+## Requirements
+
+| | |
+|---|---|
+| **OS** | Windows 10 / 11 (64-bit) for the capture tools and the desktop app. |
+| **Game** | Monster Hunter Wilds (PC). |
+| **Capture** | [REFramework](https://github.com/praydog/REFramework) for the bundled mod, and/or [HunterPie](https://github.com/HunterPie/HunterPie) with the [analytics-export fork](https://github.com/Diegoeyza/HunterPie). |
+| **Runtime** | WebView2 (ships with Windows 11 / most Windows 10; the installer sets it up if missing). |
+| **Privileges** | None — per-user install, no admin, no UAC. |
+
+The dashboard/API also run on macOS/Linux for development (see
+[For developers](#for-developers)); the game and capture tools are Windows-only.
+
+## FAQ & troubleshooting
+
+**Windows shows "Windows protected your PC" (SmartScreen).**
+The direct-download installer and `.exe` are **not code signed yet**, and some
+antivirus tools flag the PyInstaller bundle. Choose **More info → Run anyway**.
+The Microsoft Store build is re-signed by Microsoft and shows no warning. See
+[docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
+
+**I already have HunterPie but the dashboard shows no data.**
+Stock HunterPie does not export hunt data. Launch the bundled **HunterPie
+Analytics companion** (Start Menu / desktop shortcut) instead — it's the same
+HunterPie plus a local export file. It reuses your existing HunterPie settings.
+
+**The dashboard opens but lists no hunts.**
+Finish a quest first — the tools only write a file when a quest ends. Relaunch
+the game after installing the mod, then click **Import**. Check the source
+banner at the top: it names each export folder it detected.
+
+**Where is my data?**
+Exported hunts are JSON files in
+`<game>\reframework\data\HuntExports\` (mod) and
+`...\HunterPie-Fork\HuntExports\` (companion). The dashboard's own database is
+in `%LOCALAPPDATA%\HunterPieAnalytics`. Nothing is uploaded anywhere.
+
+**Does it work in multiplayer?**
+Yes. Dumps include every party member, so curves, leaderboards and synergy work
+for the whole party. CPU-supporters are flagged.
+
+**Does it modify the game or talk to the network?**
+No. The mod only *reads* game state and writes JSON; the dashboard only reads
+those JSON files. Both are offline and open source (Apache-2.0).
+
+**Multi-monster quests look split.**
+One hunt row is created per monster, each carrying the full quest damage
+(flagged as a split quest) — per-hit attribution isn't possible from the dump.
+
+**Does it work with Vortex?**
+Yes — install `HuntDumper-<ver>.zip`; it's laid out for the game folder and maps
+into `reframework`.
+
+**Do I need both tools?**
+No. The mod alone gives awards, HP curves and damage; the companion adds DPS
+curves and weapon classes. Use whichever, or both.
+
+## Privacy
+
+Everything runs locally and offline. The app sends no data anywhere and reads
+only the JSON files your capture tools write. See [PRIVACY.md](PRIVACY.md).
+
+## Credits
+
+- [REFramework](https://github.com/praydog/REFramework) by **praydog** — the
+  scripting framework the mod runs on.
+- [HunterPie](https://github.com/HunterPie/HunterPie) by the **HunterPie team**
+  (Apache-2.0) — the companion is built from a fork with local hunt export.
+- This project is **Apache-2.0** — see [LICENSE](LICENSE).
+
+---
+
+# For developers
+
 Post-hunt dashboard for **Monster Hunter Wilds**. Imports per-hunt JSON dumps
 (quest-end snapshots) into SQLite and visualises them with Next.js + Recharts.
 
@@ -7,40 +257,6 @@ Two sources feed it, and they complement each other:
 
 - **HunterPie** ([analytics-export fork](https://github.com/Diegoeyza/HunterPie)) — damage, weapon classes, DPS curves.
 - **HuntDumper** (`reframework/hunt_dumper.lua`, a [REFramework](https://github.com/praydog/REFramework) mod) — quest awards (hunter highlights), the local player's weapon name, CPU-supporter flags, HP curve.
-
-## Install (for players — no coding needed)
-
-1. Download the latest release and run `HunterPieAnalytics-Setup-<version>.exe`
-   (per-user install, no admin prompt), or install from the Microsoft Store.
-2. Launch it — the dashboard opens in its own window. No browser, no Python, no
-   Node, no terminal.
-3. Capture data with **either** source, or both — it works with whatever you have:
-
-   | You have | You get |
-   |----------|---------|
-   | REFramework + the bundled HuntDumper mod | Awards (hunter highlights), HP curves, damage totals |
-   | The bundled **HunterPie Analytics companion** | Damage, weapon classes, DPS curves |
-   | Both | Everything, merged per hunt (never double-counted) |
-
-   The app auto-detects the export folders. To install the REFramework mod,
-   copy `HuntDumper\hunt_dumper.lua` (included in the download) into your game's
-   `reframework\autorun\` folder — see `HuntDumper\INSTALL.txt`.
-
-   **Already have HunterPie?** The standard HunterPie does **not** save hunt
-   data, so the dashboard can't read it. Use the bundled **HunterPie Analytics
-   companion** (its own Start Menu/desktop shortcut) instead — it's the same
-   HunterPie with local hunt export added, and it reuses your existing settings.
-4. Click **Import** in the dashboard after a hunt. A plain-language
-   `GETTING_STARTED.txt` is installed alongside the app.
-
-Everything runs locally and offline: the app sends no data anywhere and reads
-only the JSON files your capture tools write. See [PRIVACY.md](PRIVACY.md).
-
-> **Windows SmartScreen / antivirus:** the direct-download installer and `.exe`
-> are **not code signed yet**, so Windows may show "Windows protected your PC"
-> and some antivirus tools may flag the bundle. Choose *More info → Run anyway*
-> to proceed. The Microsoft Store build is re-signed by Microsoft and shows no
-> warning. See the [code signing notes](docs/CODE_SIGNING.md).
 
 ## How it works
 
@@ -52,7 +268,7 @@ HuntDumper mod ──┘     → import_hunt.py parses + upserts into SQLite
                             → Next.js dashboard fetches and renders
 ```
 
-## Prerequisites
+## Prerequisites (dev)
 
 - Python 3.10+
 - Node.js 18+
@@ -103,28 +319,7 @@ Run `./import.sh` after each hunting session to pull in new data.
 | `./import.sh --file path.json` | Imports a single hunt file. |
 | `./import.sh --dir /path` | Imports from a custom directory. |
 
-## Dashboard
-
-### Tabs
-
-| Tab | What it shows |
-|-----|---------------|
-| **Progress** | DPS per hunt + rolling average, clear time trend. Filters: monster, quest, stars, weapon, hunter. |
-| **Growth** | Instance-weighted DPS improvement with per-group trends (median, best, slope, clear time). |
-| **Weapons** | Average DPS, peak hit*, hunt count, clear rate by weapon type. |
-| **Highlights** | Quest-end hunter highlights (the 30 awards) + average damage share, per monster/weapon/hunter. REFramework hunts. |
-| **Damage curves** | Per-hunt cumulative damage or DPS (5s rolling avg) for all party members, monster HP overlay, enrage shading. |
-| **Hunts** | Every run, latest first — click a row for party damage, DPS and the damage curve. |
-| **Quests** | Per-quest aggregates: clear rate, best DPS, enrage uptime. |
-| **Leaderboard** | Best players by DPS over cleared hunts (monster/stars/weapon/min-hunts filters). |
-| **High Scores** | One row per cleared hunt, ranked by DPS or clear time. |
-| **Compare** | Scoped hunters vs whole-party DPS, hunt by hunt. |
-| **Activity** | Hunts per day, clear rate, total damage. |
-| **Synergy** | Clear time and damage share by teammate pairing. |
-| **Buffs** | Abnormality/buff uptime per player per hunt (table + timeline). |
-| **Review** | Rename flags from ingest — merge case-variant hunters or keep them separate. |
-
-\* *Peak hit = largest single damage frame (~1s sampling), not sustained DPS.*
+## Dashboard internals
 
 ### Scope bar
 
@@ -177,7 +372,7 @@ backend/
   app/db.py             Shared engine + per-connection pragmas + migrations
   app/models.py         SQLAlchemy models (15 tables)
   bench.py              1000-hunt endpoint latency bench
-  tests/                89 tests (import + API + ingest + jobs + drift + highlights)
+  tests/                Backend tests (import + API + ingest + jobs + drift + highlights)
 
 dashboard/
   app/page.tsx          Root page: URL-synced tab/scope/party, health, toasts
@@ -224,7 +419,7 @@ See [docs/ADDING_A_VIEW.md](docs/ADDING_A_VIEW.md) for details.
 ```sh
 make test   # backend pytest + dashboard typecheck
 
-# Backend (89 tests) — granular:
+# Backend — granular:
 cd backend && ../.venv/bin/python -m pytest tests -q
 
 # Dashboard (type check)
@@ -252,7 +447,7 @@ End users get ready-to-run artifacts from **GitHub Releases** (built by CI, see
 
 | Artifact | Contents |
 |----------|----------|
-| `HunterPieAnalytics-Setup-<ver>.exe` | One-click per-user installer (desktop app + bundled Lua mod) |
+| `HunterPieAnalytics-Setup-<ver>.exe` | One-click per-user installer (desktop app + bundled Lua mod + companion) |
 | `HunterPieAnalytics-<ver>.msix` | Microsoft Store package (dashboard only) |
 | `hunt-dumper-lua.zip` | REFramework mod (`hunt_dumper.lua` + `INSTALL.txt`) |
 | `HuntDumper-<ver>.zip` | REFramework mod, game-folder layout (Vortex/Nexus) |

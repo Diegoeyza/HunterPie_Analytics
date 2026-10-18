@@ -77,6 +77,21 @@ REFramework by praydog. HunterPie by the HunterPie team (Apache-2.0). This
 project is Apache-2.0.
 ```
 
+## Gallery images
+
+Ready-to-upload screenshots live in [`images/`](images/) (1440×900, PNG).
+Use them as the mod-page gallery; `hero.png` is a 2×2 montage for the header.
+
+| File | Tab |
+|------|-----|
+| `images/progress.png` | Progress — rolling DPS + clear-time trend |
+| `images/curves.png` | Damage curves — per-party curves, HP overlay, enrage |
+| `images/highlights.png` | Highlights — the 30 quest awards + damage share |
+| `images/growth.png` | Growth — DPS improvement over time |
+| `images/hunts.png` | Hunts — every run, expandable |
+| `images/weapons.png`, `quests.png`, `leaderboard.png`, `high-scores.png` | More tabs |
+| `images/hero.png` | Montage (Progress / Curves / Growth / Highlights) |
+
 ## Permissions / credits
 
 - Set permissions to match the license: **modifications and re-uploads allowed
