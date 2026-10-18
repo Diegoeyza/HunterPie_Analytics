@@ -141,11 +141,9 @@ Grab the latest release from **[GitHub Releases](https://github.com/Diegoeyza/Hu
 
 | File | What it's for |
 |------|---------------|
-| `HunterPieAnalytics-Setup-<ver>.exe` | **Recommended.** One-click installer: dashboard + bundled mod + companion. |
+| `HunterPieAnalytics-Setup-<ver>.exe` | **Recommended.** One-click install (per-user, no admin): dashboard + companion + bundled mod. |
 | `HuntDumper-<ver>.zip` | The REFramework mod only (game-folder layout, Vortex-ready). |
-| `hunt-dumper-lua.zip` | The mod as a single `hunt_dumper.lua` + `INSTALL.txt`. |
-| `HunterPie-AnalyticsFork.zip` | Standalone HunterPie companion, for HunterPie-only users. |
-| `HunterPieAnalytics-<ver>.msix` | Microsoft Store / sideload package (dashboard only). |
+| `SHA256SUMS.txt` | Checksums for the two files above. |
 
 ### 1. The in-game capture (REFramework mod)
 

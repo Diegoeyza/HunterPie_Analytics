@@ -12,11 +12,15 @@ jobs:
   fork:
     runs-on: windows-latest
     steps:
+      # HunterPie's Languages/*.xml come from the `Localization` submodule. It
+      # MUST be initialized or the built app is missing Languages/en-us.xml and
+      # crashes on startup (no window, no tray icon).
       - uses: actions/checkout@v4
         with:
           repository: Diegoeyza/HunterPie
           ref: analytics-export
           path: fork
+          submodules: recursive
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -28,6 +32,17 @@ jobs:
           dotnet publish fork/HunterPie/HunterPie.csproj
           -c Release -r win-x64 --self-contained true
           -p:PublishSingleFile=false -o publish
+
+      # Guarantee Languages\ is present even if the project's post-build xcopy
+      # didn't carry over into the publish output.
+      - name: Stage localization
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force publish\Languages | Out-Null
+          Copy-Item fork\Localization\localization\*.xml publish\Languages\
+          if (-not (Test-Path publish\Languages\en-us.xml)) {
+            throw "Localization submodule missing: publish\Languages\en-us.xml not found"
+          }
 
       - name: Zip
         shell: pwsh

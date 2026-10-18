@@ -61,12 +61,17 @@ the legacy $19 fee is waived. You must start at this exact entry point:
    ```
 
 3. CI builds and attaches to the Release:
-   `HunterPieAnalytics-Setup-*.exe`, `HunterPieAnalytics-*.msix`,
-   `hunt-dumper-lua.zip`, `HuntDumper-*.zip`, `HunterPie-AnalyticsFork.zip`,
-   `SHA256SUMS.txt`.
+   `HunterPieAnalytics-Setup-*.exe`, `HuntDumper-*.zip`, `SHA256SUMS.txt`.
 4. Since the direct download is unsigned, mention it in the release notes
-   (SmartScreen "More info → Run anyway") and point users to the Store build.
-5. Upload the `.msix` to Partner Center and submit for certification.
+   (SmartScreen "More info → Run anyway").
+5. The MSIX/Store package is not attached to releases; build it locally with
+   `packaging/msix/build-msix.ps1` and upload to Partner Center if publishing to
+   the Store.
+
+> **Do not ship a companion without `Languages/`.** The fork build depends on
+> the `Localization` git submodule; the CI checkout uses `submodules: recursive`
+> and stages `Languages/` explicitly. A build without it crashes on startup (no
+> window, no tray icon).
 
 ## After the release
 

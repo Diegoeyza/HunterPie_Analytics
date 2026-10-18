@@ -21,11 +21,14 @@ jobs:
   fork:
     runs-on: windows-latest
     steps:
+      # The `Localization` submodule holds Languages/*.xml. Without it the built
+      # companion is missing Languages/en-us.xml and crashes at startup.
       - uses: actions/checkout@v4
         with:
           repository: Diegoeyza/HunterPie
           ref: analytics-export
           path: fork
+          submodules: recursive
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
@@ -33,6 +36,14 @@ jobs:
           dotnet publish fork/HunterPie/HunterPie.csproj
           -c Release -r win-x64 --self-contained true
           -p:PublishSingleFile=false -o publish
+      - name: Stage localization
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force publish\Languages | Out-Null
+          Copy-Item fork\Localization\localization\*.xml publish\Languages\
+          if (-not (Test-Path publish\Languages\en-us.xml)) {
+            throw "Localization submodule missing: publish\Languages\en-us.xml not found"
+          }
       - shell: pwsh
         run: Compress-Archive -Path publish\* -DestinationPath HunterPie-AnalyticsFork.zip
       - uses: actions/upload-artifact@v4
@@ -50,14 +61,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: hunterpie-fork
-      # The installer bundles the fork (dist\HunterPie-Fork); the zip itself is
-      # also published as a standalone asset for HunterPie-only users.
+      # The installer bundles the companion from this CI artifact
+      # (dist\HunterPie-Fork). It is not published as a standalone release asset.
       - name: Stage fork for the installer
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist\HunterPie-Fork | Out-Null
           Expand-Archive HunterPie-AnalyticsFork.zip -DestinationPath dist\HunterPie-Fork -Force
-          Copy-Item HunterPie-AnalyticsFork.zip dist\HunterPie-AnalyticsFork.zip
 
       - uses: actions/setup-node@v4
         with:
@@ -124,34 +134,13 @@ jobs:
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\HunterPieAnalytics.iss
 
-      # Store package is optional: locate makeappx (Windows SDK) and skip
-      # cleanly if the runner doesn't have it, so the release still publishes.
-      - name: MSIX (Store) package
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          python packaging/msix/make_assets.py
-          $makeappx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
-            -Recurse -Filter makeappx.exe -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
-          if (-not $makeappx) {
-            Write-Warning "makeappx.exe not found; skipping MSIX (Store package is optional)."
-            exit 0
-          }
-          $env:PATH = "$($makeappx.DirectoryName);${env:PATH}"
-          # MSIX version must be 4-part: derive from the tag (v1.0.2 -> 1.0.2.0).
-          $ver = "${{ github.ref_name }}"
-          if ($ver -match '^v?(\d+\.\d+\.\d+)') { $ver = $Matches[1] + '.0' } else { $ver = '1.0.2.0' }
-          & packaging\msix\build-msix.ps1 -Version $ver
+      # MSIX/Store build is not published; build it locally with
+      # packaging\msix\build-msix.ps1 if you need it.
 
-      - name: HuntDumper (Lua) zips
+      - name: HuntDumper (Lua) zip
         shell: pwsh
         run: |
           $ver = (Select-String -Path reframework\hunt_dumper.lua -Pattern '^local VERSION = "([^"]+)"').Matches[0].Groups[1].Value
-          # Flat drop-in bundle.
-          New-Item -ItemType Directory -Force dist\hunt-dumper | Out-Null
-          Copy-Item reframework\hunt_dumper.lua, reframework\INSTALL.txt dist\hunt-dumper
-          Compress-Archive -Path dist\hunt-dumper\* -DestinationPath dist\hunt-dumper-lua.zip -Force
           # Nexus/Vortex bundle (game-folder layout).
           New-Item -ItemType Directory -Force dist\nexus\reframework\autorun | Out-Null
           Copy-Item reframework\hunt_dumper.lua dist\nexus\reframework\autorun
@@ -162,7 +151,7 @@ jobs:
         shell: pwsh
         run: |
           $files = Get-ChildItem dist -File |
-            Where-Object { $_.Extension -in ".exe", ".msix", ".zip" }
+            Where-Object { $_.Extension -in ".exe", ".zip" }
           $lines = $files | ForEach-Object {
             "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
           }
@@ -178,7 +167,6 @@ jobs:
           name: release-assets
           path: |
             dist/*.exe
-            dist/*.msix
             dist/*.zip
             dist/SHA256SUMS.txt
           if-no-files-found: error
@@ -198,13 +186,19 @@ jobs:
           generate_release_notes: true
           # Pre-pended to the auto-generated notes (see the action docs).
           body: |
-            > **Windows SmartScreen / antivirus:** the direct-download installer
-            > and `.exe` are **not code signed**, so Windows may show
-            > "Windows protected your PC" (*More info → Run anyway*), and some
-            > antivirus tools may flag the PyInstaller bundle. The Microsoft
-            > Store build is re-signed by Microsoft and shows no warning.
-            > Verify downloads with `SHA256SUMS.txt`.
+            ## Which file do I need?
 
-            **Install (players):** run `HunterPieAnalytics-Setup-*.exe`
-            (per-user, no admin) or use the Store build. The in-game mod is
-            `HuntDumper-*.zip` (REFramework) — extract it into the game folder.
+            | File | What it's for |
+            |------|---------------|
+            | **`HunterPieAnalytics-Setup-*.exe`** | **Start here.** One-click install (per-user, no admin): the dashboard, the HunterPie companion, and the REFramework mod. |
+            | **`HuntDumper-*.zip`** | Just the in-game REFramework mod. Extract into the game folder (Vortex-ready). |
+            | `SHA256SUMS.txt` | Checksums for the two files above. |
+
+            **Players:** run `HunterPieAnalytics-Setup-*.exe`.
+            **In-game mod only:** `HuntDumper-*.zip` →
+            `<game>\reframework\autorun\hunt_dumper.lua`.
+
+            > **Windows SmartScreen / antivirus:** the installer is **not code
+            > signed**, so Windows may show "Windows protected your PC"
+            > (*More info → Run anyway*), and some AV tools may flag the
+            > PyInstaller bundle. Verify downloads with `SHA256SUMS.txt`.

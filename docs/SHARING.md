@@ -119,11 +119,12 @@ Tagged releases (`v*`) are built entirely by CI
 
 | File | Contents |
 |------|----------|
-| `HunterPieAnalytics-Setup-<ver>.exe` | One-click per-user installer (desktop app + bundled Lua mod + fork if built). |
-| `HunterPieAnalytics-<ver>.msix` | Microsoft Store package (dashboard only). |
-| `hunt-dumper-lua.zip` | REFramework mod + `INSTALL.txt`. |
+| `HunterPieAnalytics-Setup-<ver>.exe` | One-click per-user installer: desktop app + bundled Lua mod + companion. |
 | `HuntDumper-<ver>.zip` | REFramework mod in game-folder layout (Vortex/Nexus). |
-| `HunterPie-AnalyticsFork.zip` | Prebuilt analytics-export fork (self-contained). |
-| `SHA256SUMS.txt` | Checksums for every artifact. |
+| `SHA256SUMS.txt` | Checksums for the two artifacts above. |
+
+(The MSIX/Store package and a standalone companion zip are no longer attached
+to releases; build the MSIX locally with `packaging/msix/build-msix.ps1` if
+needed, and the companion ships inside the installer.)
 
 For publishing the mod on Nexus Mods, see [NEXUS.md](NEXUS.md).
