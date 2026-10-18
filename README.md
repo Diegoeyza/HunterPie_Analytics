@@ -171,8 +171,16 @@ Grab the latest release from **[GitHub Releases](https://github.com/Diegoeyza/Hu
 The app auto-detects the export folders and shows what it found at the top of
 the window. To also record **DPS curves and weapon classes**, install
 **HunterPie** with the [analytics-export fork](https://github.com/Diegoeyza/HunterPie)
-or launch the bundled **HunterPie Analytics companion** (its own shortcut) — it
-reuses your existing HunterPie settings.
+or launch the bundled **HunterPie Analytics companion** (its own shortcut).
+
+If setup finds an existing HunterPie, it automatically copies your settings
+(`config.json`, overlays, theme and `Modules`) into the companion, so it starts
+just like your current HunterPie. Your existing installation is left untouched.
+
+The companion keeps up with **game patches on its own**: after a game update it
+downloads just the new memory-offset maps (and localization) it needs, but never
+replaces its own code. To get a newer HunterPie *feature*, reinstall HunterPie
+Analytics (your settings and exported hunts are kept).
 
 ### Uninstall
 
@@ -205,7 +213,14 @@ The Microsoft Store build is re-signed by Microsoft and shows no warning. See
 **I already have HunterPie but the dashboard shows no data.**
 Stock HunterPie does not export hunt data. Launch the bundled **HunterPie
 Analytics companion** (Start Menu / desktop shortcut) instead — it's the same
-HunterPie plus a local export file. It reuses your existing HunterPie settings.
+HunterPie plus a local export file. Setup copies your existing HunterPie
+settings into it, so it starts with your overlays and theme.
+
+**My companion keeps my old settings / I want to start fresh.**
+Setup copied your existing HunterPie `config.json` the first time. Edit the
+settings inside the companion normally, or delete
+`...\HunterPie-Fork\config.json` (and `internal\`) and relaunch it to
+regenerate defaults.
 
 **The dashboard opens but lists no hunts.**
 Finish a quest first — the tools only write a file when a quest ends. Relaunch

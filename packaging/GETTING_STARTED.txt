@@ -34,11 +34,21 @@ IMPORTANT - YOU ALREADY HAVE HUNTERPIE?
 ---------------------------------------
 The standard HunterPie does NOT save hunt data, so the dashboard cannot read
 it. The bundled companion (HunterPie-Fork) is the SAME HunterPie with local
-hunt export added - it reuses your existing HunterPie settings.
+hunt export added, and it reuses your existing HunterPie settings.
+
+If setup found your existing HunterPie, it already copied your settings
+(config, overlays, theme and modules) into the companion, so it starts exactly
+like your current HunterPie. Your existing installation is left untouched.
 
 To record hunts, launch the bundled "HunterPie Analytics companion" instead
 of your usual HunterPie. You can keep your usual one for anything else, but
 only the companion writes the data this dashboard reads.
+
+After a GAME patch, just launch the companion normally - it downloads the new
+memory-offset maps it needs by itself, so it keeps working without you doing
+anything. It never replaces its own program files. If you want a newer HunterPie
+feature, reinstall HunterPie Analytics (your settings and exported hunts are
+kept).
 
 
 STEP 2 - OPEN THE DASHBOARD

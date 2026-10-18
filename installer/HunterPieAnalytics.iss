@@ -161,19 +161,100 @@ begin
     Result := ExpandConstant('{localappdata}\Programs\HunterPie\HunterPie.exe');
 end;
 
+// --- Carry over settings from an existing HunterPie --------------------------
+// HunterPie keeps its settings in its INSTALL folder (config.json, the
+// internal\ state, and any user Modules\ / Themes\), not under %APPDATA%. So
+// when an existing install is found and the bundled companion has never run,
+// copy those across so the user keeps their overlays, theme and modules. The
+// original install is left untouched (acts as a backup). Never overwrite once
+// the companion already has a config.
+const
+  FA_DIRECTORY = $10;
+
+function CopyDirRecursive(const Src, Dst: String): Boolean;
+var
+  FindRec: TFindRec;
+  SrcPath, DstPath: String;
+begin
+  Result := True;
+  if not DirExists(Dst) then
+    ForceDirectories(Dst);
+  if not FindFirst(AddBackslash(Src) + '*', FindRec) then
+    Exit;
+  try
+    repeat
+      if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+      begin
+        SrcPath := AddBackslash(Src) + FindRec.Name;
+        DstPath := AddBackslash(Dst) + FindRec.Name;
+        if (FindRec.Attributes and FA_DIRECTORY) <> 0 then
+          CopyDirRecursive(SrcPath, DstPath)
+        else
+          FileCopy(SrcPath, DstPath, False);
+      end;
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
+// Returns the source install folder if settings were copied, else ''.
+function ImportExistingSettings(const DestFork: String): String;
+var
+  SrcDir, DstDir, Item: String;
+  I: Integer;
+  SubDirs: array[0..2] of String;
+begin
+  Result := '';
+  if FileExists(AddBackslash(DestFork) + 'config.json') then
+    Exit;  // companion already configured — never overwrite the user's setup
+  SrcDir := ExtractFileDir(ExistingHunterPiePath);
+  if (SrcDir = '') or not FileExists(AddBackslash(SrcDir) + 'config.json') then
+    Exit;
+  DstDir := DestFork;
+  ForceDirectories(DstDir);
+  FileCopy(AddBackslash(SrcDir) + 'config.json', AddBackslash(DstDir) + 'config.json', False);
+  if FileExists(AddBackslash(SrcDir) + 'config.json.bak') then
+    FileCopy(AddBackslash(SrcDir) + 'config.json.bak', AddBackslash(DstDir) + 'config.json.bak', False);
+  SubDirs[0] := 'internal';
+  SubDirs[1] := 'Modules';
+  SubDirs[2] := 'Themes';
+  for I := 0 to 2 do
+  begin
+    Item := AddBackslash(SrcDir) + SubDirs[I];
+    if DirExists(Item) then
+      CopyDirRecursive(Item, AddBackslash(DstDir) + SubDirs[I]);
+  end;
+  Result := SrcDir;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ExistingPath: String;
+  ExistingPath, ImportedFrom: String;
 begin
   if CurStep <> ssPostInstall then
     Exit;
+  if not FileExists(ExpandConstant('{app}\{#ForkExe}')) then
+    Exit;
   ExistingPath := ExistingHunterPiePath;
-  if (ExistingPath <> '') and FileExists(ExpandConstant('{app}\{#ForkExe}')) then
+  if ExistingPath = '' then
+    Exit;
+  ImportedFrom := ImportExistingSettings(ExpandConstant('{app}\HunterPie-Fork'));
+  if ImportedFrom <> '' then
+    MsgBox('You already have HunterPie installed:' + #13#10 + ExistingPath + #13#10 + #13#10 +
+           'Your settings (overlays, theme, modules) have been copied into the bundled ' +
+           '"Analytics companion", so it starts exactly like your current HunterPie. ' +
+           'Your existing installation is left untouched.' + #13#10 + #13#10 +
+           'The standard HunterPie does not save hunt data, so launch the bundled ' +
+           '"HunterPie Analytics companion" shortcut to record hunts for the dashboard.' + #13#10 + #13#10 +
+           'See GETTING_STARTED.txt in the install folder for details.',
+           mbInformation, MB_OK)
+  else
     MsgBox('You already have HunterPie installed:' + #13#10 + ExistingPath + #13#10 + #13#10 +
            'The standard HunterPie does not save hunt data, so the dashboard cannot read it.' + #13#10 + #13#10 +
            'To record hunts, launch the bundled "HunterPie Analytics companion" ' +
            '(its own Start Menu / desktop shortcut). It is the same HunterPie with ' +
-           'local hunt export added, and it reuses your existing HunterPie settings.' + #13#10 + #13#10 +
+           'local hunt export added.' + #13#10 + #13#10 +
            'See GETTING_STARTED.txt in the install folder for details.',
            mbInformation, MB_OK);
 end;
