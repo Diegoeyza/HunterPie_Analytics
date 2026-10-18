@@ -147,7 +147,9 @@ def teardown_function():
 
 def test_health_empty():
     client, _ = make_client()
-    assert client.get("/api/health").json() == {"status": "ok", "hunts": 0}
+    body = client.get("/api/health").json()
+    assert body["status"] == "ok" and body["hunts"] == 0
+    assert isinstance(body["sources"], list)
     opts = client.get("/api/filter-options").json()
     assert {"monsters", "weapons", "players", "quests", "stars"} <= set(opts)
     assert opts["quests"] == [] and opts["stars"] == []
@@ -1138,3 +1140,17 @@ def test_health_reports_versions():
     assert health["status"] == "ok" and health["hunts"] == 2
     assert health["hunterpie_version"] == "t"
     assert health["game_version"] == "g"
+
+
+def test_health_reports_detected_sources(monkeypatch, tmp_path):
+    from app import import_hunt
+
+    hp = tmp_path / "HuntExports"
+    hp.mkdir()
+    monkeypatch.setattr(import_hunt, "_hunterpie_dir_candidates", lambda: [hp])
+    monkeypatch.setattr(import_hunt, "_reframework_dir_candidates", lambda: [])
+    monkeypatch.setattr(import_hunt, "_bundled_fork_candidates", lambda: [])
+
+    client, _ = make_client(seed_two_hunts)
+    sources = client.get("/api/health").json()["sources"]
+    assert sources == [{"kind": "hunterpie", "path": str(hp)}]
