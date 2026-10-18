@@ -16,7 +16,11 @@ Optional secondary files:
 
 - `hunt-dumper-lua.zip` — flat drop-in (script + `INSTALL.txt`).
 - `HunterPieAnalytics-Setup-<ver>.exe` — the dashboard (mark it as optional;
-  see the SmartScreen note below).
+  see the SmartScreen note below). It bundles the REFramework mod, the
+  GETTING_STARTED guide, and the **HunterPie Analytics companion** (HunterPie +
+  local export) with its own Start Menu shortcut. Users who already run
+  standard HunterPie need the companion — stock HunterPie does not export hunt
+  data.
 
 ## Listing details
 

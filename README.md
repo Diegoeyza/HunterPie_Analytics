@@ -19,13 +19,19 @@ Two sources feed it, and they complement each other:
    | You have | You get |
    |----------|---------|
    | REFramework + the bundled HuntDumper mod | Awards (hunter highlights), HP curves, damage totals |
-   | The HunterPie analytics-export fork | Damage, weapon classes, DPS curves |
+   | The bundled **HunterPie Analytics companion** | Damage, weapon classes, DPS curves |
    | Both | Everything, merged per hunt (never double-counted) |
 
    The app auto-detects the export folders. To install the REFramework mod,
    copy `HuntDumper\hunt_dumper.lua` (included in the download) into your game's
    `reframework\autorun\` folder — see `HuntDumper\INSTALL.txt`.
-4. Click **Import** in the dashboard after a hunt.
+
+   **Already have HunterPie?** The standard HunterPie does **not** save hunt
+   data, so the dashboard can't read it. Use the bundled **HunterPie Analytics
+   companion** (its own Start Menu/desktop shortcut) instead — it's the same
+   HunterPie with local hunt export added, and it reuses your existing settings.
+4. Click **Import** in the dashboard after a hunt. A plain-language
+   `GETTING_STARTED.txt` is installed alongside the app.
 
 Everything runs locally and offline: the app sends no data anywhere and reads
 only the JSON files your capture tools write. See [PRIVACY.md](PRIVACY.md).

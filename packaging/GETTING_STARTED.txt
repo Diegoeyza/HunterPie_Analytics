@@ -1,0 +1,66 @@
+HunterPie Analytics - Getting Started
+=====================================
+
+HunterPie Analytics is a dashboard that graphs your Monster Hunter Wilds
+hunts. It needs hunt data from at least one capture tool. Pick either one,
+or both.
+
+Already have HunterPie? Read the note further down first.
+
+
+WHAT THIS FOLDER CONTAINS
+-------------------------
+  HunterPieAnalytics.exe      the dashboard
+  HuntDumper\                 REFramework mod (see HuntDumper\INSTALL.txt)
+  HunterPie-Fork\             the "analytics companion" (HunterPie + export)
+  GETTING_STARTED.txt         this file
+
+
+STEP 1 - CAPTURE YOUR HUNTS (choose one or both)
+------------------------------------------------
+Option A - REFramework + HuntDumper (simplest, no HunterPie needed)
+  1. Install REFramework for MH Wilds (dinput8.dll in the game folder).
+  2. Copy  HuntDumper\hunt_dumper.lua  into:
+        <game>\reframework\autorun\
+  3. That's it. Captures quest awards, monster HP curves and damage totals.
+
+Option B - Analytics companion (for DPS curves and weapon classes)
+  1. Launch "HunterPie Analytics companion" from the Start Menu or desktop.
+     (This is the HunterPie-Fork folder in this install.)
+  2. It records each quest the same way HunterPie does, plus an export file.
+
+
+IMPORTANT - YOU ALREADY HAVE HUNTERPIE?
+---------------------------------------
+The standard HunterPie does NOT save hunt data, so the dashboard cannot read
+it. The bundled companion (HunterPie-Fork) is the SAME HunterPie with local
+hunt export added - it reuses your existing HunterPie settings.
+
+To record hunts, launch the bundled "HunterPie Analytics companion" instead
+of your usual HunterPie. You can keep your usual one for anything else, but
+only the companion writes the data this dashboard reads.
+
+
+STEP 2 - OPEN THE DASHBOARD
+---------------------------
+1. Launch "HunterPie Analytics" (Start Menu or desktop shortcut).
+2. Click "Import".
+3. Your hunts appear. Click "Import" again after each play session.
+
+The dashboard finds the capture folders automatically. If nothing is found it
+will say so at the top of the window.
+
+
+WHERE DATA IS READ FROM
+-----------------------
+  Companion:    ...\HunterPie-Fork\HuntExports\
+  REFramework:  <game>\reframework\data\HuntExports\
+
+Nothing is uploaded anywhere. Everything stays on your PC.
+
+
+UNINSTALL
+---------
+Windows Settings > Apps > HunterPie Analytics, or run unins000.exe in this
+folder. Your database stays in %LOCALAPPDATA%\HunterPieAnalytics so you can
+reinstall later without losing history.
