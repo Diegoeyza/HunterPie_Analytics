@@ -85,9 +85,11 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+export interface HealthSource { kind: "hunterpie" | "reframework"; path: string; }
 export interface Health {
   status: string; hunts: number;
   hunterpie_version?: string; game_version?: string;
+  sources?: HealthSource[];
 }
 
 export interface AliasItem {

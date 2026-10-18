@@ -28,7 +28,7 @@ from .filters import (
     FilterError,
     parse_ids,
 )
-from .import_hunt import default_export_dirs, known_export_dirs
+from .import_hunt import default_export_dirs, detected_sources, known_export_dirs
 from .import_job import JobBusyError, cancel_job, get_job, start_import_job
 from .paths import resource_path
 
@@ -98,7 +98,9 @@ def filter_options(db: Session = Depends(get_db)):
 
 @app.get("/api/health")
 def health(db: Session = Depends(get_db)):
-    return queries.health(db)
+    # `sources` = capture folders found on disk (HunterPie fork and/or the
+    # REFramework mod); the dashboard uses it for the first-run status note.
+    return {**queries.health(db), "sources": detected_sources()}
 
 
 @app.get("/api/hunts")

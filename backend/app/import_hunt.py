@@ -141,6 +141,26 @@ def known_export_dirs() -> list[Path]:
     ])
 
 
+def detected_sources() -> list[dict[str, str]]:
+    """Existing export folders tagged by kind — for the dashboard status note."""
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    groups = (
+        ("hunterpie", [*_hunterpie_dir_candidates(), *_bundled_fork_candidates()]),
+        ("reframework", _reframework_dir_candidates()),
+    )
+    for kind, candidates in groups:
+        for path in candidates:
+            if not path.is_dir():
+                continue
+            key = str(path).lower() if os.name == "nt" else str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"kind": kind, "path": str(path)})
+    return out
+
+
 def default_export_dirs() -> list[Path]:
     """Candidate source folders that actually exist.
 

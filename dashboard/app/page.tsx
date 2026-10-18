@@ -98,6 +98,21 @@ export default function Home() {
     ? `HunterPie ${health?.hunterpie_version ?? "?"} · game ${health?.game_version ?? "?"}`
     : undefined;
 
+  // First-run source note: which capture tools were found, and what each one
+  // can (and cannot) provide so a single-source setup isn't mistaken for a bug.
+  const sourceNote = (() => {
+    if (!health) return null;
+    const sources = health.sources ?? [];
+    const hp = sources.some((s) => s.kind === "hunterpie");
+    const rf = sources.some((s) => s.kind === "reframework");
+    if (!hp && !rf) {
+      return { warn: true, text: "No capture source found — install the REFramework mod and/or the HunterPie analytics fork, then Import." };
+    }
+    if (hp && rf) return { warn: false, text: "Sources: HunterPie + REFramework (full data)." };
+    if (hp) return { warn: false, text: "Source: HunterPie — damage & curves. Quest awards need the REFramework mod." };
+    return { warn: false, text: "Source: REFramework — awards & HP curves. DPS curves need HunterPie." };
+  })();
+
   return (
     <ToastProvider>
       <header className="topbar">
@@ -112,6 +127,11 @@ export default function Home() {
         <HuntsManager />
         <ThemeToggle />
       </header>
+      {sourceNote && (
+        <div className={`source-note${sourceNote.warn ? " warn" : ""}`}>
+          {sourceNote.text}
+        </div>
+      )}
       {scopeReady && (
         <ScopeBar scope={scope} onScope={changeScope}
           variantId={scope.length === 1 ? variantId : null}

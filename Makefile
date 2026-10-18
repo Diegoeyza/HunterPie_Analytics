@@ -3,7 +3,7 @@
 VENV := .venv/bin/python
 DB ?= backend/hunts.db
 
-.PHONY: setup seed dev test lint build bench import package clean
+.PHONY: setup seed dev test lint build bench import package app installer msix clean
 
 setup: ## Install backend + dashboard dependencies
 	python3 -m venv .venv
@@ -35,6 +35,16 @@ import: ## Import HuntExports (default dir, seeds/, or FILE=path.json)
 package: ## Build shareable bundles into dist/ (mod zip + app source zip)
 	./package.sh
 
+app: ## Build the Windows desktop app (onedir; Windows only)
+	powershell -ExecutionPolicy Bypass -File packaging/build-windows.ps1
+
+installer: ## Wrap dist/ app into the Inno Setup installer (Windows only)
+	iscc installer/HunterPieAnalytics.iss
+
+msix: ## Pack the Microsoft Store bundle (Windows SDK required)
+	powershell -ExecutionPolicy Bypass -File packaging/msix/build-msix.ps1
+
 clean: ## Remove build artifacts (never the DB)
-	rm -rf dashboard/.next dashboard/tsconfig.tsbuildinfo backend/.pytest_cache
+	rm -rf dashboard/.next dashboard/out dashboard/tsconfig.tsbuildinfo \
+	  backend/.pytest_cache build
 	find backend -name __pycache__ -type d -prune -exec rm -rf {} +
