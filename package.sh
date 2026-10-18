@@ -17,32 +17,7 @@ mkdir -p "$DIST/hunt-dumper"
 
 # 1) REFramework mod bundle: the single Lua file + install notes.
 cp reframework/hunt_dumper.lua "$DIST/hunt-dumper/hunt_dumper.lua"
-cat > "$DIST/hunt-dumper/INSTALL.txt" <<'TXT'
-HuntDumper — REFramework mod for Monster Hunter Wilds
-=====================================================
-
-Install
--------
-1. Install REFramework for MH Wilds (dinput8.dll in the game folder).
-2. Copy hunt_dumper.lua to:
-     <game>\reframework\autorun\hunt_dumper.lua
-   Steam path:
-     ...\steamapps\common\MonsterHunterWilds\reframework\autorun\
-3. Open the in-game REFramework menu -> HuntDumper to confirm it is enabled.
-4. Dumps are written at quest end to:
-     <game>\reframework\data\HuntExports\*.json
-
-Notes
------
-- Load the script before a quest starts (a mid-hunt script reload resets its
-  state and skips that hunt).
-- Captures: quest metadata, monster id + HP curve, per-player damage totals,
-  the 30 quest awards (hunter highlights), CPU-supporter flags, and the local
-  player's weapon name.
-- Per-player weapon classes and DPS curves come from HunterPie, not this mod.
-
-For the full dashboard, see the project README / docs/SHARING.md.
-TXT
+cp reframework/INSTALL.txt "$DIST/hunt-dumper/INSTALL.txt"
 ( cd "$DIST/hunt-dumper" \
     && zip -q "../hunt-dumper-${MOD_VERSION}.zip" hunt_dumper.lua INSTALL.txt )
 rm -rf "$DIST/hunt-dumper"

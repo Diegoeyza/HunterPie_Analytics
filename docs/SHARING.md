@@ -65,9 +65,17 @@ a small fork that dumps each quest to JSON.
 
 ## 3. Analytics app (this repo)
 
-FastAPI + SQLite backend and a Next.js dashboard.
+FastAPI + SQLite backend and a Next.js dashboard, packaged as a Windows
+desktop app (native window via WebView2) with a static UI served by the backend.
 
-**Docker (easiest for a friend)**
+**For friends / players (recommended)**
+
+Grab `HunterPieAnalytics-Setup-<version>.exe` from the releases page and run it
+(per-user install, no admin). Or install from the Microsoft Store. The app runs
+entirely offline — see [PRIVACY.md](../PRIVACY.md) — and Windows binaries are
+[code signed](../docs/CODE_SIGNING.md).
+
+**Docker (cross-platform dev / server)**
 
 ```sh
 HUNT_EXPORTS="/path/to/HuntExports" docker compose up --build
@@ -102,3 +110,14 @@ Writes to `dist/`:
 |------|----------|
 | `hunt-dumper-<version>.zip` | The REFramework mod + `INSTALL.txt` (drop-in). |
 | `HunterPie-Analytics-src-<sha>.zip` | Full app source, git-tracked files only — no venv, `node_modules`, or DB. |
+
+Tagged releases (`v*`) are built and signed entirely by CI
+(`.github/workflows/release.yml`) and attach all end-user artifacts:
+
+| File | Contents |
+|------|----------|
+| `HunterPieAnalytics-Setup-<ver>.exe` | One-click per-user installer (desktop app + bundled Lua mod + fork if built). |
+| `HunterPieAnalytics-<ver>.msix` | Microsoft Store package (dashboard only). |
+| `hunt-dumper-lua.zip` | REFramework mod + `INSTALL.txt`. |
+| `HunterPie-AnalyticsFork.zip` | Prebuilt analytics-export fork (self-contained). |
+| `SHA256SUMS.txt` | Checksums for every artifact. |

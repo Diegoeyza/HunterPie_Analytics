@@ -21,10 +21,16 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import Base
+from .paths import is_frozen, user_data_dir
 
 log = logging.getLogger(__name__)
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "hunts.db"
+if is_frozen():
+    # The install dir is read-only for standard users; keep the DB (and WAL)
+    # under %LOCALAPPDATA%\HunterPieAnalytics\.
+    DEFAULT_DB_PATH = user_data_dir() / "hunts.db"
+else:
+    DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "hunts.db"
 
 # Pre-Alembic lightweight migration: columns added here are backfilled onto
 # existing DBs. Kept as migration v1 content (see MIGRATIONS). New tables

@@ -1,0 +1,164 @@
+name: Release
+
+# Builds every shareable artifact on a Windows runner and attaches them to a
+# GitHub Release. PyInstaller and Inno Setup cannot cross-compile, so the whole
+# pipeline is Windows-only.
+#
+# Signing: fill the SIGNPATH_* secrets to enable SignPath code signing. Without
+# them the release is built unsigned (still installable, but SmartScreen/AV
+# will warn until the Store listing or a certificate covers it).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  fork:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Diegoeyza/HunterPie
+          ref: analytics-export
+          path: fork
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: >
+          dotnet publish fork/HunterPie/HunterPie.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=false -o publish
+      - shell: pwsh
+        run: Compress-Archive -Path publish\* -DestinationPath HunterPie-AnalyticsFork.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hunterpie-fork
+          path: HunterPie-AnalyticsFork.zip
+          if-no-files-found: error
+
+  app:
+    needs: fork
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: hunterpie-fork
+      # The installer bundles the fork when present here.
+      - name: Stage fork for the installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\HunterPie-Fork | Out-Null
+          Expand-Archive HunterPie-AnalyticsFork.zip -DestinationPath dist\HunterPie-Fork -Force
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Dashboard (static export)
+        working-directory: dashboard
+        env:
+          NEXT_OUTPUT: export
+        run: npm ci && npm run build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python deps
+        run: >
+          python -m pip install
+          -r backend/requirements.txt
+          -r packaging/requirements-pack.txt
+
+      - name: PyInstaller (onedir)
+        run: python -m PyInstaller --noconfirm --clean packaging/HunterPieAnalytics.spec
+
+      # SignPath signs an uploaded artifact and returns the signed copy: upload
+      # the unsigned onedir build first. Enable by adding the SIGNPATH_* secrets.
+      - name: Upload unsigned app
+        id: upload_unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-app
+          path: dist/HunterPieAnalytics
+          if-no-files-found: error
+
+      - name: SignPath (optional)
+        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ secrets.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload_unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/HunterPieAnalytics
+
+      - name: Inno Setup installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\HunterPieAnalytics.iss
+
+      - name: MSIX (Store) package
+        shell: pwsh
+        run: |
+          $sdk = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory |
+                 Sort-Object Name -Descending | Select-Object -First 1
+          $env:PATH = "$($sdk.FullName)\x64;${env:PATH}"
+          python packaging/msix/make_assets.py
+          & packaging\msix\build-msix.ps1 -Version "1.0.0.0"
+
+      - name: HuntDumper (Lua) zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\hunt-dumper | Out-Null
+          Copy-Item reframework\hunt_dumper.lua, reframework\INSTALL.txt dist\hunt-dumper
+          Compress-Archive -Path dist\hunt-dumper\* -DestinationPath dist\hunt-dumper-lua.zip -Force
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem dist -File |
+            Where-Object { $_.Extension -in ".exe", ".msix", ".zip" }
+          $lines = $files | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          }
+          Set-Content dist\SHA256SUMS.txt ($lines -join "`n")
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            dist/*.exe
+            dist/*.msix
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+  release:
+    needs: app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: assets
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
+          generate_release_notes: true
