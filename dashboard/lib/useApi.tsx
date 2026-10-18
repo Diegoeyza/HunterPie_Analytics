@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { apiGetCached, apiInvalidate } from "./api";
+import { apiGetCached, apiInvalidate, subscribeInvalidate } from "./api";
 
 export type ApiParams = Record<string, string | number | boolean | null | undefined>;
 
@@ -53,6 +53,10 @@ export function useApi<T>(path: string, params?: ApiParams | null): UseApiResult
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, nonce]);
+
+  // Refetch when anything invalidates the cache (e.g. after an import), so the
+  // currently-mounted view updates without a tab switch or reload.
+  useEffect(() => subscribeInvalidate(() => setNonce((n) => n + 1)), []);
 
   const refetch = useCallback(() => {
     apiInvalidate(path);

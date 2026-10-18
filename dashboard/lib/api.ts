@@ -64,15 +64,25 @@ export async function apiGetCached<T>(path: string, params?: Params): Promise<T>
   return p;
 }
 
-/** Drop cached entries; call after mutations (pin/unpin). No arg = all. */
+const _invalidateSubs = new Set<() => void>();
+
+/** Subscribe to invalidations so live hooks (useApi) refetch. */
+export function subscribeInvalidate(fn: () => void): () => void {
+  _invalidateSubs.add(fn);
+  return () => { _invalidateSubs.delete(fn); };
+}
+
+/** Drop cached entries and notify mounted hooks to refetch.
+ *  Call after mutations (import, pin/unpin, ignore). No arg = all. */
 export function apiInvalidate(pathSubstring?: string): void {
   if (!pathSubstring) {
     _cache.clear();
-    return;
+  } else {
+    for (const k of [..._cache.keys()]) {
+      if (k.includes(pathSubstring)) _cache.delete(k);
+    }
   }
-  for (const k of [..._cache.keys()]) {
-    if (k.includes(pathSubstring)) _cache.delete(k);
-  }
+  for (const fn of [..._invalidateSubs]) fn();
 }
 
 export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
