@@ -72,8 +72,11 @@ desktop app (native window via WebView2) with a static UI served by the backend.
 
 Grab `HunterPieAnalytics-Setup-<version>.exe` from the releases page and run it
 (per-user install, no admin). Or install from the Microsoft Store. The app runs
-entirely offline — see [PRIVACY.md](../PRIVACY.md) — and Windows binaries are
-[code signed](../docs/CODE_SIGNING.md).
+entirely offline — see [PRIVACY.md](../PRIVACY.md).
+
+The direct-download installer/exe is **not code signed yet** (Windows may warn;
+see [code signing notes](../docs/CODE_SIGNING.md)). The Microsoft Store build
+is re-signed by Microsoft.
 
 **Docker (cross-platform dev / server)**
 
@@ -111,7 +114,7 @@ Writes to `dist/`:
 | `hunt-dumper-<version>.zip` | The REFramework mod + `INSTALL.txt` (drop-in). |
 | `HunterPie-Analytics-src-<sha>.zip` | Full app source, git-tracked files only — no venv, `node_modules`, or DB. |
 
-Tagged releases (`v*`) are built and signed entirely by CI
+Tagged releases (`v*`) are built entirely by CI
 (`.github/workflows/release.yml`) and attach all end-user artifacts:
 
 | File | Contents |

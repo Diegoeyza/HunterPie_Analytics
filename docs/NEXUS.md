@@ -82,9 +82,10 @@ project is Apache-2.0.
 
 ## Watch-outs
 
-- **Virus scanning / SmartScreen:** the optional dashboard `.exe` is code
-  signed, but a first release can still show a SmartScreen prompt until
-  reputation builds. Say so plainly and link `SHA256SUMS.txt`.
+- **Virus scanning / SmartScreen:** the optional dashboard `.exe` is **not code
+  signed**, so Windows will show a SmartScreen prompt on first run (and some AV
+  may flag it). Say so plainly, point users to the Store build, and link
+  `SHA256SUMS.txt`. This does not affect the Lua mod itself.
 - **No monetization:** Nexus forbids paywalling; keep everything free.
 - **Versioning:** keep the Nexus file version in sync with the Lua `VERSION` and
   the GitHub release tag.

@@ -29,7 +29,12 @@ Two sources feed it, and they complement each other:
 
 Everything runs locally and offline: the app sends no data anywhere and reads
 only the JSON files your capture tools write. See [PRIVACY.md](PRIVACY.md).
-Windows binaries are code signed — see the [code signing policy](docs/CODE_SIGNING.md).
+
+> **Windows SmartScreen / antivirus:** the direct-download installer and `.exe`
+> are **not code signed yet**, so Windows may show "Windows protected your PC"
+> and some antivirus tools may flag the bundle. Choose *More info → Run anyway*
+> to proceed. The Microsoft Store build is re-signed by Microsoft and shows no
+> warning. See the [code signing notes](docs/CODE_SIGNING.md).
 
 ## How it works
 
@@ -236,8 +241,8 @@ make bench
 See [docs/SHARING.md](docs/SHARING.md). The REFramework mod, the HunterPie fork,
 and this app are independent pieces.
 
-End users get ready-to-run artifacts from **GitHub Releases** (built and signed
-by CI, see `.github/workflows/release.yml`):
+End users get ready-to-run artifacts from **GitHub Releases** (built by CI, see
+`.github/workflows/release.yml`):
 
 | Artifact | Contents |
 |----------|----------|
