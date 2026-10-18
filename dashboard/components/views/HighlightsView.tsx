@@ -32,7 +32,7 @@ const shareColumns: ColumnDef<DamageShareRow>[] = [
   { id: "hunts", accessorKey: "hunts", header: "Hunts", meta: { cls: "num" } },
 ];
 
-export default function HighlightsView({ scope, weaponName, partySize }: { scope: number[]; weaponName: string | null; partySize: number | null }) {
+export default function HighlightsView({ scope, weaponName, partySize, includeFailed }: { scope: number[]; weaponName: string | null; partySize: number | null; includeFailed: boolean }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -48,6 +48,7 @@ export default function HighlightsView({ scope, weaponName, partySize }: { scope
     ...(weapon && { weapon_id: Number(weapon) }),
     ...(weaponName && { weapon_name: weaponName }),
     ...(partySize != null && { players: partySize }),
+    ...(includeFailed && { include_failed: true }),
   });
 
   const awards = data?.awards ?? [];

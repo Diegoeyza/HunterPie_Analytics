@@ -5,6 +5,8 @@ so scope/party/visibility semantics stay identical across tabs.
 """
 from __future__ import annotations
 
+from sqlalchemy import true
+
 from .models import Hunt
 
 MAX_LIMIT = 2000
@@ -37,6 +39,13 @@ def parse_ids(raw: str | None) -> list[int]:
 def visible():
     """Filter for user-visible hunts (NULL-safe: pre-flag rows are NULL)."""
     return Hunt.ignored.isnot(True)
+
+
+def cleared(include_failed: bool):
+    """Hunt-pool predicate for performance stats: cleared hunts only unless
+    ``include_failed``. Rate metrics (clear rate) read ``Hunt.cleared``
+    directly and must NOT use this, so failures always count toward them."""
+    return true() if include_failed else Hunt.cleared.is_(True)
 
 
 def party(stmt, size: int | None):

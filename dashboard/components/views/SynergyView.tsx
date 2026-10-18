@@ -40,7 +40,7 @@ const columns: ColumnDef<Pairing>[] = [
   },
 ];
 
-export default function SynergyView({ scope, variantId, clearScope, partySize }: { scope: number[]; variantId: number | string | null; clearScope: () => void; partySize: number | null }) {
+export default function SynergyView({ scope, variantId, clearScope, partySize, includeFailed }: { scope: number[]; variantId: number | string | null; clearScope: () => void; partySize: number | null; includeFailed: boolean }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [stars, setStars] = useState("");
@@ -51,6 +51,7 @@ export default function SynergyView({ scope, variantId, clearScope, partySize }:
     ...(stars && { stars: Number(stars) }),
     ...(variantId !== null && { variant_id: variantId }),
     ...(partySize != null && { players: partySize }),
+    ...(includeFailed && { include_failed: true }),
   });
   const rows = data?.pairings ?? null;
 

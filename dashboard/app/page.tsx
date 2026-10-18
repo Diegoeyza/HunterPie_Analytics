@@ -9,10 +9,11 @@ import { TABS, type ViewCtx } from "../lib/registry";
 import ScopeBar, { DEFAULT_PARTY_SIZE, loadParty, loadScope, loadVariant, loadWeaponName, storeParty, storeScope, storeVariant, storeWeaponName } from "../components/ScopeBar";
 import HuntsManager from "../components/HuntsManager";
 import ImportButton from "../components/ImportButton";
-import ThemeToggle from "../components/ThemeToggle";
+import SettingsMenu from "../components/SettingsMenu";
 import { ToastProvider } from "../components/Toast";
 
 const TAB_IDS = new Set(TABS.map((t) => t.id));
+const FAILED_KEY = "hp.includeFailed";
 
 /** Read initial global state: URL params win (shareable links), then
  *  localStorage, then defaults. */
@@ -35,6 +36,18 @@ function initialParty(): number | null {
   return Number.isInteger(n) && n >= 1 && n <= 8 ? n : loadParty();
 }
 
+/** Include failed hunts in the stats: URL param wins, then localStorage. */
+function initialIncludeFailed(): boolean {
+  const raw = readParam("failed");
+  if (raw === "1") return true;
+  if (raw === "0") return false;
+  try {
+    return localStorage.getItem(FAILED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export default function Home() {
   // Defaults first (server prerender); URL/localStorage sync in the
   // mount effect below — reading window.location during render would
@@ -44,6 +57,7 @@ export default function Home() {
   const [variantId, setVariantId] = useState<number | string | null>(null);
   const [weaponName, setWeaponName] = useState<string | null>(null);
   const [partySize, setPartySize] = useState<number | null>(DEFAULT_PARTY_SIZE);
+  const [includeFailed, setIncludeFailed] = useState(false);
   const [scopeReady, setScopeReady] = useState(false);
   const healthQ = useApi<Health>("/health");
 
@@ -52,6 +66,7 @@ export default function Home() {
     const ids = initialScope();
     setScope(ids);
     setPartySize(initialParty());
+    setIncludeFailed(initialIncludeFailed());
     // A persisted variant/weapon-name only survives with the same
     // single-hunter scope.
     setVariantId(ids.length === 1 ? loadVariant() : null);
@@ -91,8 +106,16 @@ export default function Home() {
     writeParams({ party: size === null ? "all" : String(size) });
   };
 
+  const changeIncludeFailed = (value: boolean) => {
+    setIncludeFailed(value);
+    try {
+      localStorage.setItem(FAILED_KEY, value ? "1" : "0");
+    } catch { /* private mode: setting just won't persist */ }
+    writeParams({ failed: value ? "1" : null });
+  };
+
   const active = TABS.find((t) => t.id === tab) ?? TABS[0];
-  const ctx: ViewCtx = { scope, variantId: scope.length === 1 ? variantId : null, weaponName: scope.length === 1 ? weaponName : null, clearScope: () => changeScope([]), setScope: changeScope, partySize };
+  const ctx: ViewCtx = { scope, variantId: scope.length === 1 ? variantId : null, weaponName: scope.length === 1 ? weaponName : null, clearScope: () => changeScope([]), setScope: changeScope, partySize, includeFailed };
   const health = healthQ.data;
   const versions = health?.hunterpie_version ?? health?.game_version
     ? `HunterPie ${health?.hunterpie_version ?? "?"} · game ${health?.game_version ?? "?"}`
@@ -125,7 +148,7 @@ export default function Home() {
         </span>
         <ImportButton onImported={() => { apiInvalidate(); healthQ.refetch(); }} />
         <HuntsManager />
-        <ThemeToggle />
+        <SettingsMenu includeFailed={includeFailed} onIncludeFailed={changeIncludeFailed} />
       </header>
       {sourceNote && (
         <div className={`source-note${sourceNote.warn ? " warn" : ""}`}>

@@ -6,7 +6,7 @@
  */
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 
-export type Params = Record<string, string | number | null | undefined>;
+export type Params = Record<string, string | number | boolean | null | undefined>;
 
 function apiUrl(path: string, params?: Params): string {
   const qs = new URLSearchParams();

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGetCached, apiInvalidate } from "./api";
 
-export type ApiParams = Record<string, string | number | null | undefined>;
+export type ApiParams = Record<string, string | number | boolean | null | undefined>;
 
 /** Stable effect key: sorted params so {a:1,b:2} === {b:2,a:1}. */
 export function apiKey(path: string, params?: ApiParams): string {

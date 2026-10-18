@@ -13,13 +13,14 @@ interface ComparePoint {
 }
 interface CompareData { points: ComparePoint[]; window: number; scope: string[]; }
 
-export default function CompareView({ scope, variantId, clearScope, partySize }: { scope: number[]; variantId: number | string | null; clearScope: () => void; partySize: number | null }) {
+export default function CompareView({ scope, variantId, clearScope, partySize, includeFailed }: { scope: number[]; variantId: number | string | null; clearScope: () => void; partySize: number | null; includeFailed: boolean }) {
   const { data, error, loading } = useApi<CompareData>(
     "/compare",
     scope.length === 0 ? null : {
       player_ids: scope.join(","),
       ...(variantId !== null && { variant_id: variantId }),
       ...(partySize != null && { players: partySize }),
+      ...(includeFailed && { include_failed: true }),
     });
 
   if (scope.length === 0) {

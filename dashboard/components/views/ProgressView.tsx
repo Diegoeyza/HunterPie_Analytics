@@ -17,7 +17,7 @@ interface Point {
 }
 interface ProgressData { points: Point[]; rolling: { hunt_id: number; avg_dps: number }[]; window: number; }
 
-export default function ProgressView({ scope, variantId, weaponName, clearScope, partySize }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; partySize: number | null }) {
+export default function ProgressView({ scope, variantId, weaponName, clearScope, partySize, includeFailed }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; partySize: number | null; includeFailed: boolean }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -41,6 +41,7 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
     ...(variantId !== null && { variant_id: variantId }),
     ...(huntLimit !== "all" && { limit: Number(huntLimit) }),
     ...(partySize != null && { players: partySize }),
+    ...(includeFailed && { include_failed: true }),
     window: windowSize,
   });
 

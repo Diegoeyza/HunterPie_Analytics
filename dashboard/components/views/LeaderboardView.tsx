@@ -36,7 +36,7 @@ const columns: ColumnDef<Leader>[] = [
   },
 ];
 
-export default function LeaderboardView({ scope, variantId, weaponName, clearScope, partySize }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; partySize: number | null }) {
+export default function LeaderboardView({ scope, variantId, weaponName, clearScope, partySize, includeFailed }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; partySize: number | null; includeFailed: boolean }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -50,6 +50,7 @@ export default function LeaderboardView({ scope, variantId, weaponName, clearSco
     ...(weaponName && { weapon_name: weaponName }),
     ...(stars && { stars: Number(stars) }),
     ...(partySize != null && { players: partySize }),
+    ...(includeFailed && { include_failed: true }),
     min_hunts: minHunts,
   });
   const rows = data?.leaders ?? null;

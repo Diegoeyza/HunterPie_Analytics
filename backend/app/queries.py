@@ -51,6 +51,17 @@ _resolve_variant_filter = resolve_variant_filter
 _identity_label_map = identity_label_map
 _gear_variant_label = gear_variant_label
 
+# Preferred display order for the 30 quest awards, by game id (0..29). The
+# "active play" awards hunters watch come first; the rest keep their id order.
+_AWARD_PRIORITY = [0, 24, 29, 4, 3, 18, 28, 16]
+_AWARD_RANK = {aid: rank for rank, aid in enumerate(_AWARD_PRIORITY)}
+
+
+def _award_sort_key(aid: int) -> tuple[int, int]:
+    """Sort awards: priority list first (in that order), then by id."""
+    return (_AWARD_RANK.get(aid, len(_AWARD_PRIORITY)), aid)
+
+
 __all__ = [
     "FilterError",
     "UNKNOWN_VARIANT_ID",
@@ -139,8 +150,9 @@ def filter_options(session: Session) -> dict:
             select(Weapon).order_by(Weapon.name)).scalars()],
         "awards": [{"id": a.id, "name": a.name, "explain": a.explain,
                     "unit": a.unit}
-                   for a in session.execute(
-            select(Award).order_by(Award.id)).scalars()],
+                   for a in sorted(
+            session.execute(select(Award)).scalars(),
+            key=lambda a: _award_sort_key(a.id))],
         "players": [{"id": p.id, "name": p.display_name} for p in session.execute(
             select(Player).order_by(Player.display_name)).scalars()],
         "quests": [{"quest_id": q["quest_id"],
@@ -285,7 +297,8 @@ def progress(session: Session, monster_id: int | None = None,
              player_ids: list[int] | None = None,
              window: int = 5, variant_id: int | str | None = None,
              limit: int | None = None, party: int | None = None,
-             weapon_name: str | None = None) -> dict:
+             weapon_name: str | None = None,
+             include_failed: bool = False) -> dict:
     """FR-3.1: per-hunt DPS + clear time series with rolling average.
 
     ``limit`` keeps only the most recent N hunts (by started_at); None =
@@ -293,7 +306,8 @@ def progress(session: Session, monster_id: int | None = None,
     selection so e.g. limit=100 with a monster filter = last 100 hunts of
     that monster."""
     if limit is not None and limit > 0:
-        hq = (select(Hunt.id).where(filters.visible())
+        hq = (select(Hunt.id)
+              .where(filters.visible(), filters.cleared(include_failed))
               .order_by(Hunt.started_at.desc()).limit(limit))
         if monster_id is not None:
             hq = hq.where(Hunt.monster_id == monster_id)
@@ -313,7 +327,8 @@ def progress(session: Session, monster_id: int | None = None,
         .join(Player, Player.id == HuntPlayer.player_id)
         .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
         .join(Monster, Monster.id == Hunt.monster_id)
-        .where(HuntPlayer.is_supporter.is_(False), filters.visible())
+        .where(HuntPlayer.is_supporter.is_(False), filters.visible(),
+               filters.cleared(include_failed))
         .order_by(Hunt.started_at)
     )
     if recent is not None:
@@ -376,8 +391,13 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
                    monster_id: int | None = None, stars: int | None = None,
                    variant_id: int | str | None = None,
                    party: int | None = None,
-                   weapon_name: str | None = None) -> dict:
-    """FR-3.2: per-weapon aggregates (supporters excluded)."""
+                   weapon_name: str | None = None,
+                   include_failed: bool = False) -> dict:
+    """FR-3.2: per-weapon aggregates (supporters excluded).
+
+    Avg/peak DPS come from the performance pool (cleared hunts only unless
+    ``include_failed``); the hunt count and clear rate span every attempt so
+    the clear rate still reflects failures."""
     stmt = (
         select(Weapon.name, HuntPlayer.weapon_id, Hunt, HuntPlayer)
         .join(HuntPlayer, HuntPlayer.weapon_id == Weapon.id)
@@ -406,9 +426,11 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
         agg = by_weapon.setdefault(name, {"hunts": set(), "dps": [], "peak": 0.0,
                                            "clears": set()})
         agg["hunts"].add(hunt.id)
-        if dur:
+        eligible = include_failed or bool(hunt.cleared)
+        if dur and eligible:
             agg["dps"].append(hp.total_damage / dur)
-        agg["peak"] = max(agg["peak"], hp.peak_dps)
+        if eligible:
+            agg["peak"] = max(agg["peak"], hp.peak_dps)
         if hunt.cleared:
             agg["clears"].add(hunt.id)
     # hunts played with no recorded weapon
@@ -594,10 +616,13 @@ def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
 def synergy(session: Session, player_ids: list[int] | None = None,
             monster_id: int | None = None, stars: int | None = None,
             variant_id: int | str | None = None,
-            party: int | None = None) -> dict:
+            party: int | None = None,
+            include_failed: bool = False) -> dict:
     """FR-3.4: aggregate stats keyed by non-supporter teammate pairing.
 
-    player_ids narrows to hunts including ALL of those hunters."""
+    player_ids narrows to hunts including ALL of those hunters. Hunt counts
+    and clear rate span every attempt (failures included); damage shares come
+    from the performance pool (cleared only unless ``include_failed``)."""
     stmt = (
         select(Hunt, Player.display_name, HuntPlayer.total_damage, HuntPlayer.player_id)
         .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
@@ -640,8 +665,9 @@ def synergy(session: Session, player_ids: list[int] | None = None,
         dur = hunt_duration_s(h["hunt"])
         if dur:
             agg["clear_ss"].append(dur)
-        for name, dmg, _ in h["members"]:
-            agg["shares"].setdefault(name, []).append(dmg / total)
+        if include_failed or h["hunt"].cleared:
+            for name, dmg, _ in h["members"]:
+                agg["shares"].setdefault(name, []).append(dmg / total)
     rows = [{
         "pairing": key,
         "hunts": a["hunts"],
@@ -875,7 +901,8 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
                 variant_id: int | str | None = None,
                 include_ignored: bool = False,
                 party: int | None = None,
-                weapon_name: str | None = None) -> dict:
+                weapon_name: str | None = None,
+                include_failed: bool = False) -> dict:
     """Cleared-hunt leaderboard: one row per hunt, ranked.
 
     ``player_ids`` (global hunter scope) narrows to hunts including ANY of
@@ -896,7 +923,7 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
         .join(Player, Player.id == HuntPlayer.player_id)
         .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
         .join(Monster, Monster.id == Hunt.monster_id)
-        .where(Hunt.cleared.is_(True), HuntPlayer.is_supporter.is_(False))
+        .where(filters.cleared(include_failed), HuntPlayer.is_supporter.is_(False))
     )
     if not include_ignored:
         stmt = stmt.where(filters.visible())
@@ -981,7 +1008,8 @@ def leaderboard(session: Session, player_ids: list[int] | None = None,
                 weapon_id: int | None = None,
                 variant_id: int | str | None = None,
                 min_hunts: int = 1, party: int | None = None,
-                weapon_name: str | None = None) -> dict:
+                weapon_name: str | None = None,
+                include_failed: bool = False) -> dict:
     """Best-players ranking: per-hunter aggregates over cleared hunts.
 
     ``player_ids`` (global hunter scope): empty = rank everyone, otherwise
@@ -996,7 +1024,7 @@ def leaderboard(session: Session, player_ids: list[int] | None = None,
         select(Hunt, HuntPlayer, Player.display_name)
         .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
         .join(Player, Player.id == HuntPlayer.player_id)
-        .where(Hunt.cleared.is_(True), HuntPlayer.is_supporter.is_(False),
+        .where(filters.cleared(include_failed), HuntPlayer.is_supporter.is_(False),
                filters.visible())
     )
     if monster_id is not None:
@@ -1073,7 +1101,8 @@ def activity(session: Session, party: int | None = None) -> dict:
 
 def compare(session: Session, player_ids: list[int], window: int = 5,
               variant_id: int | str | None = None,
-              party: int | None = None) -> dict:
+              party: int | None = None,
+              include_failed: bool = False) -> dict:
     """Scoped hunters' DPS vs whole-party DPS per hunt (needs a scope)."""
     if not player_ids:
         return {"points": [], "window": window, "scope": []}
@@ -1081,7 +1110,8 @@ def compare(session: Session, player_ids: list[int], window: int = 5,
     stmt = (
         select(Hunt, HuntPlayer)
         .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
-        .where(HuntPlayer.is_supporter.is_(False), filters.visible())
+        .where(HuntPlayer.is_supporter.is_(False), filters.visible(),
+               filters.cleared(include_failed))
         # Only hunts with at least one scoped member can contribute points.
         .where(Hunt.id.in_(
             select(HuntPlayer.hunt_id)
@@ -1163,7 +1193,7 @@ def hunt_highlights(session: Session, hunt_id: int) -> dict:
         p["damage_share"] = (p["total_damage"] / party_total) if party_total else 0.0
         p["awards"].sort(key=lambda e: e["id"])
     awards_meta = []
-    for aid in sorted(present):
+    for aid in sorted(present, key=_award_sort_key):
         a = meta.get(aid)
         awards_meta.append({"id": aid,
                             "name": a.name if a else f"Award {aid}",
@@ -1183,7 +1213,8 @@ def hunt_highlights(session: Session, hunt_id: int) -> dict:
 def highlights(session: Session, player_ids: list[int] | None = None,
                monster_id: int | None = None, stars: int | None = None,
                party: int | None = None,
-               weapon_name: str | None = None) -> dict:
+               weapon_name: str | None = None,
+               include_failed: bool = False) -> dict:
     """Aggregate hunter highlights across hunts: per-award player leaders
     (total / hunts-with / best) plus average damage share per player.
 
@@ -1195,7 +1226,7 @@ def highlights(session: Session, player_ids: list[int] | None = None,
     # single-hunter scope would otherwise push every share to 100%).
     hunt_stmt = (select(HuntPlayer.hunt_id)
                  .join(Hunt, Hunt.id == HuntPlayer.hunt_id)
-                 .where(filters.visible()))
+                 .where(filters.visible(), filters.cleared(include_failed)))
     if player_ids:
         hunt_stmt = hunt_stmt.where(HuntPlayer.player_id.in_(player_ids))
     if weapon_name is not None:
@@ -1235,7 +1266,7 @@ def highlights(session: Session, player_ids: list[int] | None = None,
         if d["total"] > 0:  # hide players who scored nothing on an award
             by_award.setdefault(aid, []).append(d)
     awards_out = []
-    for aid in sorted(by_award):
+    for aid in sorted(by_award, key=_award_sort_key):
         a = meta.get(aid)
         leaders = sorted(by_award[aid], key=lambda x: (-x["total"], x["player"]))
         awards_out.append({
@@ -1306,7 +1337,8 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
                          stars: int | None = None,
                          variant_id: int | str | None = None,
                          party: int | None = None,
-                         weapon_name: str | None = None) -> dict:
+                         weapon_name: str | None = None,
+                         include_failed: bool = False) -> dict:
     """Analyze player DPS improvement over time, grouped by monster and quest stars (only groups with >1 instance).
 
     Single-hunter mode (``player_id`` set, no ``player_ids``) returns one
@@ -1327,7 +1359,8 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
         .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
         .join(Player, Player.id == HuntPlayer.player_id)
         .join(Monster, Monster.id == Hunt.monster_id)
-        .where(Hunt.cleared.is_(True), HuntPlayer.is_supporter.is_(False), filters.visible())
+        .where(filters.cleared(include_failed), HuntPlayer.is_supporter.is_(False),
+               filters.visible())
         .order_by(Hunt.started_at)
     )
     if single_id is not None:

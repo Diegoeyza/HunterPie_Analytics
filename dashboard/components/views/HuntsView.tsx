@@ -334,9 +334,12 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
   );
 }
 
-export default function HuntsView({ scope, weaponName, partySize }: { scope: number[]; weaponName: string | null; partySize: number | null }) {
+export default function HuntsView({ scope, weaponName, partySize, includeFailed }: { scope: number[]; weaponName: string | null; partySize: number | null; includeFailed: boolean }) {
   const [monsterFilter, setMonsterFilter] = useState<string>("");
-  const [resultFilter, setResultFilter] = useState<"" | "cleared" | "failed">("");
+  // The settings toggle sets the initial result filter; the local segmented
+  // control still wins after that.
+  const [resultFilter, setResultFilter] = useState<"" | "cleared" | "failed">(
+    includeFailed ? "" : "cleared");
   const [selected, setSelected] = useState<HuntSummary | null>(null);
 
   const { data, error, loading } = useApi<{ hunts: HuntSummary[] }>("/hunts", {

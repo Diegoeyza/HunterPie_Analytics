@@ -90,7 +90,7 @@ const columns: ColumnDef<HighScore>[] = [
   },
 ];
 
-export default function HighScoreView({ scope, variantId, weaponName, clearScope, partySize }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; partySize: number | null }) {
+export default function HighScoreView({ scope, variantId, weaponName, clearScope, partySize, includeFailed }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; partySize: number | null; includeFailed: boolean }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -107,6 +107,7 @@ export default function HighScoreView({ scope, variantId, weaponName, clearScope
     sort_by: sortBy,
     ...(topN && { limit: Number(topN) }),
     ...(partySize != null && { players: partySize }),
+    ...(includeFailed && { include_failed: true }),
   });
   const rows = data?.scores ?? null;
 

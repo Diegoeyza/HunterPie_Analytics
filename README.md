@@ -75,6 +75,11 @@ Every tab shares a **filter bar** (monster, quest, stars, weapon, hunter) and a
 Scope, party size and the active tab sync to the URL, so views are shareable
 and back-button safe.
 
+**Settings (gear icon)** — switch light/dark theme and choose whether **failed
+(carted-out) quests count in the stats**. By default only cleared hunts feed DPS
+and rankings; clear-rate columns always count failures. The setting is
+remembered and synced to the URL (`?failed=1`).
+
 ### The tabs
 
 | Tab | What it shows |
@@ -220,6 +225,17 @@ for the whole party. CPU-supporters are flagged.
 **Does it modify the game or talk to the network?**
 No. The mod only *reads* game state and writes JSON; the dashboard only reads
 those JSON files. Both are offline and open source (Apache-2.0).
+
+**Failed hunts don't show up in the stats.**
+That's the default: only cleared hunts feed DPS and rankings. Open **Settings
+(gear) → Include failed hunts** to count carted-out quests too. Clear rates
+always count failures either way.
+
+**A quest is missing entirely.**
+Hunts where no monster ever dropped below **40% HP** are treated as
+"not engaged" and skipped at import (environment damage from a turf war isn't a
+quest target). Failed quests bypass this and are stored. This is an import-time
+filter, so those hunts can't be recovered later without re-importing.
 
 **Multi-monster quests look split.**
 One hunt row is created per monster, each carrying the full quest damage

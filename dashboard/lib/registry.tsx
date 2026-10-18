@@ -29,6 +29,8 @@ export interface ViewCtx {
   setScope: (ids: number[]) => void;
   /** Global party-size filter: exact hunters per hunt. Null = all sizes. */
   partySize: number | null;
+  /** Count failed (carted-out) hunts in performance stats (settings menu). */
+  includeFailed: boolean;
 }
 
 export interface TabDef {
@@ -44,25 +46,25 @@ export const TABS: TabDef[] = [
     id: "progress",
     title: "Progress",
     blurb: "FR-3.1 — rolling DPS and clear time per hunt, filterable by monster, quest, stars, weapon, hunter.",
-    render: (ctx) => <ProgressView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
+    render: (ctx) => <ProgressView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "growth",
     title: "Growth",
     blurb: "Instance-weighted DPS change with per-group trends (median, best, slope, clear time). Single hunter drill-down, multi-hunter scope, monster/star/weapon/variant filters.",
-    render: (ctx) => <GrowthView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} setScope={ctx.setScope} />,
+    render: (ctx) => <GrowthView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} setScope={ctx.setScope} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "weapons",
     title: "Weapons",
     blurb: "FR-3.2 — avg/peak DPS, hunt count and clear rate by weapon type.",
-    render: (ctx) => <WeaponsView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
+    render: (ctx) => <WeaponsView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "highlights",
     title: "Highlights",
     blurb: "Quest-end hunter highlights (awards) and average damage share, per monster/weapon/hunter. REFramework hunts only.",
-    render: (ctx) => <HighlightsView scope={ctx.scope} weaponName={ctx.weaponName} partySize={ctx.partySize} />,
+    render: (ctx) => <HighlightsView scope={ctx.scope} weaponName={ctx.weaponName} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "curves",
@@ -74,7 +76,7 @@ export const TABS: TabDef[] = [
     id: "hunts",
     title: "Hunts",
     blurb: "Every run, latest first — click a row for party damage, DPS, hunter highlights and the damage curve.",
-    render: (ctx) => <HuntsView scope={ctx.scope} weaponName={ctx.weaponName} partySize={ctx.partySize} />,
+    render: (ctx) => <HuntsView scope={ctx.scope} weaponName={ctx.weaponName} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "quests",
@@ -86,19 +88,19 @@ export const TABS: TabDef[] = [
     id: "leaderboard",
     title: "Leaderboard",
     blurb: "Best players by DPS over cleared hunts — filterable by monster, stars, weapon and min hunts.",
-    render: (ctx) => <LeaderboardView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
+    render: (ctx) => <LeaderboardView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "high-scores",
     title: "High Scores",
     blurb: "One row per cleared hunt, ranked by top DPS or fastest clear. Scoped to the hunters bar above; filterable by monster, weapon and stars.",
-    render: (ctx) => <HighScoreView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
+    render: (ctx) => <HighScoreView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "compare",
     title: "Compare",
     blurb: "Your scoped hunters vs the whole party, hunt by hunt. Star yourself in the hunters bar above.",
-    render: (ctx) => <CompareView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
+    render: (ctx) => <CompareView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "activity",
@@ -110,7 +112,7 @@ export const TABS: TabDef[] = [
     id: "synergy",
     title: "Synergy",
     blurb: "FR-3.4 — clear time and damage share by teammate pairing (supporters excluded).",
-    render: (ctx) => <SynergyView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} />,
+    render: (ctx) => <SynergyView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "buffs",
