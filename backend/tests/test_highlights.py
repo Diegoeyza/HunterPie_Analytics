@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app import api
-from app.db import init_db, make_session
+from app.db import dispose_engine, init_db, make_session
 from app.models import (
     Award,
     Hunt,
@@ -17,6 +17,7 @@ from app.models import (
 )
 
 _TEST_DBS: list[str] = []
+_SEED_SESSIONS: list = []
 
 
 def make_client(seed=None):
@@ -25,6 +26,7 @@ def make_client(seed=None):
     _TEST_DBS.append(path)
     init_db(path)
     session = make_session(path)
+    _SEED_SESSIONS.append(session)
     if seed:
         seed(session)
 
@@ -80,8 +82,13 @@ def seed_rich(s):
 
 def teardown_function():
     api.app.dependency_overrides.clear()
+    # A seed session still open holds a checked-out connection that
+    # dispose() cannot close — release it first, then the pool, then the file.
+    while _SEED_SESSIONS:
+        _SEED_SESSIONS.pop().close()
     while _TEST_DBS:
         path = _TEST_DBS.pop()
+        dispose_engine(path)  # drop pooled connections; Windows can't unlink
         if os.path.exists(path):
             os.remove(path)
 

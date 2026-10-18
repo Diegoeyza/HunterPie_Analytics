@@ -50,9 +50,11 @@ def test_fresh_db_has_all_tables_and_version():
     fd, path = tempfile.mkstemp(suffix=".db")
     import os
     os.close(fd)
+    engines = []
     try:
         dbmod.init_db(path)
         eng = create_engine(f"sqlite:///{path}")
+        engines.append(eng)
         with eng.connect() as conn:
             from sqlalchemy import text
             version = conn.execute(
@@ -61,10 +63,17 @@ def test_fresh_db_has_all_tables_and_version():
             tables = {r[0] for r in conn.execute(text(
                 "SELECT name FROM sqlite_master WHERE type='table'"))}
         reflected = MetaData()
-        reflected.reflect(bind=create_engine(f"sqlite:///{path}"))
+        ref_eng = create_engine(f"sqlite:///{path}")
+        engines.append(ref_eng)
+        reflected.reflect(bind=ref_eng)
         assert {t for t in reflected.tables} >= set(Base.metadata.tables)
         assert tables >= set(Base.metadata.tables)
     finally:
+        # Windows can't unlink a DB file an Engine still holds open (WinError
+        # 32): close ours plus init_db's cached engine before deleting.
+        for engine in engines:
+            engine.dispose()
+        dbmod.dispose_engine(path)
         Path(path).unlink(missing_ok=True)
 
 
@@ -77,9 +86,11 @@ def test_fresh_db_has_no_reverted_weapon_model_artifacts():
 
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
+    engines = []
     try:
         dbmod.init_db(path)
         eng = create_engine(f"sqlite:///{path}")
+        engines.append(eng)
         with eng.connect() as conn:
             tables = {r[0] for r in conn.execute(text(
                 "SELECT name FROM sqlite_master WHERE type='table'"))}
@@ -89,6 +100,9 @@ def test_fresh_db_has_no_reverted_weapon_model_artifacts():
         assert "weapon_model_id" not in cols
         assert "weapon_name" in cols  # v7: local-player weapon name
     finally:
+        for engine in engines:
+            engine.dispose()
+        dbmod.dispose_engine(path)
         Path(path).unlink(missing_ok=True)
 
 
@@ -101,4 +115,5 @@ def test_migrate_is_idempotent():
         assert dbmod.migrate(db_path=path) == dbmod.LATEST_VERSION
         assert dbmod.migrate(db_path=path) == dbmod.LATEST_VERSION
     finally:
+        dbmod.dispose_engine(path)
         Path(path).unlink(missing_ok=True)

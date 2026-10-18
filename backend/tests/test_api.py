@@ -6,9 +6,10 @@ from datetime import datetime
 from fastapi.testclient import TestClient
 
 from app import api
-from app.db import init_db, make_session
+from app.db import dispose_engine, init_db, make_session
 
 _TEST_DBS: list[str] = []
+_SEED_SESSIONS: list = []
 
 
 def make_client(seed=None):
@@ -19,6 +20,7 @@ def make_client(seed=None):
     _TEST_DBS.append(path)
     init_db(path)
     session = make_session(path)
+    _SEED_SESSIONS.append(session)
     if seed:
         seed(session)
 
@@ -137,12 +139,25 @@ def test_sos_join_dps_uses_own_window():
     assert scores[0]["player"] == "Isi"
 
 
-def teardown_function():
+def cleanup_test_dbs():
+    """Close seed sessions, dispose cached engines, delete temp DB files.
+
+    Order matters on Windows: an open seed session holds a checked-out
+    connection that dispose() cannot close, and Windows refuses to unlink a
+    DB file any live connection still holds open (WinError 32).
+    """
     api.app.dependency_overrides.clear()
+    while _SEED_SESSIONS:
+        _SEED_SESSIONS.pop().close()
     while _TEST_DBS:
         path = _TEST_DBS.pop()
+        dispose_engine(path)  # drop pooled connections; Windows can't unlink
         if os.path.exists(path):
             os.remove(path)
+
+
+def teardown_function():
+    cleanup_test_dbs()
 
 
 def test_health_empty():

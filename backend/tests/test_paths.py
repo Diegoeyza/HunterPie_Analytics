@@ -14,8 +14,15 @@ def test_resource_path_source_root():
 
 
 def test_user_data_dir_honors_xdg(monkeypatch, tmp_path):
-    monkeypatch.setattr(paths.os, "name", "posix")
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from types import SimpleNamespace
+
+    # Patch only the module's view of os (never the real os module — that
+    # would make pathlib build PosixPath and explode on Windows; see the same
+    # rule in test_dedupe_case_insensitive_on_windows). The branch decision
+    # and env lookup are what we're testing; pathlib still builds a native
+    # path, so this runs on both posix and Windows.
+    monkeypatch.setattr(paths, "os", SimpleNamespace(
+        name="posix", environ={"XDG_DATA_HOME": str(tmp_path)}))
     out = paths.user_data_dir()
     assert out == tmp_path / paths.APP_NAME
     assert out.is_dir()
