@@ -14,7 +14,6 @@
 #define AppPublisher "Diegoeyza"
 #define AppExe "HunterPieAnalytics.exe"
 #define ForkExe "HunterPie-Fork\HunterPie.exe"
-#define HasFork DirExists(AddBackslash(SourcePath) + "..\dist\HunterPie-Fork")
 
 [Setup]
 AppId={{7C3A2B1E-4F6D-4E2A-9B7C-1A2B3C4D5E6F}
@@ -41,7 +40,7 @@ UninstallDisplayName={#AppName}
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
-#if HasFork
+#if DirExists(AddBackslash(SourcePath) + "..\dist\HunterPie-Fork")
 Name: "companionicon"; Description: "Create a shortcut to the analytics companion (HunterPie)"; GroupDescription: "Shortcuts:"
 #endif
 Name: "launchapp"; Description: "Launch {#AppName} after setup"; GroupDescription: "Finish:"
@@ -59,7 +58,7 @@ Source: "..\reframework\INSTALL.txt"; DestDir: "{app}\HuntDumper"; Flags: ignore
 ; HunterPie analytics-export companion (built by CI) — the data source for
 ; DPS curves. Included only when present in dist/. The standard HunterPie does
 ; not export, so this is what "already have HunterPie" users should run.
-#if HasFork
+#if DirExists(AddBackslash(SourcePath) + "..\dist\HunterPie-Fork")
 Source: "..\dist\HunterPie-Fork\*"; DestDir: "{app}\HunterPie-Fork"; \
   Flags: recursesubdirs createallsubdirs ignoreversion
 #endif
@@ -67,7 +66,7 @@ Source: "..\dist\HunterPie-Fork\*"; DestDir: "{app}\HunterPie-Fork"; \
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
-#if HasFork
+#if DirExists(AddBackslash(SourcePath) + "..\dist\HunterPie-Fork")
 Name: "{group}\HunterPie Analytics companion"; Filename: "{app}\{#ForkExe}"
 Name: "{autodesktop}\HunterPie Analytics companion"; Filename: "{app}\{#ForkExe}"; Tasks: companionicon
 #endif
@@ -75,7 +74,7 @@ Name: "{autodesktop}\HunterPie Analytics companion"; Filename: "{app}\{#ForkExe}
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; \
   Flags: nowait postinstall skipifsilent; Tasks: launchapp
-#if HasFork
+#if DirExists(AddBackslash(SourcePath) + "..\dist\HunterPie-Fork")
 Filename: "{app}\{#ForkExe}"; Description: "Launch the analytics companion (HunterPie)"; \
   Flags: nowait postinstall skipifsilent unchecked
 #endif
