@@ -31,9 +31,15 @@ Without these the release still builds, just unsigned (the CI step is skipped).
 Meanwhile, publish the **Microsoft Store** build (section 2) to give users a
 warning-free install option.
 
-### 2. Microsoft Store
+### 2. Microsoft Store (free for individual developers)
 
-1. Create a Partner Center account (~$19 one-time, individual).
+Registration is now **free** for individuals via the new onboarding flow —
+the legacy $19 fee is waived. You must start at this exact entry point:
+
+1. Register at <https://storedeveloper.microsoft.com> (sign in with a
+   Microsoft account; verify identity with a government-issued ID + selfie).
+   Starting from Partner Center or Visual Studio directly gives the **legacy
+   paid** flow instead.
 2. Reserve the app name **HunterPie Analytics**.
 3. Put the exact publisher DN from Partner Center into
    `packaging/msix/AppxManifest.xml` (`Identity/@Publisher`) and update
