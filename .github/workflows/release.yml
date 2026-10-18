@@ -90,8 +90,22 @@ jobs:
           path: dist/HunterPieAnalytics
           if-no-files-found: error
 
+      # `secrets` is not a valid context in a step `if`, so detect the token
+      # via env and expose it as a step output instead.
+      - name: Detect SignPath config
+        id: signpath
+        shell: bash
+        env:
+          SIGNPATH_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          if [ -n "$SIGNPATH_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: SignPath (optional)
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        if: steps.signpath.outputs.enabled == 'true'
         uses: signpath/github-action-submit-signing-request@v1
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
