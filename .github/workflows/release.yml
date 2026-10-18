@@ -169,3 +169,15 @@ jobs:
         with:
           files: assets/*
           generate_release_notes: true
+          # Pre-pended to the auto-generated notes (see the action docs).
+          body: |
+            > **Windows SmartScreen / antivirus:** the direct-download installer
+            > and `.exe` are **not code signed**, so Windows may show
+            > "Windows protected your PC" (*More info → Run anyway*), and some
+            > antivirus tools may flag the PyInstaller bundle. The Microsoft
+            > Store build is re-signed by Microsoft and shows no warning.
+            > Verify downloads with `SHA256SUMS.txt`.
+
+            **Install (players):** run `HunterPieAnalytics-Setup-*.exe`
+            (per-user, no admin) or use the Store build. The in-game mod is
+            `HuntDumper-*.zip` (REFramework) — extract it into the game folder.
