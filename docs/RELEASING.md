@@ -5,11 +5,17 @@ Windows runner and attached to a GitHub Release when you push a `v*` tag.
 
 ## One-time setup
 
-### 1. Code signing (SignPath Foundation — free for OSS)
+### 1. Code signing (SignPath Foundation — free for OSS) — *optional*
 
-1. Apply at <https://signpath.org/apply.html>. Requirements are already met:
-   public repo, OSI license ([LICENSE](../LICENSE)), a
-   [code signing policy](CODE_SIGNING.md), and downloadable releases.
+The direct-download binaries ship **unsigned by default**: Windows SmartScreen
+will warn on first run and some AV engines may flag the PyInstaller bundle.
+That is expected until signing is enabled. SignPath is free for qualifying OSS
+projects but they prefer projects with existing usage/reputation, so it can be
+added later without changing anything else.
+
+1. Apply at <https://signpath.org/apply.html>. Requirements: public repo, OSI
+   license ([LICENSE](../LICENSE)), a [code signing policy](CODE_SIGNING.md),
+   and downloadable releases.
 2. Create a project + artifact configuration in SignPath and note the slugs.
 3. Add repository secrets:
 
@@ -21,7 +27,9 @@ Windows runner and attached to a GitHub Release when you push a `v*` tag.
    | `SIGNPATH_SIGNING_POLICY_SLUG` | Signing policy slug |
    | `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG` | Artifact configuration slug |
 
-Without these the release still builds, just unsigned.
+Without these the release still builds, just unsigned (the CI step is skipped).
+Meanwhile, publish the **Microsoft Store** build (section 2) to give users a
+warning-free install option.
 
 ### 2. Microsoft Store
 
@@ -48,8 +56,11 @@ Without these the release still builds, just unsigned.
 
 3. CI builds and attaches to the Release:
    `HunterPieAnalytics-Setup-*.exe`, `HunterPieAnalytics-*.msix`,
-   `hunt-dumper-lua.zip`, `HunterPie-AnalyticsFork.zip`, `SHA256SUMS.txt`.
-4. Upload the `.msix` to Partner Center and submit for certification.
+   `hunt-dumper-lua.zip`, `HuntDumper-*.zip`, `HunterPie-AnalyticsFork.zip`,
+   `SHA256SUMS.txt`.
+4. Since the direct download is unsigned, mention it in the release notes
+   (SmartScreen "More info → Run anyway") and point users to the Store build.
+5. Upload the `.msix` to Partner Center and submit for certification.
 
 ## After the release
 
@@ -57,4 +68,4 @@ Without these the release still builds, just unsigned.
   <https://www.microsoft.com/en-us/wdsi/filesubmission>.
 - Optionally upload the installer to VirusTotal and link the report in the
   release notes (transparency).
-- Verify the signed artifacts: `signtool verify /pa /v <file>`.
+- If/when SignPath signing is enabled, verify with `signtool verify /pa /v <file>`.

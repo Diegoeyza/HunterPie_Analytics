@@ -1,22 +1,32 @@
-# Code signing policy
+# Code signing
 
-This project's Windows binaries are code signed as part of the release
-pipeline. Releases are built from source by GitHub Actions and signed so users
-can verify that a download really came from this repository.
+## Current status
 
-**Free code signing provided by [SignPath.io](https://signpath.io/), certificate
-by [SignPath Foundation](https://signpath.org/).**
+The direct-download Windows binaries (the installer and the app `.exe`) are
+**not code signed** at this time. As a result:
 
-## What gets signed
+- Windows SmartScreen may show **"Windows protected your PC"** on first run.
+  Choose *More info → Run anyway* if you trust the download source.
+- Some antivirus engines flag unsigned PyInstaller bundles heuristically.
+- Releases always publish `SHA256SUMS.txt` and GitHub build-provenance
+  attestations, so you can verify integrity and origin regardless.
 
-- `HunterPieAnalytics.exe` (the desktop launcher) and the DLLs in its onedir
-  bundle.
-- The `HunterPieAnalytics-Setup-*.exe` installer.
+The **Microsoft Store** build is re-signed by Microsoft and shows **no
+SmartScreen warning**. If you want a warning-free install, use the Store.
 
-Artifacts published to the [Microsoft Store](https://apps.microsoft.com/) are
-re-signed by Microsoft. The REFramework Lua mod ships as plain text and is not
-signed. The HunterPie analytics-export fork is built upstream and included in
-the installer as an upstream open-source binary.
+## Planned: SignPath Foundation
+
+This project intends to use free open-source code signing from the
+[SignPath Foundation](https://signpath.org/) once the project has enough
+verifiable reputation to be accepted. When that is enabled, the policy below
+applies.
+
+> When enabled: **Free code signing provided by [SignPath.io](https://signpath.io/),
+> certificate by [SignPath Foundation](https://signpath.org/).**
+
+The REFramework Lua mod ships as plain text and is never signed. The HunterPie
+analytics-export fork is built upstream and included in the installer as an
+upstream open-source binary.
 
 ## Roles
 
@@ -38,10 +48,9 @@ it. See [PRIVACY.md](../PRIVACY.md).
 - Every release ships a `SHA256SUMS.txt`.
 - Build provenance is attested via GitHub Actions artifact attestations
   (`gh attestation verify`).
-- Verify a signed binary with `signtool verify /pa /v <file>`.
+- Once signing is enabled, verify a binary with `signtool verify /pa /v <file>`.
 
 ## Build integrity
 
 Binaries are produced only by the workflows in `.github/workflows/` from source
-in this repository. Every signing request is reviewed and approved by a project
-approver before SignPath issues a signature.
+in this repository.

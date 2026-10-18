@@ -1,7 +1,6 @@
 """API boundary validation: 422s, 409s, strict id parsing."""
 import os
 
-from app import api
 from tests.test_api import cleanup_test_dbs, make_client, seed_two_hunts
 
 
