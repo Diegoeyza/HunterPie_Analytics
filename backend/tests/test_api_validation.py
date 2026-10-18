@@ -2,15 +2,11 @@
 import os
 
 from app import api
-from tests.test_api import _TEST_DBS, make_client, seed_two_hunts
+from tests.test_api import cleanup_test_dbs, make_client, seed_two_hunts
 
 
 def teardown_function():
-    api.app.dependency_overrides.clear()
-    while _TEST_DBS:
-        path = _TEST_DBS.pop()
-        if os.path.exists(path):
-            os.remove(path)
+    cleanup_test_dbs()
 
 
 def test_garbage_player_ids_is_422():

@@ -1,9 +1,10 @@
 from datetime import datetime
 
 import pytest
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import sessionmaker
 
+from app.db import _on_connect
 from app.ingest import find_rename_candidates, upsert_hunt
 from app.models import (
     Base,
@@ -20,6 +21,10 @@ from app.models import (
 @pytest.fixture
 def session():
     engine = create_engine("sqlite:///:memory:", future=True)
+    # Same PRAGMAs as the app's engines — above all foreign_keys=ON, without
+    # which FK violations (e.g. award rows written before their definitions)
+    # stay invisible here while breaking the real app.
+    event.listen(engine, "connect", _on_connect)
     Base.metadata.create_all(engine)
     s = sessionmaker(bind=engine, future=True)()
     s.add(Monster(name="Rathalos", species="Flying Wyvern"))

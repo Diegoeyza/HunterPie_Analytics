@@ -111,6 +111,21 @@ def make_engine(db_path: str | Path = DEFAULT_DB_PATH, echo: bool = False):
     return engine
 
 
+def dispose_engine(db_path: str | Path = DEFAULT_DB_PATH) -> None:
+    """Close and forget the cached Engine for a path.
+
+    The cache keeps pooled connections open for the process lifetime, which
+    pins the DB file — fine for the app, but tests (or any short-lived
+    writer) must call this before deleting a DB file: Windows refuses to
+    unlink a file a live Engine still holds open (WinError 32).
+    """
+    key = str(Path(db_path).expanduser().absolute())
+    with _ENGINES_LOCK:
+        engine = _ENGINES.pop(key, None)
+    if engine is not None:
+        engine.dispose()
+
+
 def _user_version(conn) -> int:
     return conn.execute(text("PRAGMA user_version")).scalar_one()
 
