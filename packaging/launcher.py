@@ -17,6 +17,30 @@ from pathlib import Path
 
 APP_TITLE = "HunterPie Analytics"
 
+# Source run: make backend/ importable. The PyInstaller spec does this via
+# pathex; a plain `python packaging/launcher.py` only gets packaging/ on
+# sys.path, which would break `from app...` imports.
+if not getattr(sys, "frozen", False):
+    _backend = Path(__file__).resolve().parent.parent / "backend"
+    if str(_backend) not in sys.path:
+        sys.path.insert(0, str(_backend))
+
+
+def _ensure_streams() -> None:
+    """Give the server thread real std streams in windowed builds.
+
+    PyInstaller's windowed bootloader leaves sys.stdout/sys.stderr as None.
+    uvicorn's logging formatters call isatty() on the stream at startup,
+    which kills the server thread and surfaces only as the misleading
+    "the local API did not start in time" from _wait_healthy.
+    """
+    for _name in ("stdout", "stderr"):
+        if getattr(sys, _name, None) is None:
+            setattr(sys, _name, open(os.devnull, "w", encoding="utf-8"))
+
+
+_ensure_streams()
+
 
 def _resource_root() -> Path:
     """Root of bundled read-only resources (out/, data/, lua)."""
