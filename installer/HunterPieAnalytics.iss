@@ -10,7 +10,7 @@
 ;   iscc installer\HunterPieAnalytics.iss
 
 #define AppName "HunterPie Analytics"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.1"
 #define AppPublisher "Diegoeyza"
 #define AppExe "HunterPieAnalytics.exe"
 #define ForkExe "HunterPie-Fork\HunterPie.exe"
@@ -80,6 +80,74 @@ Filename: "{app}\{#ForkExe}"; Description: "Launch the analytics companion (Hunt
 #endif
 
 [Code]
+// --- WebView2 Evergreen runtime ---------------------------------------------
+// The dashboard window uses WebView2 (Edge). It ships with Windows 11 and most
+// updated Windows 10, but not guaranteed. Detect it and, only if missing,
+// download and install the Evergreen Bootstrapper so the window can't fail.
+const
+  WebView2KeyMachine = 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+  WebView2KeyUser = 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+  WebView2Url = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703';
+  WebView2File = 'MicrosoftEdgeWebview2Setup.exe';
+
+var
+  DownloadPage: TDownloadWizardPage;
+
+function WebView2Installed: Boolean;
+var
+  Version: String;
+begin
+  Version := '';
+  if not RegQueryStringValue(HKLM, WebView2KeyMachine, 'pv', Version) then
+    RegQueryStringValue(HKCU, WebView2KeyUser, 'pv', Version);
+  Result := (Version <> '') and (Version <> '0.0.0.0');
+end;
+
+procedure InitializeWizard;
+begin
+  DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing),
+    SetupMessage(msgPreparingDesc), nil);
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if (CurPageID <> wpReady) or WebView2Installed then
+    Exit;
+  DownloadPage.Clear;
+  DownloadPage.Add(WebView2Url, WebView2File, '');
+  DownloadPage.Show;
+  try
+    try
+      DownloadPage.Download;
+    except
+      if MsgBox('Could not download the WebView2 runtime. The dashboard window ' +
+                'will not open without it.' + #13#10 + #13#10 +
+                'Install it manually from ' + WebView2Url + ' then relaunch ' +
+                'HunterPie Analytics.' + #13#10 + #13#10 +
+                'Continue the installation anyway?', mbError, MB_YESNO) = IDNO then
+        Result := False;
+    end;
+  finally
+    DownloadPage.Hide;
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+  InstallerPath: String;
+begin
+  Result := '';
+  if WebView2Installed then
+    Exit;
+  InstallerPath := ExpandConstant('{tmp}\' + WebView2File);
+  if FileExists(InstallerPath) then
+    // Per-user install when not elevated (no UAC); best effort, non-fatal.
+    Exec(InstallerPath, '/silent /install', '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
+end;
+
+// --- Existing HunterPie detection -------------------------------------------
 // Detect an existing (standard) HunterPie so we can tell the user why it won't
 // feed the dashboard and point them at the bundled companion.
 function ExistingHunterPiePath: String;
