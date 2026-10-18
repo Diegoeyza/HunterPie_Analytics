@@ -29,17 +29,19 @@ def test_is_frozen_reflects_sys(monkeypatch):
 
 
 def test_dedupe_case_insensitive_on_windows(monkeypatch):
-    monkeypatch.setattr(import_hunt.os, "name", "nt")
-    a = Path("C:/X/HuntExports")
-    out = import_hunt._dedupe([a, Path("c:/x/huntexports"), Path("D:/Y")])
-    assert out == [a, Path("D:/Y")]
+    from types import SimpleNamespace
+
+    # Patch only the module's view of os.name (never the real os module — that
+    # would make pathlib build WindowsPath and explode off-Windows).
+    a, b, d = Path("C:/X/HuntExports"), Path("c:/x/huntexports"), Path("D:/Y")
+    monkeypatch.setattr(import_hunt, "os", SimpleNamespace(name="nt"))
+    assert import_hunt._dedupe([a, b, d]) == [a, d]
 
 
 def _patch_candidates(monkeypatch, hp, rf, fork=()):
     monkeypatch.setattr(import_hunt, "_hunterpie_dir_candidates", lambda: list(hp))
     monkeypatch.setattr(import_hunt, "_reframework_dir_candidates", lambda: list(rf))
     monkeypatch.setattr(import_hunt, "_bundled_fork_candidates", lambda: list(fork))
-    monkeypatch.setattr(import_hunt.os, "name", "posix")
 
 
 def test_detected_sources_tags_kinds(monkeypatch, tmp_path):
@@ -61,6 +63,37 @@ def test_detected_sources_counts_bundled_fork_as_hunterpie(monkeypatch, tmp_path
     _patch_candidates(monkeypatch, [], [], [fork])
     assert import_hunt.detected_sources() == [
         {"kind": "hunterpie", "path": str(fork)}
+    ]
+
+
+def test_parse_library_folders_unescapes(monkeypatch):
+    vdf = r'''
+    "libraryfolders"
+    {
+        "0" { "path" "C:\\Program Files (x86)\\Steam" }
+        "1" { "path" "D:\\SteamLibrary" }
+    }
+    '''
+    assert import_hunt._parse_library_folders(vdf) == [
+        Path(r"C:\Program Files (x86)\Steam"),
+        Path(r"D:\SteamLibrary"),
+    ]
+
+
+def test_hunterpie_candidates_windows():
+    local = "C:/Users/g/Local"
+    pf = "C:/Program Files"
+    out = import_hunt._hunterpie_dir_candidates_nt(local, [pf, None])
+    assert out == [
+        Path(local) / "HunterPie" / "HuntExports",
+        Path(pf) / "HunterPie" / "HuntExports",
+    ]
+
+
+def test_reframework_dirs_from_roots(tmp_path):
+    roots = [tmp_path / "steam", tmp_path / "lib2"]
+    assert import_hunt._reframework_dirs_from_roots(roots) == [
+        r / import_hunt._WILDS_REF_REL for r in roots
     ]
 
 

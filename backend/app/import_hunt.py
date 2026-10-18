@@ -77,19 +77,49 @@ def _dedupe(paths: list[Path]) -> list[Path]:
     return out
 
 
+def _hunterpie_dir_candidates_nt(
+        localappdata: str | None,
+        program_files: list[str | None]) -> list[Path]:
+    """Pure builder for the Windows candidates (unit-testable off-Windows)."""
+    cands: list[Path] = []
+    if localappdata:
+        cands.append(Path(localappdata) / "HunterPie" / "HuntExports")
+    for base in program_files:
+        if base:
+            cands.append(Path(base) / "HunterPie" / "HuntExports")
+    return _dedupe(cands)
+
+
 def _hunterpie_dir_candidates() -> list[Path]:
     """Possible HunterPie HuntExports folders on this machine."""
     if os.name != "nt":
         return [_WSL_HUNTERPIE]
-    cands: list[Path] = []
-    local = os.environ.get("LOCALAPPDATA")
-    if local:
-        cands.append(Path(local) / "HunterPie" / "HuntExports")
-    for var in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
-        base = os.environ.get(var)
-        if base:
-            cands.append(Path(base) / "HunterPie" / "HuntExports")
-    return _dedupe(cands)
+    return _hunterpie_dir_candidates_nt(
+        os.environ.get("LOCALAPPDATA"),
+        [os.environ.get(v) for v in
+         ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432")],
+    )
+
+
+def _parse_library_folders(vdf_text: str) -> list[Path]:
+    """Library roots from a Steam ``libraryfolders.vdf`` body.
+
+    VDF escapes backslashes (``D:\\Steam``), so unescape them. Pure and
+    side-effect free so it can be unit-tested off-Windows.
+    """
+    return [Path(raw.replace("\\\\", "\\"))
+            for raw in re.findall(r'"path"\s*"([^"]+)"', vdf_text)]
+
+
+def _steam_install_root() -> Path | None:
+    """Steam install root from HKCU\\Software\\Valve\\Steam\\SteamPath."""
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+            return Path(winreg.QueryValueEx(key, "SteamPath")[0])
+    except Exception:
+        return None
 
 
 def _steam_library_roots() -> list[Path]:
@@ -97,31 +127,28 @@ def _steam_library_roots() -> list[Path]:
     if os.name != "nt":
         return []
     roots: list[Path] = []
-    steam: Path | None = None
-    try:
-        import winreg
-
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
-            steam = Path(winreg.QueryValueEx(key, "SteamPath")[0])
-    except Exception:
-        steam = None
+    steam = _steam_install_root()
     if steam is not None:
         roots.append(steam)
         vdf = steam / "steamapps" / "libraryfolders.vdf"
         try:
-            text = vdf.read_text(encoding="utf-8", errors="ignore")
-            for raw in re.findall(r'"path"\s*"([^"]+)"', text):
-                roots.append(Path(raw.replace("\\\\", "\\")))
+            roots.extend(_parse_library_folders(
+                vdf.read_text(encoding="utf-8", errors="ignore")))
         except OSError:
             pass
     return _dedupe(roots)
+
+
+def _reframework_dirs_from_roots(roots: list[Path]) -> list[Path]:
+    """Pure builder: one REFramework HuntExports path per Steam library root."""
+    return _dedupe([root / _WILDS_REF_REL for root in roots])
 
 
 def _reframework_dir_candidates() -> list[Path]:
     """Possible REFramework HuntExports folders on this machine."""
     if os.name != "nt":
         return [_WSL_REF]
-    return _dedupe([root / _WILDS_REF_REL for root in _steam_library_roots()])
+    return _reframework_dirs_from_roots(_steam_library_roots())
 
 
 def _bundled_fork_candidates() -> list[Path]:
