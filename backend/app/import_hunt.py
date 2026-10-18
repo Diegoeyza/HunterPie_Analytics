@@ -26,7 +26,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import re
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -45,18 +47,127 @@ WEAPONS = [
 
 DEFAULT_HUNTERPIE_VERSION = "2.14.0.466-analytics"
 DEFAULT_GAME_VERSION = "1.042.00.02"
-DEFAULT_EXPORTS_DIR = Path("/mnt/c/Program Files/HunterPie/HuntExports")
-"""Default HuntExports location (also the import.sh default and the
-dashboard Import button source). Override with $HUNT_EXPORTS."""
 
-DEFAULT_RF_EXPORTS_DIR = Path(
+# --- HuntExports source discovery -----------------------------------------
+# Two independent sources may feed the importer (either may be absent):
+#   * the HunterPie analytics-export fork  -> damage / weapons / DPS curves
+#   * the REFramework HuntDumper mod       -> awards / HP curve / local weapon
+# Windows paths are resolved for the packaged desktop build; the dev workflow
+# runs under Linux/WSL where the same folders appear under /mnt/c.
+
+_WSL_HUNTERPIE = Path("/mnt/c/Program Files/HunterPie/HuntExports")
+_WSL_HUNTERPIE_XML = Path("/mnt/c/Program Files/HunterPie/Languages/en-us.xml")
+_WSL_REF = Path(
     "/mnt/c/Program Files (x86)/Steam/steamapps/common/MonsterHunterWilds"
     "/reframework/data/HuntExports")
-"""REFramework mod dump dir (complementary source). Scanned after the
-HunterPie dir so the richer fork dump wins on ties; skipped when absent."""
-DEFAULT_NAMES_XML = Path("/mnt/c/Program Files/HunterPie/Languages/en-us.xml")
+_WILDS_REF_REL = Path("steamapps/common/MonsterHunterWilds/reframework/data/HuntExports")
+
 # Bundled Wilds names so `seeds/` import without a HunterPie install.
 BUNDLED_NAMES_JSON = Path(__file__).resolve().parent / "data" / "wilds_monster_names.json"
+
+
+def _dedupe(paths: list[Path]) -> list[Path]:
+    seen: set[str] = set()
+    out: list[Path] = []
+    for p in paths:
+        key = str(p).lower() if os.name == "nt" else str(p)
+        if key not in seen:
+            seen.add(key)
+            out.append(p)
+    return out
+
+
+def _hunterpie_dir_candidates() -> list[Path]:
+    """Possible HunterPie HuntExports folders on this machine."""
+    if os.name != "nt":
+        return [_WSL_HUNTERPIE]
+    cands: list[Path] = []
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        cands.append(Path(local) / "HunterPie" / "HuntExports")
+    for var in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        base = os.environ.get(var)
+        if base:
+            cands.append(Path(base) / "HunterPie" / "HuntExports")
+    return _dedupe(cands)
+
+
+def _steam_library_roots() -> list[Path]:
+    """Steam install roots: HKCU SteamPath + every library in libraryfolders.vdf."""
+    if os.name != "nt":
+        return []
+    roots: list[Path] = []
+    steam: Path | None = None
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+            steam = Path(winreg.QueryValueEx(key, "SteamPath")[0])
+    except Exception:
+        steam = None
+    if steam is not None:
+        roots.append(steam)
+        vdf = steam / "steamapps" / "libraryfolders.vdf"
+        try:
+            text = vdf.read_text(encoding="utf-8", errors="ignore")
+            for raw in re.findall(r'"path"\s*"([^"]+)"', text):
+                roots.append(Path(raw.replace("\\\\", "\\")))
+        except OSError:
+            pass
+    return _dedupe(roots)
+
+
+def _reframework_dir_candidates() -> list[Path]:
+    """Possible REFramework HuntExports folders on this machine."""
+    if os.name != "nt":
+        return [_WSL_REF]
+    return _dedupe([root / _WILDS_REF_REL for root in _steam_library_roots()])
+
+
+def _bundled_fork_candidates() -> list[Path]:
+    """The fork we install beside the app writes to <its own dir>\\HuntExports."""
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        return []
+    app_dir = Path(sys.executable).resolve().parent
+    return [app_dir / "HunterPie-Fork" / "HuntExports"]
+
+
+def known_export_dirs() -> list[Path]:
+    """Every candidate source folder (existing or not) — for messages."""
+    return _dedupe([
+        *_hunterpie_dir_candidates(),
+        *_bundled_fork_candidates(),
+        *_reframework_dir_candidates(),
+    ])
+
+
+def default_export_dirs() -> list[Path]:
+    """Candidate source folders that actually exist.
+
+    HunterPie first so its richer dump wins ties, then REFramework.
+    """
+    return [p for p in known_export_dirs() if p.is_dir()]
+
+
+def _names_xml_candidates() -> list[Path]:
+    if os.name != "nt":
+        return [_WSL_HUNTERPIE_XML]
+    cands: list[Path] = []
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        cands.append(Path(local) / "HunterPie" / "Languages" / "en-us.xml")
+    for var in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        base = os.environ.get(var)
+        if base:
+            cands.append(Path(base) / "HunterPie" / "Languages" / "en-us.xml")
+    return _dedupe(cands)
+
+
+def default_names_xml() -> Path | None:
+    for p in _names_xml_candidates():
+        if p.exists():
+            return p
+    return None
 
 
 def parse_ts(value: str) -> datetime:
@@ -78,7 +189,7 @@ def load_monster_names(xml_path: str | Path | None = None) -> dict[int, str]:
 
     if isinstance(xml_path, str):
         xml_path = Path(xml_path)
-    path = xml_path or (DEFAULT_NAMES_XML if DEFAULT_NAMES_XML.exists() else None)
+    path = xml_path or default_names_xml()
     if path is not None and path.exists():
         root = ET.parse(str(path)).getroot()
         wilds = root.find("./Monsters/Wilds")
@@ -408,11 +519,10 @@ def main() -> None:
         return
 
     # No --dir: scan every known source that exists (either may be absent).
-    dirs = args.dir or [str(d) for d in (DEFAULT_EXPORTS_DIR,
-                                         DEFAULT_RF_EXPORTS_DIR) if d.is_dir()]
+    dirs = args.dir or [str(d) for d in default_export_dirs()]
     if not dirs:
-        print("no export dirs found (looked in:\n"
-              f"  {DEFAULT_EXPORTS_DIR}\n  {DEFAULT_RF_EXPORTS_DIR})")
+        looked = "\n".join(f"  {d}" for d in known_export_dirs())
+        print("no export dirs found (looked in:\n" + looked + ")")
         return
     print("Importing from: " + ", ".join(dirs))
     from .import_job import run_import

@@ -30,3 +30,8 @@ jobs:
         working-directory: dashboard
       - run: npx tsc --noEmit
         working-directory: dashboard
+      # Ensure the static export the packaged app depends on still builds.
+      - run: npm run build
+        working-directory: dashboard
+        env:
+          NEXT_OUTPUT: export

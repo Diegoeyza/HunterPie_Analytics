@@ -1,0 +1,40 @@
+name: Build HunterPie fork
+
+# Builds the analytics-export fork of HunterPie (Apache-2.0). WPF is
+# Windows-only, so this must run on a Windows runner. The published folder is
+# what "HunterPie-only" users install to get damage/DPS-curve exports.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  fork:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Diegoeyza/HunterPie
+          ref: analytics-export
+          path: fork
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      # Self-contained so the download is drop-in (no runtime prerequisite).
+      - name: Publish
+        run: >
+          dotnet publish fork/HunterPie/HunterPie.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=false -o publish
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path publish\* -DestinationPath HunterPie-AnalyticsFork.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hunterpie-fork
+          path: HunterPie-AnalyticsFork.zip
+          if-no-files-found: error

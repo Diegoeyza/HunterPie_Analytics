@@ -13,6 +13,7 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -27,8 +28,9 @@ from .filters import (
     FilterError,
     parse_ids,
 )
-from .import_hunt import DEFAULT_EXPORTS_DIR, DEFAULT_RF_EXPORTS_DIR
+from .import_hunt import default_export_dirs, known_export_dirs
 from .import_job import JobBusyError, cancel_job, get_job, start_import_job
+from .paths import resource_path
 
 log = logging.getLogger(__name__)
 
@@ -338,13 +340,11 @@ def import_hunts(db: Session = Depends(get_db), force: bool = False):
     if env:
         dirs = [Path(p) for p in env.split(os.pathsep) if p]
     else:
-        dirs = [d for d in (DEFAULT_EXPORTS_DIR, DEFAULT_RF_EXPORTS_DIR)
-                if d.is_dir()]
+        dirs = default_export_dirs()
     dirs = [d for d in dirs if d.is_dir()]
     if not dirs:
-        raise HTTPException(404, "no hunt exports dir found "
-                                 f"({DEFAULT_EXPORTS_DIR} / "
-                                 f"{DEFAULT_RF_EXPORTS_DIR})")
+        looked = " / ".join(str(d) for d in known_export_dirs())
+        raise HTTPException(404, f"no hunt exports dir found ({looked})")
     try:
         job = start_import_job(_session_db_path(db), dirs, force=force)
     except JobBusyError as e:
@@ -389,6 +389,16 @@ def unpin(player_id: int, db: Session = Depends(get_db)):
         return queries.set_pin(db, player_id, False)
     except KeyError:
         raise HTTPException(404, f"player {player_id} not found") from None
+
+
+# Packaged desktop build: serve the statically-exported dashboard from the
+# same origin as the API (no Node at runtime). Mounted last so every /api
+# route above wins; absent during dev (Next.js serves the UI).
+_DASHBOARD_DIR = Path(os.environ.get("DASHBOARD_DIR",
+                                     resource_path("dashboard", "out")))
+if _DASHBOARD_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=str(_DASHBOARD_DIR), html=True),
+              name="dashboard")
 
 
 if __name__ == "__main__":

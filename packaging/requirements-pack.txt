@@ -1,0 +1,4 @@
+# Extra build/runtime deps for the packaged desktop app (Windows).
+# Backend runtime deps come from backend/requirements.txt.
+pywebview>=5.0
+pyinstaller>=6.0
