@@ -139,9 +139,9 @@ jobs:
             exit 0
           }
           $env:PATH = "$($makeappx.DirectoryName);${env:PATH}"
-          # MSIX version must be 4-part: derive from the tag (v1.0.1 -> 1.0.1.0).
+          # MSIX version must be 4-part: derive from the tag (v1.0.2 -> 1.0.2.0).
           $ver = "${{ github.ref_name }}"
-          if ($ver -match '^v?(\d+\.\d+\.\d+)') { $ver = $Matches[1] + '.0' } else { $ver = '1.0.1.0' }
+          if ($ver -match '^v?(\d+\.\d+\.\d+)') { $ver = $Matches[1] + '.0' } else { $ver = '1.0.2.0' }
           & packaging\msix\build-msix.ps1 -Version $ver
 
       - name: HuntDumper (Lua) zips
