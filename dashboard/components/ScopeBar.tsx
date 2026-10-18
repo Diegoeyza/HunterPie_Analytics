@@ -13,13 +13,15 @@ const SCOPE_KEY = "hp.scope";
 const VARIANT_KEY = "hp.variant";
 const PARTY_KEY = "hp.party";
 
-/** Default party size (4-player hunts); null = all sizes. */
-export const DEFAULT_PARTY_SIZE: number | null = 4;
+/** Default party size: null = all sizes. Must NOT default to a fixed size —
+ *  hunts with CPU supporters (stored as 3) and solo/duo runs would be hidden
+ *  from every view until the user discovers the Party filter. */
+export const DEFAULT_PARTY_SIZE: number | null = null;
 
 export function loadParty(): number | null {
   try {
     const raw = localStorage.getItem(PARTY_KEY);
-    // Nothing stored yet: default to full parties.
+    // Nothing stored yet: show all party sizes.
     if (raw === null) return DEFAULT_PARTY_SIZE;
     const v = raw ? (JSON.parse(raw) as unknown) : null;
     if (v === null) return null;
