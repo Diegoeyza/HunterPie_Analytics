@@ -195,6 +195,12 @@ main {
   margin: 0 auto;
 }
 .blurb { color: var(--muted); font-size: 13px; margin: 4px 0 16px; }
+.source-note {
+  color: var(--muted); font-size: 12px;
+  margin: 6px 14px 0; padding: 5px 10px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+}
+.source-note.warn { color: var(--accent); border-color: var(--accent); }
 
 .card {
   background: var(--panel);

@@ -1,27 +1,32 @@
 /** Typed fetch helpers for the FastAPI backend.
- *  Override with NEXT_PUBLIC_API_URL (default http://localhost:8000).
+ *
+ *  Default base is RELATIVE so the packaged build — where FastAPI serves both
+ *  the UI and /api on one origin — works with zero config. Dev/Docker set
+ *  NEXT_PUBLIC_API_URL (e.g. http://localhost:8000) to target a separate port.
  */
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 
 export type Params = Record<string, string | number | null | undefined>;
 
-function setParams(url: URL, params?: Params): void {
-  if (!params) return;
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== "" && v !== undefined && v !== null) url.searchParams.set(k, String(v));
+function apiUrl(path: string, params?: Params): string {
+  const qs = new URLSearchParams();
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== "" && v !== undefined && v !== null) qs.set(k, String(v));
+    }
   }
+  const query = qs.toString();
+  return `${BASE}/api${path}${query ? `?${query}` : ""}`;
 }
 
 export async function apiGet<T>(path: string, params?: Params): Promise<T> {
-  const url = new URL(`/api${path}`, BASE);
-  setParams(url, params);
-  const res = await fetch(url.toString(), { cache: "no-store" });
+  const res = await fetch(apiUrl(path, params), { cache: "no-store" });
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
   return (await res.json()) as T;
 }
 
 export async function apiSend<T>(method: string, path: string): Promise<T> {
-  const res = await fetch(new URL(`/api${path}`, BASE).toString(), { method });
+  const res = await fetch(apiUrl(path), { method });
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
   return (await res.json()) as T;
 }
@@ -38,9 +43,7 @@ const _inflight = new Map<string, Promise<unknown>>();
 const CACHE_TTL_MS = 60_000;
 
 function cacheKey(path: string, params?: Params): string {
-  const url = new URL(`/api${path}`, BASE);
-  setParams(url, params);
-  return url.toString();
+  return apiUrl(path, params);
 }
 
 export async function apiGetCached<T>(path: string, params?: Params): Promise<T> {
@@ -73,7 +76,7 @@ export function apiInvalidate(pathSubstring?: string): void {
 }
 
 export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(new URL(`/api${path}`, BASE).toString(), {
+  const res = await fetch(apiUrl(path), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -82,9 +85,11 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+export interface HealthSource { kind: "hunterpie" | "reframework"; path: string; }
 export interface Health {
   status: string; hunts: number;
   hunterpie_version?: string; game_version?: string;
+  sources?: HealthSource[];
 }
 
 export interface AliasItem {

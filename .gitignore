@@ -28,6 +28,10 @@ obj/
 # Packaging output (built by ./package.sh / make package)
 dist/
 
+# MSIX staging + generated placeholder tile assets (packaging/msix/make_assets.py)
+build/
+packaging/msix/Assets/
+
 # OS / editor
 .DS_Store
 Thumbs.db

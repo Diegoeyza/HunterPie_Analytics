@@ -8,6 +8,29 @@ Two sources feed it, and they complement each other:
 - **HunterPie** ([analytics-export fork](https://github.com/Diegoeyza/HunterPie)) — damage, weapon classes, DPS curves.
 - **HuntDumper** (`reframework/hunt_dumper.lua`, a [REFramework](https://github.com/praydog/REFramework) mod) — quest awards (hunter highlights), the local player's weapon name, CPU-supporter flags, HP curve.
 
+## Install (for players — no coding needed)
+
+1. Download the latest release and run `HunterPieAnalytics-Setup-<version>.exe`
+   (per-user install, no admin prompt), or install from the Microsoft Store.
+2. Launch it — the dashboard opens in its own window. No browser, no Python, no
+   Node, no terminal.
+3. Capture data with **either** source, or both — it works with whatever you have:
+
+   | You have | You get |
+   |----------|---------|
+   | REFramework + the bundled HuntDumper mod | Awards (hunter highlights), HP curves, damage totals |
+   | The HunterPie analytics-export fork | Damage, weapon classes, DPS curves |
+   | Both | Everything, merged per hunt (never double-counted) |
+
+   The app auto-detects the export folders. To install the REFramework mod,
+   copy `HuntDumper\hunt_dumper.lua` (included in the download) into your game's
+   `reframework\autorun\` folder — see `HuntDumper\INSTALL.txt`.
+4. Click **Import** in the dashboard after a hunt.
+
+Everything runs locally and offline: the app sends no data anywhere and reads
+only the JSON files your capture tools write. See [PRIVACY.md](PRIVACY.md).
+Windows binaries are code signed — see the [code signing policy](docs/CODE_SIGNING.md).
+
 ## How it works
 
 ```
@@ -210,13 +233,36 @@ make bench
 
 ## Sharing / packaging
 
-See [docs/SHARING.md](docs/SHARING.md) for how to hand this to someone else —
-the REFramework mod, the HunterPie fork, and this app are independent pieces.
+See [docs/SHARING.md](docs/SHARING.md). The REFramework mod, the HunterPie fork,
+and this app are independent pieces.
+
+End users get ready-to-run artifacts from **GitHub Releases** (built and signed
+by CI, see `.github/workflows/release.yml`):
+
+| Artifact | Contents |
+|----------|----------|
+| `HunterPieAnalytics-Setup-<ver>.exe` | One-click per-user installer (desktop app + bundled Lua mod) |
+| `HunterPieAnalytics-<ver>.msix` | Microsoft Store package (dashboard only) |
+| `hunt-dumper-lua.zip` | REFramework mod (`hunt_dumper.lua` + `INSTALL.txt`) |
+| `HuntDumper-<ver>.zip` | REFramework mod, game-folder layout (Vortex/Nexus) |
+| `HunterPie-AnalyticsFork.zip` | Prebuilt analytics-export fork (for HunterPie-only users) |
+
+Local, developer-oriented bundle (no Windows build tools needed):
 
 ```sh
-make package   # builds dist/: REFramework mod zip + full app source zip
+make package   # dist/: REFramework mod zip + full app source zip
 ```
+
+To build the desktop app locally on Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1
+iscc installer\HunterPieAnalytics.iss
+```
+
+See [docs/RELEASING.md](docs/RELEASING.md) for signing/Store setup and how to
+cut a release, and [docs/NEXUS.md](docs/NEXUS.md) for the Nexus Mods listing kit.
 
 ## License
 
-Private — [Diegoeyza](https://github.com/Diegoeyza)
+Apache-2.0 — see [LICENSE](LICENSE).

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MSIX manifest for the Microsoft Store package (dashboard only).
+     Full-trust desktop app: reads HuntExports JSON folders and serves the UI
+     on loopback. The game mods (REFramework Lua / HunterPie fork) are NOT part
+     of the Store package — they ship separately to stay within Store policy.
+
+     Publisher MUST match the Partner Center publisher DN exactly for
+     submission (e.g. "CN=1a2b3c4d-...", or CN=<your name> for a personal
+     account). Version must be 4-part and monotonically increasing. -->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="Diegoeyza.HunterPieAnalytics"
+    Publisher="CN=Diegoeyza"
+    Version="1.0.0.0" />
+
+  <Properties>
+    <DisplayName>HunterPie Analytics</DisplayName>
+    <PublisherDisplayName>Diegoeyza</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop"
+                        MinVersion="10.0.17763.0"
+                        MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="HunterPieAnalytics"
+                 Executable="HunterPieAnalytics.exe"
+                 EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="HunterPie Analytics"
+        Description="Post-hunt analytics dashboard for Monster Hunter Wilds."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+        <uap:SplashScreen Image="Assets\SplashScreen.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
