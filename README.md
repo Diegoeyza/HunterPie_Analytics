@@ -259,6 +259,9 @@ powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1
 iscc installer\HunterPieAnalytics.iss
 ```
 
+See [docs/RELEASING.md](docs/RELEASING.md) for signing/Store setup and how to
+cut a release.
+
 ## License
 
 Apache-2.0 — see [LICENSE](LICENSE).

@@ -18,9 +18,12 @@ Copy-Item "$app\*" $stage -Recurse
 Copy-Item (Join-Path $PSScriptRoot "AppxManifest.xml") $stage
 Copy-Item (Join-Path $PSScriptRoot "Assets") $stage -Recurse
 
+# Patch only the <Identity ... Version="..."/> attribute — a bare
+# `Version="x.y.z.w"` replace would also hit MinVersion/MaxVersionTested.
 $manifestPath = Join-Path $stage "AppxManifest.xml"
-(Get-Content $manifestPath) -replace 'Version="\d+\.\d+\.\d+\.\d+"', "Version=`"$Version`"" |
-  Set-Content $manifestPath
+$content = Get-Content $manifestPath -Raw
+$content = $content -replace '(<Identity[^>]*?\bVersion=")\d+\.\d+\.\d+\.\d+(")', "`${1}$Version`${2}"
+Set-Content $manifestPath $content -NoNewline
 
 makeappx pack /d $stage /p $out /o
 

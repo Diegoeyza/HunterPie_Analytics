@@ -23,8 +23,8 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=
-ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64
 WizardStyle=modern
 Compression=lzma2
 SolidCompression=yes
@@ -47,7 +47,7 @@ Source: "..\reframework\INSTALL.txt"; DestDir: "{app}\HuntDumper"; Flags: ignore
 
 ; HunterPie analytics-export fork (built by CI) — included only when present
 ; in dist/. Needed by users whose only source is HunterPie.
-#if FileExists(AddBackslash(SourcePath) + "..\dist\HunterPie-Fork")
+#if DirExists(AddBackslash(SourcePath) + "..\dist\HunterPie-Fork")
 Source: "..\dist\HunterPie-Fork\*"; DestDir: "{app}\HunterPie-Fork"; \
   Flags: recursesubdirs createallsubdirs ignoreversion
 #endif
