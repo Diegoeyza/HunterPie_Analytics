@@ -46,9 +46,12 @@ only the companion writes the data this dashboard reads.
 
 After a GAME patch, just launch the companion normally - it downloads the new
 memory-offset maps it needs by itself, so it keeps working without you doing
-anything. It never replaces its own program files. If you want a newer HunterPie
-feature, reinstall HunterPie Analytics (your settings and exported hunts are
-kept).
+anything. It never replaces its own program files.
+
+The dashboard updates itself: when a newer version is out, an "update available"
+button appears in the top bar - click it and the app installs the update and
+reopens. Your settings and hunt history are kept. (You can turn the update check
+off in the gear menu.)
 
 
 STEP 2 - OPEN THE DASHBOARD

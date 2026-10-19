@@ -16,7 +16,7 @@
   <Identity
     Name="Diegoeyza.HunterPieAnalytics"
     Publisher="CN=Diegoeyza"
-    Version="1.0.5.0" />
+    Version="1.0.6.0" />
 
   <Properties>
     <DisplayName>HunterPie Analytics</DisplayName>

@@ -10,10 +10,12 @@ import ScopeBar, { DEFAULT_PARTY_SIZE, loadParty, loadScope, loadVariant, loadWe
 import HuntsManager from "../components/HuntsManager";
 import ImportButton from "../components/ImportButton";
 import SettingsMenu from "../components/SettingsMenu";
+import UpdatePill from "../components/UpdatePill";
 import { ToastProvider } from "../components/Toast";
 
 const TAB_IDS = new Set(TABS.map((t) => t.id));
 const FAILED_KEY = "hp.includeFailed";
+const UPDATE_KEY = "hp.checkUpdates";
 
 /** Read initial global state: URL params win (shareable links), then
  *  localStorage, then defaults. */
@@ -48,6 +50,15 @@ function initialIncludeFailed(): boolean {
   }
 }
 
+/** Auto-update checks default on (that's the point) but are opt-out. */
+function initialCheckUpdates(): boolean {
+  try {
+    return localStorage.getItem(UPDATE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 export default function Home() {
   // Defaults first (server prerender); URL/localStorage sync in the
   // mount effect below — reading window.location during render would
@@ -58,6 +69,7 @@ export default function Home() {
   const [weaponName, setWeaponName] = useState<string | null>(null);
   const [partySize, setPartySize] = useState<number | null>(DEFAULT_PARTY_SIZE);
   const [includeFailed, setIncludeFailed] = useState(false);
+  const [checkUpdates, setCheckUpdates] = useState(true);
   const [scopeReady, setScopeReady] = useState(false);
   const healthQ = useApi<Health>("/health");
 
@@ -67,6 +79,7 @@ export default function Home() {
     setScope(ids);
     setPartySize(initialParty());
     setIncludeFailed(initialIncludeFailed());
+    setCheckUpdates(initialCheckUpdates());
     // A persisted variant/weapon-name only survives with the same
     // single-hunter scope.
     setVariantId(ids.length === 1 ? loadVariant() : null);
@@ -114,6 +127,13 @@ export default function Home() {
     writeParams({ failed: value ? "1" : null });
   };
 
+  const changeCheckUpdates = (value: boolean) => {
+    setCheckUpdates(value);
+    try {
+      localStorage.setItem(UPDATE_KEY, value ? "1" : "0");
+    } catch { /* private mode: setting just won't persist */ }
+  };
+
   const active = TABS.find((t) => t.id === tab) ?? TABS[0];
   const ctx: ViewCtx = { scope, variantId: scope.length === 1 ? variantId : null, weaponName: scope.length === 1 ? weaponName : null, clearScope: () => changeScope([]), setScope: changeScope, partySize, includeFailed };
   const health = healthQ.data;
@@ -148,7 +168,10 @@ export default function Home() {
         </span>
         <ImportButton onImported={() => { apiInvalidate(); healthQ.refetch(); }} />
         <HuntsManager />
-        <SettingsMenu includeFailed={includeFailed} onIncludeFailed={changeIncludeFailed} />
+        <UpdatePill enabled={scopeReady && checkUpdates} />
+        <SettingsMenu includeFailed={includeFailed} onIncludeFailed={changeIncludeFailed}
+          checkUpdates={checkUpdates} onCheckUpdates={changeCheckUpdates}
+          appVersion={health?.app_version} />
       </header>
       {sourceNote && (
         <div className={`source-note${sourceNote.warn ? " warn" : ""}`}>

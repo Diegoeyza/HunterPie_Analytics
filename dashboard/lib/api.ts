@@ -100,6 +100,19 @@ export interface Health {
   status: string; hunts: number;
   hunterpie_version?: string; game_version?: string;
   sources?: HealthSource[];
+  app_version?: string;
+}
+
+/** Response of GET /api/update (release check; error is non-fatal). */
+export interface UpdateInfo {
+  current: string;
+  latest: string | null;
+  update_available: boolean;
+  url: string | null;
+  sha256: string | null;
+  size: number | null;
+  notes_url: string | null;
+  error: string | null;
 }
 
 export interface AliasItem {

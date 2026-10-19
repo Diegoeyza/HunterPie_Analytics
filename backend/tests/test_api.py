@@ -1169,3 +1169,30 @@ def test_health_reports_detected_sources(monkeypatch, tmp_path):
     client, _ = make_client(seed_two_hunts)
     sources = client.get("/api/health").json()["sources"]
     assert sources == [{"kind": "hunterpie", "path": str(hp)}]
+
+
+def test_health_reports_app_version():
+    from app.version import APP_VERSION
+
+    client, _ = make_client(seed_two_hunts)
+    assert client.get("/api/health").json()["app_version"] == APP_VERSION
+
+
+def test_update_check_passes_through_updater(monkeypatch):
+    from app import updater
+
+    fake = {"current": "1.0.5", "latest": "1.0.6", "update_available": True,
+            "url": "https://github.com/x", "sha256": "abc", "size": 10,
+            "notes_url": "https://github.com/x", "error": None}
+    monkeypatch.setattr(updater, "check_for_update", lambda *a, **k: fake)
+    client, _ = make_client(None)
+    assert client.get("/api/update").json() == fake
+
+
+def test_update_run_is_windows_only(monkeypatch):
+    import os
+
+    monkeypatch.setattr(os, "name", "posix")
+    client, _ = make_client(None)
+    assert client.post("/api/update/run").status_code == 400
+

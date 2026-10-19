@@ -13,11 +13,15 @@ export function loadTheme(): Theme {
   }
 }
 
-/** Top-bar settings popover: theme + which hunts feed the stats.
+/** Top-bar settings popover: theme, ingest scope, update check.
  *  Persists theme to localStorage and applies it to <html data-theme>. */
-export default function SettingsMenu({ includeFailed, onIncludeFailed }: {
+export default function SettingsMenu({ includeFailed, onIncludeFailed,
+  checkUpdates, onCheckUpdates, appVersion }: {
   includeFailed: boolean;
   onIncludeFailed: (value: boolean) => void;
+  checkUpdates: boolean;
+  onCheckUpdates: (value: boolean) => void;
+  appVersion?: string;
 }) {
   const [theme, setTheme] = useState<Theme>("dark");
 
@@ -56,6 +60,16 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed }: {
           Counts carted-out quests in performance stats. Clear rates always
           count failures, and hunts that never engaged a target aren&apos;t
           recorded at all.
+        </p>
+        <label className="settings-row settings-check">
+          <input type="checkbox" checked={checkUpdates}
+            onChange={(e) => onCheckUpdates(e.target.checked)} />
+          <span>Check for updates</span>
+        </label>
+        <p className="settings-hint">
+          Asks GitHub for the latest release so the app can update itself in
+          place. Off = no network requests at all.
+          {appVersion ? <> · you have <b>v{appVersion}</b></> : null}
         </p>
       </div>
     </details>

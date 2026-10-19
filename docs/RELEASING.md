@@ -50,9 +50,13 @@ the legacy $19 fee is waived. You must start at this exact entry point:
 ## Cutting a release
 
 1. Bump the version in:
+   - `backend/app/version.py` (`APP_VERSION`)
    - `packaging/version_info.txt`
    - `packaging/msix/AppxManifest.xml`
    - `installer/HunterPieAnalytics.iss` (`#define AppVersion`)
+
+   `APP_VERSION` is what the in-app updater compares against the release tag,
+   so all four must match (it is exposed at `/api/health` as `app_version`).
 2. Commit, then tag and push:
 
    ```sh

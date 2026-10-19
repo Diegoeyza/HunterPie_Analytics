@@ -4,11 +4,21 @@ HunterPie Analytics runs entirely on your own computer.
 
 ## What it does *not* do
 
-- It does **not** connect to the internet. There is no telemetry, no analytics,
-  no crash reporting, no auto-update, and no remote logging. The app is the
-  only network endpoint and it listens on `127.0.0.1` (loopback) only.
-- It does **not** send your hunt data anywhere.
+- It does **not** send your hunt data anywhere, and there is no telemetry,
+  analytics, crash reporting or remote logging. The app's own network endpoint
+  listens on `127.0.0.1` (loopback) only.
 - It does **not** modify any game files.
+
+## Network access (update check)
+
+- On startup, and only while **Settings → Check for updates** is on (the
+  default), the app asks GitHub for the latest release of
+  [`Diegoeyza/HunterPie_Analytics`](https://github.com/Diegoeyza/HunterPie_Analytics)
+  so it can offer to update itself in place.
+- That request goes to `api.github.com`; the downloaded installer is checked
+  against the release's published `SHA256SUMS.txt` before it runs.
+- **Turn it off** in Settings to make zero network requests — the app then
+  never contacts anything. No hunt data is ever included in the check.
 
 ## What it reads
 

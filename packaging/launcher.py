@@ -67,6 +67,9 @@ def _configure_env() -> None:
     root = _resource_root()
     os.environ.setdefault("DASHBOARD_DIR", str(root / "dashboard" / "out"))
     os.environ.setdefault("HUNTS_DB", str(user_data_dir() / "hunts.db"))
+    # Marks the packaged app: the in-app updater may quit the process (so the
+    # installer can replace it) only when this is set.
+    os.environ.setdefault("HPA_APP", "1")
 
 
 def _wait_healthy(port: int, timeout: float = 30.0) -> None:

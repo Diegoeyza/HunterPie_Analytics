@@ -75,10 +75,11 @@ Every tab shares a **filter bar** (monster, quest, stars, weapon, hunter) and a
 Scope, party size and the active tab sync to the URL, so views are shareable
 and back-button safe.
 
-**Settings (gear icon)** — switch light/dark theme and choose whether **failed
-(carted-out) quests count in the stats**. By default only cleared hunts feed DPS
-and rankings; clear-rate columns always count failures. The setting is
-remembered and synced to the URL (`?failed=1`).
+**Settings (gear icon)** — switch light/dark theme, choose whether **failed
+(carted-out) quests count in the stats**, and toggle **Check for updates**. By
+default only cleared hunts feed DPS and rankings; clear-rate columns always
+count failures. The setting is remembered and synced to the URL (`?failed=1`).
+The update check is opt-out: turn it off for zero network access.
 
 ### The tabs
 
@@ -177,8 +178,14 @@ just like your current HunterPie. Your existing installation is left untouched.
 
 The companion keeps up with **game patches on its own**: after a game update it
 downloads just the new memory-offset maps (and localization) it needs, but never
-replaces its own code. To get a newer HunterPie *feature*, reinstall HunterPie
-Analytics (your settings and exported hunts are kept).
+replaces its own code.
+
+The **dashboard updates itself in place**. When a newer release exists, an
+**↑ vX.Y.Z available** pill appears in the header — click it and the app
+downloads the verified installer, applies it, and reopens. Your settings and
+hunt history are kept (they live outside the install folder). Prefer it manual?
+Turn the check off in **Settings** and grab the installer from
+[Releases](https://github.com/Diegoeyza/HunterPie_Analytics/releases).
 
 ### Uninstall
 

@@ -104,6 +104,16 @@ header.topbar h1 { font-size: 18px; margin: 0; }
 .import-progress { display: inline-flex; align-items: center; gap: 8px; }
 .import-progress progress { width: 140px; height: 10px; accent-color: var(--accent); }
 
+/* Update-available pill (header): installs a newer release in place */
+.update-pill {
+  background: var(--accent); color: var(--bg);
+  border: 1px solid var(--accent); border-radius: 999px;
+  padding: 4px 12px; cursor: pointer; font-size: 12px; font-weight: 600;
+  white-space: nowrap;
+}
+.update-pill:disabled { opacity: 0.6; cursor: wait; }
+.update-pill:not(:disabled):hover { filter: brightness(1.08); }
+
 /* Buffs timeline swimlanes */
 .buff-timeline { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; }
 .buff-lane { display: flex; align-items: center; gap: 10px; }

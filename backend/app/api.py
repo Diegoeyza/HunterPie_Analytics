@@ -7,6 +7,11 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
+import tempfile
+import threading
+import time
+import urllib.error as urllib_error
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -17,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from . import queries
+from . import queries, updater
 from .db import DEFAULT_DB_PATH, init_db, make_session
 from .filters import (
     MAX_LIMIT,
@@ -31,6 +36,7 @@ from .filters import (
 from .import_hunt import default_export_dirs, detected_sources, known_export_dirs
 from .import_job import JobBusyError, cancel_job, get_job, start_import_job
 from .paths import resource_path
+from .version import APP_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -100,7 +106,9 @@ def filter_options(db: Session = Depends(get_db)):
 def health(db: Session = Depends(get_db)):
     # `sources` = capture folders found on disk (HunterPie fork and/or the
     # REFramework mod); the dashboard uses it for the first-run status note.
-    return {**queries.health(db), "sources": detected_sources()}
+    # `app_version` drives the Settings footer + the in-app updater.
+    return {**queries.health(db), "sources": detected_sources(),
+            "app_version": APP_VERSION}
 
 
 @app.get("/api/hunts")
@@ -407,6 +415,53 @@ def unpin(player_id: int, db: Session = Depends(get_db)):
         return queries.set_pin(db, player_id, False)
     except KeyError:
         raise HTTPException(404, f"player {player_id} not found") from None
+
+
+# --- self-update ------------------------------------------------------------
+# The packaged app (launcher.py) sets HPA_APP=1; a source/dev server must never
+# kill itself or run an installer, so the exit step is gated on it.
+_SELF_EXIT = os.environ.get("HPA_APP") == "1" or bool(getattr(sys, "frozen", False))
+
+
+@app.get("/api/update")
+def update_check(force: bool = False):
+    """Latest release vs. the running version (cached ~6h). Never raises."""
+    return updater.check_for_update(APP_VERSION, force=force)
+
+
+@app.post("/api/update/run")
+def update_run():
+    """Download the newer installer, verify it, and launch it silently.
+
+    Windows-only: on other platforms there is no installer to run.
+    """
+    if os.name != "nt":
+        raise HTTPException(400, "in-app update is only available on Windows")
+    info = updater.check_for_update(APP_VERSION)
+    if not info.get("update_available") or not info.get("url"):
+        raise HTTPException(409, info.get("error") or "no update available")
+    if not updater.is_trusted_url(info["url"]):
+        raise HTTPException(502, "unexpected download host")
+    dest = Path(tempfile.gettempdir()) / f"HunterPieAnalytics-Setup-{info['latest']}.exe"
+    try:
+        updater.download_asset(info["url"], dest, info.get("sha256"))
+    except (urllib_error.URLError, TimeoutError, OSError, ValueError) as exc:
+        raise HTTPException(502, f"download failed: {exc}") from None
+    updater.launch_installer(dest)
+    _exit_for_update()
+    return {"status": "started", "version": info["latest"], "installer": dest.name}
+
+
+def _exit_for_update(delay: float = 2.0) -> None:
+    """Let the HTTP response flush, then quit so the installer can replace us."""
+    if not _SELF_EXIT:
+        return
+
+    def _go() -> None:
+        time.sleep(delay)
+        os._exit(0)
+
+    threading.Thread(target=_go, daemon=True).start()
 
 
 # Packaged desktop build: serve the statically-exported dashboard from the
