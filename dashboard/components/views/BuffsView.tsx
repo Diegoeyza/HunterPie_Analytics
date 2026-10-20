@@ -128,12 +128,18 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
     ...(partySize != null && { players: partySize }),
   });
   const hunts = huntsQ.data?.hunts ?? null;
+  // Newest hunt the companion captured. The plain newest hunt is often a
+  // mod-only run (HunterPie wasn't running), which would make this tab look
+  // empty even though older hunts have buff data.
+  const latestWithBuffs = useMemo(
+    () => hunts?.find((h) => h.has_buffs) ?? null, [hunts]);
 
-  // Default to the latest hunt once the list loads.
+  // Default to the latest hunt that has buff data once the list loads.
   useEffect(() => {
-    if (hunts && hunts.length > 0 && huntId === null) setHuntId(hunts[0].id);
+    if (!hunts || hunts.length === 0 || huntId !== null) return;
+    setHuntId((latestWithBuffs ?? hunts[0]).id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hunts]);
+  }, [hunts, latestWithBuffs]);
 
   const detailQ = useApi<BuffsData>(
     `/hunts/${huntId}/abnormalities`, huntId === null ? null : {});
@@ -277,7 +283,28 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
             {data.clear_s ? ` · cleared in ${Math.round(data.clear_s)}s` : ""}
           </h2>
           {filtered.length === 0 ? (
-            <p className="blurb">No abnormality data for this hunt. (Only HunterPie users have buff tracking.)</p>
+            catFilter ? (
+              <p className="blurb">No {catFilter} data in this hunt.</p>
+            ) : (rawData?.players.length ?? 0) > 0 ? (
+              <p className="blurb">
+                Buff data is only recorded for the local player. Clear the
+                hunter filter (or select the player who hosted the quest).
+              </p>
+            ) : latestWithBuffs && latestWithBuffs.id !== huntId ? (
+              <p className="blurb">
+                This hunt was captured without the companion.{" "}
+                <button type="button" onClick={() => setHuntId(latestWithBuffs.id)}>
+                  Open the latest hunt with buffs
+                </button>
+              </p>
+            ) : (
+              <p className="blurb">
+                No buff/debuff data in these hunts yet. Launch the
+                {" "}<b>HunterPie Analytics companion</b> (its own shortcut)
+                before a quest — the REFramework mod alone doesn&apos;t record
+                buffs.
+              </p>
+            )
           ) : view === "table" ? (
             <>
               <DataTable
@@ -286,7 +313,10 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
                 initialSort={[{ id: "pct", desc: true }]}
                 getRowId={(r) => `${r.player}|${r.id}|${r.category}`}
               />
-              <p className="blurb">Only HunterPie users have buff/debuff tracking data.</p>
+              <p className="blurb">
+                Recorded by the HunterPie Analytics companion for the local
+                player.
+              </p>
             </>
           ) : (
             <>

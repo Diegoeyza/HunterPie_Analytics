@@ -1,7 +1,7 @@
 """API tests: one per endpoint, seeded DB + real-hunt shape fixtures."""
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -89,6 +89,42 @@ def test_hunts_player_filter():
     assert len(both) == 2
     assert client.get("/api/hunts",
                       params={"player_ids": "9999"}).json()["hunts"] == []
+
+
+def test_hunts_flag_buff_data():
+    """The Buffs tab picks the newest hunt with companion data; `/hunts` must
+    flag it, because the newest hunt is often a mod-only run."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    def seed(s):
+        s.add_all([Monster(id=31, name="Xu Wu"),
+                   Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn")])
+        s.flush()
+
+        def payload(start, abnormalities):
+            return {
+                "monster_id": 31, "_monster_name": "Xu Wu",
+                "started_at": start, "ended_at": start + timedelta(minutes=3),
+                "hunterpie_version": "t", "game_version": "g",
+                "players": [{"display_name": "Isi", "weapon_id": 6,
+                             "total_damage": 1000.0, "peak_dps": 50.0,
+                             "is_supporter": False}],
+                "abnormalities": abnormalities,
+            }
+
+        upsert_hunt(s, payload(datetime(2026, 9, 6, 3, 0), []))
+        upsert_hunt(s, payload(datetime(2026, 9, 7, 3, 0), [{
+            "display_name": "Isi", "abnormality_id": "SKILL_INSPIRATION_1",
+            "category": "SKILL", "started_at_offset": 10.0,
+            "finished_at_offset": 20.0,
+        }]))
+        # Newest hunt = companion wasn't running.
+        upsert_hunt(s, payload(datetime(2026, 9, 8, 3, 0), []))
+
+    client, _ = make_client(seed)
+    hunts = client.get("/api/hunts").json()["hunts"]
+    assert [h["has_buffs"] for h in hunts] == [False, True, False]
 
 
 def test_sos_join_dps_uses_own_window():
@@ -332,7 +368,6 @@ def test_quest_star_and_scope_filters():
 
     def make_client_with_quests():
         client, s = make_client()
-        from datetime import datetime
 
         from app.models import Monster, Weapon
         s.add_all([Monster(id=31, name="Xu Wu"),

@@ -223,6 +223,8 @@ export interface HuntSummary {
   quest_id: number | null; quest_stars: number | null;
   clear_s: number | null; cleared: boolean; carts: number; players: number;
   ignored: boolean;
+  /** Companion recorded buff/debuff uptime (local player) for this hunt. */
+  has_buffs?: boolean;
   /** Distinct non-damage awards scored by anyone in the hunt (REFramework). */
   highlight_count?: number;
   highlight_names?: string[];

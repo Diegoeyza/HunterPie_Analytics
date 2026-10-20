@@ -251,12 +251,18 @@ def hunt_list(session: Session, limit: int = 200,
     ).all()
     hunt_ids = [h.id for h, _m in rows]
     highlights = _hunt_highlight_summary(session, hunt_ids)
+    with_buffs = set(session.execute(
+        select(PlayerAbnormality.hunt_id)
+        .where(PlayerAbnormality.hunt_id.in_(hunt_ids))
+        .distinct()
+    ).scalars()) if hunt_ids else set()
     return {"hunts": [
         {"id": h.id, "monster": m.name, "started_at": h.started_at.isoformat(),
          "quest_id": h.quest_id, "quest_stars": h.quest_stars,
          "clear_s": hunt_duration_s(h), "cleared": bool(h.cleared),
          "carts": h.cart_count, "players": h.player_count,
          "ignored": bool(h.ignored),
+         "has_buffs": h.id in with_buffs,
          "highlight_count": highlights.get(h.id, {}).get("count", 0),
          "highlight_names": highlights.get(h.id, {}).get("names", [])}
         for h, m in rows
