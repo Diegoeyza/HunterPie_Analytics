@@ -1232,6 +1232,20 @@ def test_settings_dedupes_folders(tmp_path, monkeypatch):
     assert body["export_dirs"] == [str(folder)]
 
 
+def test_settings_normalizes_and_expands_folders(tmp_path, monkeypatch):
+    _isolate_sources(monkeypatch)
+    folder = tmp_path / "reframework" / "data" / "HuntExports"
+    folder.mkdir(parents=True)
+    monkeypatch.setenv("HPA_TEST_DIR", str(tmp_path))
+    client, _ = make_client()
+    body = client.put("/api/settings", json={"export_dirs": [
+        str(folder) + "/",
+        str(folder) + "/.",
+        "$HPA_TEST_DIR/reframework/data/HuntExports",
+    ]}).json()
+    assert body["export_dirs"] == [str(folder)]
+
+
 def test_import_uses_configured_folder(tmp_path, monkeypatch):
     import json
 

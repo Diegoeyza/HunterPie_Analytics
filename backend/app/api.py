@@ -115,11 +115,14 @@ def _clean_export_dirs(raw: list[str]) -> list[str]:
         text = value.strip().strip('"')
         if not text:
             continue
-        path = Path(text)
-        key = str(path).lower() if os.name == "nt" else str(path)
+        # Expand %VAR% / ~ (a pasted Windows path) and normalize separators /
+        # ".." so the same folder can't be stored twice. Relative paths are
+        # left as-is (Docker/import.sh may rely on them).
+        path = os.path.normpath(os.path.expandvars(os.path.expanduser(text)))
+        key = path.lower() if os.name == "nt" else path
         if key not in seen:
             seen.add(key)
-            out.append(str(path))
+            out.append(path)
     return out
 
 
