@@ -85,6 +85,42 @@ header.topbar h1 { font-size: 18px; margin: 0; }
 .settings-hint {
   margin: 6px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.35;
 }
+.settings-hint.warn { color: var(--accent); }
+.settings-dirs-head { padding-bottom: 0; }
+.settings-dirs {
+  list-style: none; margin: 2px 0 4px; padding: 0;
+  display: flex; flex-direction: column; gap: 4px; max-height: 110px;
+  overflow-y: auto;
+}
+.settings-dirs li {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--muted);
+}
+.settings-dirs li span {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-dirs li button {
+  background: none; border: 1px solid var(--border); border-radius: 4px;
+  color: var(--muted); cursor: pointer; font-size: 10px;
+  line-height: 1; padding: 2px 5px;
+}
+.settings-dirs li button:not(:disabled):hover {
+  border-color: var(--danger, #e05c5c); color: var(--danger, #e05c5c);
+}
+.settings-add { display: flex; gap: 6px; margin-top: 4px; }
+.settings-add input {
+  flex: 1; min-width: 0; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 5px;
+  padding: 4px 6px; font-size: 11px;
+}
+.settings-add button {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--accent); border-radius: 5px;
+  padding: 4px 8px; cursor: pointer; font-size: 11px;
+}
+.settings-add button:disabled { opacity: 0.5; cursor: default; }
+.settings-hint code { font-size: 11px; }
 
 /* Hunt import button (header) — pushes itself + settings right */
 .import-wrap {

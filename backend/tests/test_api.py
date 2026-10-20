@@ -1178,6 +1178,77 @@ def test_health_reports_app_version():
     assert client.get("/api/health").json()["app_version"] == APP_VERSION
 
 
+def _isolate_sources(monkeypatch):
+    """No host auto-detected folders: tests control every scanned dir."""
+    from app import import_hunt
+
+    monkeypatch.setattr(import_hunt, "_hunterpie_dir_candidates", lambda: [])
+    monkeypatch.setattr(import_hunt, "_reframework_dir_candidates", lambda: [])
+    monkeypatch.setattr(import_hunt, "_bundled_fork_candidates", lambda: [])
+    monkeypatch.delenv("HUNT_EXPORTS", raising=False)
+
+
+def test_settings_roundtrip_adds_detected_source(tmp_path, monkeypatch):
+    from app import settings as app_settings
+
+    _isolate_sources(monkeypatch)
+    folder = tmp_path / "MO2" / "overwrite" / "reframework" / "data" / "HuntExports"
+    folder.mkdir(parents=True)
+    client, _ = make_client()
+
+    assert client.get("/api/settings").json() == {
+        "export_dirs": [], "missing": [], "detected": [], "env_override": False}
+
+    body = client.put("/api/settings",
+                      json={"export_dirs": [str(folder)]}).json()
+    assert body["export_dirs"] == [str(folder)]
+    assert body["missing"] == []
+    assert {"kind": "reframework", "path": str(folder)} in body["detected"]
+    assert client.get("/api/settings").json()["export_dirs"] == [str(folder)]
+    assert app_settings.settings_path().exists()
+
+
+def test_settings_accepts_missing_folder(tmp_path, monkeypatch):
+    """MO2 creates overwrite/ only after the first hunt."""
+    _isolate_sources(monkeypatch)
+    folder = tmp_path / "custom" / "overwrite" / "reframework" / "data" / "HuntExports"
+    client, _ = make_client()
+
+    res = client.put("/api/settings", json={"export_dirs": [str(folder)]})
+    assert res.status_code == 200
+    assert res.json()["export_dirs"] == [str(folder)]
+    assert res.json()["missing"] == [str(folder)]
+    assert client.get("/api/settings").json()["export_dirs"] == [str(folder)]
+    assert client.post("/api/import").status_code == 404
+
+
+def test_settings_dedupes_folders(tmp_path, monkeypatch):
+    _isolate_sources(monkeypatch)
+    folder = tmp_path / "reframework" / "data" / "HuntExports"
+    folder.mkdir(parents=True)
+    client, _ = make_client()
+    body = client.put("/api/settings", json={
+        "export_dirs": [str(folder), str(folder)]}).json()
+    assert body["export_dirs"] == [str(folder)]
+
+
+def test_import_uses_configured_folder(tmp_path, monkeypatch):
+    import json
+
+    _isolate_sources(monkeypatch)
+    folder = tmp_path / "overwrite" / "reframework" / "data" / "HuntExports"
+    folder.mkdir(parents=True)
+    (folder / "a.json").write_text(json.dumps(_export_doc("CFG")))
+
+    client, _ = make_client()
+    saved = client.put("/api/settings", json={"export_dirs": [str(folder)]})
+    assert saved.status_code == 200
+
+    res = _run_import(client)
+    assert res["state"] == "done" and res["imported"] == 1
+    assert client.get("/api/health").json()["hunts"] == 1
+
+
 def test_update_check_passes_through_updater(monkeypatch):
     from app import updater
 
