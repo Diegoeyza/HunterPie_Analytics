@@ -32,6 +32,17 @@ const shareColumns: ColumnDef<DamageShareRow>[] = [
   { id: "hunts", accessorKey: "hunts", header: "Hunts", meta: { cls: "num" } },
 ];
 
+/** All-highlights leader: best single run, not the lifetime sum. Ties fall
+ *  back to the higher total, then the name, so the row is deterministic. */
+function topByBest(leaders: HighlightLeader[]): HighlightLeader | null {
+  return leaders.reduce<HighlightLeader | null>((top, r) => {
+    if (!top) return r;
+    if (r.best !== top.best) return r.best > top.best ? r : top;
+    if (r.total !== top.total) return r.total > top.total ? r : top;
+    return r.player.localeCompare(top.player) < 0 ? r : top;
+  }, null);
+}
+
 export default function HighlightsView({ scope, weaponName, partySize, includeFailed }: { scope: number[]; weaponName: string | null; partySize: number | null; includeFailed: boolean }) {
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
@@ -160,17 +171,17 @@ export default function HighlightsView({ scope, weaponName, partySize, includeFa
         <div className="table-wrap">
           <table className="grid">
             <thead>
-              <tr><th>Award</th><th>Top hunter</th><th className="num">Value</th></tr>
+              <tr><th>Award</th><th>Top hunter</th><th className="num">Best (single hunt)</th></tr>
             </thead>
             <tbody>
               {visibleAwards.map((a) => {
-                const top = a.leaders[0];
+                const top = topByBest(a.leaders);
                 return (
                   <tr key={a.id} onClick={() => setAwardId(String(a.id))}
                     style={{ cursor: "pointer" }}>
                     <td>{a.name}</td>
                     <td>{top?.player ?? "—"}</td>
-                    <td className="num">{top ? fmtAward(top.total, a.unit) : "—"}</td>
+                    <td className="num">{top ? fmtAward(top.best, a.unit) : "—"}</td>
                   </tr>
                 );
               })}
