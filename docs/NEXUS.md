@@ -1,86 +1,94 @@
 # Publishing on Nexus Mods
 
-Nexus is a good home for the **in-game mod** (HuntDumper). The desktop app is a
-companion tool — you can add it as a secondary file on the same page, or as a
-separate "Utilities" mod page. This file is a copy-paste kit.
+Nexus hosts the **in-game mod** (HuntDumper) only. The desktop app and the
+HunterPie companion live on GitHub Releases — the installer is intentionally
+**not** uploaded here (unsigned, and VirusTotal flagged the bundled .NET app, so
+a mod-only page keeps the Lua mod clean).
 
-## File to upload
-
-Build it with `./package.sh` or grab it from a release:
+## Files to upload
 
 - **Main file:** `HuntDumper-<version>.zip` — already laid out as
   `reframework\autorun\hunt_dumper.lua` + `README.txt`. Works with Vortex and
   with a plain extract into the game folder.
-
-Optional secondary files:
-
-- `hunt-dumper-lua.zip` — flat drop-in (script + `INSTALL.txt`).
-- `HunterPieAnalytics-Setup-<ver>.exe` — the dashboard (mark it as optional;
-  see the SmartScreen note below). It bundles the REFramework mod, the
-  GETTING_STARTED guide, and the **HunterPie Analytics companion** (HunterPie +
-  local export) with its own Start Menu shortcut. Users who already run
-  standard HunterPie need the companion — stock HunterPie does not export hunt
-  data.
+- Optional: `hunt-dumper-lua.zip` — flat drop-in (script + `INSTALL.txt`).
+- **Do not** upload `HunterPieAnalytics-Setup.exe`; link the GitHub Releases
+  page from the description instead.
 
 ## Listing details
 
 - **Name:** HuntDumper — Quest Awards & HP Curve Export
-- **Version:** `<version>` (from `reframework/hunt_dumper.lua`)
+- **Version:** `0.9.3` (from `reframework/hunt_dumper.lua`)
 - **Category:** Miscellaneous (or Utilities). REFramework Lua mods usually sit
   under Miscellaneous.
-- **Requirements:** [REFramework for MH Wilds](https://www.nexusmods.com/monsterhunterwilds/mods/) — add it as a
-  requirement link on the page.
+- **Requirements:** [REFramework for MH Wilds](https://github.com/praydog/REFramework) — add it as a
+  requirement on the page.
 
 ### Short description
 
-> Exports a JSON after each quest (awards, HP curve, damage totals, weapon) so
-> you can graph your hunts in the companion analytics dashboard. No network, no
-> game-file edits.
+> Exports a JSON after each quest (awards, HP curve, damage totals, weapon) for
+> the HunterPie Analytics dashboard. Offline, no game-file edits.
 
-### Full description (BBCode-friendly)
+### Full description (BBCode)
 
-```text
-[b]What it does[/b]
-At quest end, HuntDumper writes one JSON file to
-[code]reframework\data\HuntExports\[/code] containing:
+```bbcode
+[b][size=5]A post-hunt analytics dashboard for Monster Hunter Wilds[/size][/b]
+
+HuntDumper records your hunts and a companion dashboard turns them into charts: DPS and clear-time trends, per-party damage curves with the monster's HP overlay, weapon breakdowns, and the 30 quest-end awards (hunter highlights). Everything runs on your own PC — no account, no cloud.
+
+[b][size=4]Two ways to capture a hunt[/size][/b]
 [list]
-[*]quest metadata (id, type, stars, deaths)
-[*]monster id + max HP and the polled HP curve
-[*]per-player damage totals
-[*]the 30 quest awards (hunter highlights)
-[*]CPU-supporter flags and your local player's weapon name
+[*][b]REFramework mod (HuntDumper)[/b] — the in-game half. After each quest it writes one JSON to [code]reframework\data\HuntExports\[/code] with quest metadata, monster id + HP curve, per-player damage totals, the 30 awards, CPU-supporter flags, and your local weapon name.
+[*][b]HunterPie Analytics companion[/b] — a HunterPie build with local hunt export, for per-player weapon classes and per-second DPS curves. Use either or both; the dashboard merges them.
 [/list]
-It never modifies game data and never talks to the network.
 
-[b]Requirements[/b]
-REFramework for Monster Hunter Wilds (install it first).
+[b][size=4]What the dashboard shows[/size][/b]
+[list]
+[*][b]Progress[/b] — rolling DPS and clear-time trend over your hunts
+[*][b]Damage curves[/b] — per-party DPS curves with the monster's HP and enrage markers
+[*][b]Growth[/b] — how your DPS improves over time
+[*][b]Highlights[/b] — the 30 quest awards with per-award leaderboards and damage share
+[*][b]Weapons, Leaderboard, High Scores, Compare, Synergy, Quests, Activity, Buffs and Review[/b] — filterable breakdowns
+[/list]
 
-[b]Installation[/b]
-Vortex: install the archive normally.
-Manual: extract into your game folder so you get
-[code]<game>\reframework\autorun\hunt_dumper.lua[/code]
-(default Steam path: [code]...\steamapps\common\MonsterHunterWilds\[/code]).
+[b][size=4]Requirements[/size][/b]
+[list]
+[*][url=https://github.com/praydog/REFramework]REFramework[/url] for Monster Hunter Wilds (required for the in-game export)
+[*]Optional: the HunterPie Analytics companion, for per-player weapon classes and DPS curves
+[/list]
 
-Open the in-game REFramework menu -> HuntDumper to confirm it is enabled.
+[b][size=4]Install — REFramework side[/size][/b]
+[list=1]
+[*]Install REFramework for MH Wilds first.
+[*]Extract HuntDumper 0.9.3 (Main file) into your game folder so you get [code]...\steamapps\common\MonsterHunterWilds\reframework\autorun\hunt_dumper.lua[/code]. (Vortex: install the archive normally.)
+[*]Open the in-game REFramework menu -> HuntDumper to confirm it is enabled.
+[/list]
 
-[b]Mod Organizer 2[/b]
-MO2 virtualizes the game folder, so JSON files written by the mod go to
-[code]<MO2 instance>\overwrite\reframework\data\HuntExports\[/code] instead.
-The companion dashboard auto-detects standard MO2 instances; for portable ones,
-add that folder under Settings -> Hunt exports folders.
+[b][size=4]Get the dashboard + companion (optional)[/size][/b]
+This mod is the in-game half of HunterPie Analytics. The Windows dashboard app and the companion are separate and live on GitHub:
+[list]
+[*]They install per-user (no admin) and import the JSON this mod writes.
+[*]The installer bundles the dashboard, the companion and HuntDumper, and copies your existing HunterPie settings into the companion if you already use it.
+[*]Launch the app, click [b]Import[/b], and click Import again after each play session.
+[/list]
+[url=https://github.com/Diegoeyza/HunterPie_Analytics/releases]Download the dashboard + companion[/url]
 
-[b]Notes[/b]
-Load the script before a quest starts. Reloading scripts mid-hunt resets its
-state, so that hunt is skipped (the next one is fine). This mod does not capture
-per-player weapon classes or DPS curves - those come from HunterPie.
+[b][size=4]Mod Organizer 2[/size][/b]
+MO2 redirects writes made inside the game folder into its instance's [code]overwrite[/code] folder, so dumps land in [code]<MO2 instance>\overwrite\reframework\data\HuntExports\[/code]. The dashboard auto-detects standard MO2 instances; for a portable one, add that path under [b]Settings -> Hunt exports folders[/b], then click Import.
 
-[b]Companion dashboard[/b]
-This mod is one half of a post-hunt analytics dashboard (damage, DPS curves,
-awards, comparisons). See the project releases page linked here.
+[b][size=4]Notes[/size][/b]
+[list]
+[*]Load the REFramework script before a quest starts; reloading scripts mid-hunt resets its state and skips that hunt (the next one is fine).
+[*]The companion keeps up with game patches on its own — it refreshes only its offset maps, so it keeps working after a game update.
+[*]The dashboard installer is not code-signed, so Windows may show "Windows protected your PC" (More info -> Run anyway). Verify downloads against [code]SHA256SUMS.txt[/code] on the releases page.
+[*]The app runs locally. The only network access is an optional GitHub update check (turn it off in Settings); no hunt data is ever uploaded.
+[/list]
 
-[b]Credits[/b]
-REFramework by praydog. HunterPie by the HunterPie team (Apache-2.0). This
-project is Apache-2.0.
+[b][size=4]Credits[/size][/b]
+[list]
+[*]REFramework by praydog
+[*]HunterPie by the HunterPie team (Apache-2.0)
+[*]Project source: [url=https://github.com/Diegoeyza/HunterPie_Analytics]GitHub[/url] - Apache-2.0
+[/list]
 ```
 
 ## Gallery images
@@ -107,10 +115,10 @@ Use them as the mod-page gallery; `hero.png` is a 2×2 montage for the header.
 
 ## Watch-outs
 
-- **Virus scanning / SmartScreen:** the optional dashboard `.exe` is **not code
-  signed**, so Windows will show a SmartScreen prompt on first run (and some AV
-  may flag it). Say so plainly, point users to the Store build, and link
-  `SHA256SUMS.txt`. This does not affect the Lua mod itself.
+- **Virus scanning / SmartScreen:** the dashboard `.exe` is **not code signed**
+  (SmartScreen prompt on first run; some AV engines flag the PyInstaller
+  bundle). This does not affect the Lua mod, and the installer is deliberately
+  not hosted on Nexus — link the GitHub Releases page and `SHA256SUMS.txt`.
 - **No monetization:** Nexus forbids paywalling; keep everything free.
 - **Versioning:** keep the Nexus file version in sync with the Lua `VERSION` and
   the GitHub release tag.
@@ -123,5 +131,5 @@ Use them as the mod-page gallery; `hero.png` is a 2×2 montage for the header.
 - [ ] Create the MH Wilds mod page; upload the main file.
 - [ ] Add REFramework as a requirement.
 - [ ] Paste the description; set credits and permissions.
-- [ ] (Optional) attach the dashboard installer as a secondary file.
+- [ ] Link the GitHub Releases page (no installer upload).
 - [ ] Add the Nexus link to the GitHub README and vice versa.
