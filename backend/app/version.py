@@ -9,7 +9,7 @@ release; the dashboard shows it in Settings.
 """
 from __future__ import annotations
 
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 GITHUB_REPO = "Diegoeyza/HunterPie_Analytics"
 RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases"
