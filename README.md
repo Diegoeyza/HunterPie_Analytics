@@ -238,6 +238,13 @@ Exported hunts are JSON files in
 `...\HunterPie-Fork\HuntExports\` (companion). The dashboard's own database is
 in `%LOCALAPPDATA%\HunterPieAnalytics`. Nothing is uploaded anywhere.
 
+**I use Mod Organizer 2 and the dashboard can't find my hunts.**
+MO2 redirects writes made inside the game folder into its instance's
+`overwrite\` folder, so the mod's dumps land in
+`<MO2 instance>\overwrite\reframework\data\HuntExports\`. Standard MO2 instances
+are detected automatically; for a portable instance, open **Settings (gear) →
+Hunt exports folders**, add that path, then click **Import**.
+
 **Does it work in multiplayer?**
 Yes. Dumps include every party member, so curves, leaderboards and synergy work
 for the whole party. CPU-supporters are flagged.
@@ -345,6 +352,11 @@ every quest completion dumps a JSON to `C:\Program Files\HunterPie\HuntExports\`
 
 Re-imports are idempotent — existing hunts are skipped, new ones are added.
 Run `./import.sh` after each hunting session to pull in new data.
+
+In the desktop app, **Settings (gear) → Hunt exports folders** adds extra
+folders to scan (for example a portable Mod Organizer 2 instance's
+`overwrite\reframework\data\HuntExports`). `HUNT_EXPORTS` still overrides the
+configured list for Docker/source runs.
 
 ## Scripts
 

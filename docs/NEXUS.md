@@ -63,6 +63,12 @@ Manual: extract into your game folder so you get
 
 Open the in-game REFramework menu -> HuntDumper to confirm it is enabled.
 
+[b]Mod Organizer 2[/b]
+MO2 virtualizes the game folder, so JSON files written by the mod go to
+[code]<MO2 instance>\overwrite\reframework\data\HuntExports\[/code] instead.
+The companion dashboard auto-detects standard MO2 instances; for portable ones,
+add that folder under Settings -> Hunt exports folders.
+
 [b]Notes[/b]
 Load the script before a quest starts. Reloading scripts mid-hunt resets its
 state, so that hunt is skipped (the next one is fine). This mod does not capture

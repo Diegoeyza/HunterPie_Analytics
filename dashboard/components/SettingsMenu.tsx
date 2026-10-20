@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiGet, apiInvalidate, apiPut, type AppSettings } from "../lib/api";
+import { useToast } from "./Toast";
 
 const THEME_KEY = "hp.theme";
 type Theme = "dark" | "light";
@@ -24,6 +26,13 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
   appVersion?: string;
 }) {
   const [theme, setTheme] = useState<Theme>("dark");
+  const [exportDirs, setExportDirs] = useState<string[]>([]);
+  const [missing, setMissing] = useState<string[]>([]);
+  const [detected, setDetected] = useState<AppSettings["detected"]>([]);
+  const [envOverride, setEnvOverride] = useState(false);
+  const [newDir, setNewDir] = useState("");
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
 
   useEffect(() => {
     setTheme(loadTheme());
@@ -35,6 +44,45 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
       localStorage.setItem(THEME_KEY, theme);
     } catch { /* private mode: theme just won't persist */ }
   }, [theme]);
+
+  useEffect(() => {
+    apiGet<AppSettings>("/settings")
+      .then((s) => {
+        setExportDirs(s.export_dirs);
+        setMissing(s.missing);
+        setDetected(s.detected);
+        setEnvOverride(s.env_override);
+      })
+      .catch(() => { /* settings are optional; imports still auto-detect */ });
+  }, []);
+
+  const saveDirs = async (dirs: string[]) => {
+    setSaving(true);
+    try {
+      const s = await apiPut<AppSettings>("/settings", { export_dirs: dirs });
+      setExportDirs(s.export_dirs);
+      setMissing(s.missing);
+      setDetected(s.detected);
+      setEnvOverride(s.env_override);
+      setNewDir("");
+      apiInvalidate("/health");
+      toast.push(s.missing.length > 0
+        ? "Saved. That folder doesn't exist yet — it will be scanned once it does."
+        : "Hunt exports folder saved");
+      return true;
+    } catch (e) {
+      toast.push(e instanceof Error ? e.message : "Could not save the folder", true);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addDir = async () => {
+    const value = newDir.trim();
+    if (!value || saving) return;
+    await saveDirs([...exportDirs, value]);
+  };
 
   return (
     <details className="settings">
@@ -51,6 +99,49 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
               onClick={() => setTheme("light")}>Light</button>
           </div>
         </div>
+
+        <div className="settings-row settings-dirs-head">
+          <span>Hunt exports folders</span>
+        </div>
+        {exportDirs.length > 0 && (
+          <ul className="settings-dirs">
+            {exportDirs.map((dir) => (
+              <li key={dir}>
+                <span title={dir}>{dir}</span>
+                <button type="button" aria-label={`Remove ${dir}`}
+                  disabled={saving}
+                  onClick={() => saveDirs(exportDirs.filter((d) => d !== dir))}>
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="settings-add">
+          <input type="text" value={newDir} aria-label="Hunt exports folder"
+            placeholder="C:\...\reframework\data\HuntExports"
+            disabled={saving}
+            onChange={(e) => setNewDir(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") addDir(); }} />
+          <button type="button" onClick={addDir}
+            disabled={saving || !newDir.trim()}>Add</button>
+        </div>
+        <p className="settings-hint">
+          Extra folders to scan, e.g. a Mod Organizer 2 instance:
+          {" "}<code>&lt;instance&gt;\overwrite\reframework\data\HuntExports</code>.
+          {envOverride && <> <b>$HUNT_EXPORTS</b> is set and overrides this list.</>}
+        </p>
+        {missing.length > 0 && (
+          <p className="settings-hint warn">
+            Not found yet: {missing.join(", ")}
+          </p>
+        )}
+        {detected.length > 0 && (
+          <p className="settings-hint" title={detected.map((s) => s.path).join("\n")}>
+            Active sources: {detected.map((s) => s.kind).join(" + ")}.
+          </p>
+        )}
+
         <label className="settings-row settings-check">
           <input type="checkbox" checked={includeFailed}
             onChange={(e) => onIncludeFailed(e.target.checked)} />

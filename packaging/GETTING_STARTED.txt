@@ -69,6 +69,14 @@ WHERE DATA IS READ FROM
   Companion:    ...\HunterPie-Fork\HuntExports\
   REFramework:  <game>\reframework\data\HuntExports\
 
+If you use Mod Organizer 2, MO2 redirects writes made inside the game folder
+into its own overwrite folder, so the mod's files will be at:
+  <MO2 instance>\overwrite\reframework\data\HuntExports\
+
+The dashboard auto-detects standard MO2 instances. For a portable instance (or
+any other custom folder), open Settings (gear icon) -> "Hunt exports folders"
+and add that path, then click Import.
+
 Nothing is uploaded anywhere. Everything stays on your PC.
 
 

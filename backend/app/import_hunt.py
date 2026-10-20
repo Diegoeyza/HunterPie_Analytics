@@ -32,6 +32,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import settings
 from .db import init_db, make_session
 from .ingest import upsert_hunt
 from .models import Monster, Weapon
@@ -61,6 +62,8 @@ _WSL_REF = Path(
     "/mnt/c/Program Files (x86)/Steam/steamapps/common/MonsterHunterWilds"
     "/reframework/data/HuntExports")
 _WILDS_REF_REL = Path("steamapps/common/MonsterHunterWilds/reframework/data/HuntExports")
+# MO2 virtualizes writes under the game dir into <instance>/overwrite.
+_MO2_OVERWRITE_REL = Path("overwrite/reframework/data/HuntExports")
 
 # Bundled Wilds names so `seeds/` import without a HunterPie install.
 BUNDLED_NAMES_JSON = Path(__file__).resolve().parent / "data" / "wilds_monster_names.json"
@@ -144,11 +147,50 @@ def _reframework_dirs_from_roots(roots: list[Path]) -> list[Path]:
     return _dedupe([root / _WILDS_REF_REL for root in roots])
 
 
+def _mo2_overwrite_candidates() -> list[Path]:
+    """Mod Organizer 2 instances' overwrite folders.
+
+    MO2 redirects writes made under the virtual game dir into the instance's
+    ``overwrite/`` folder, so REFramework dumps land there. Standard instances
+    live under ``%LOCALAPPDATA%/ModOrganizer/<name>``; portable instances can
+    be anywhere, hence the user-configurable folder list.
+    """
+    if os.name != "nt":
+        return []
+    bases: list[Path] = []
+    for var in ("LOCALAPPDATA", "APPDATA"):
+        base = os.environ.get(var)
+        if base:
+            bases.append(Path(base) / "ModOrganizer")
+    out: list[Path] = []
+    for base in _dedupe(bases):
+        if not base.is_dir():
+            continue
+        try:
+            instances = sorted(p for p in base.iterdir() if p.is_dir())
+        except OSError:
+            continue
+        out.extend(inst / _MO2_OVERWRITE_REL for inst in instances)
+    return _dedupe(out)
+
+
 def _reframework_dir_candidates() -> list[Path]:
     """Possible REFramework HuntExports folders on this machine."""
     if os.name != "nt":
         return [_WSL_REF]
-    return _reframework_dirs_from_roots(_steam_library_roots())
+    return _dedupe([
+        *_reframework_dirs_from_roots(_steam_library_roots()),
+        *_mo2_overwrite_candidates(),
+    ])
+
+
+def _configured_export_dirs() -> list[Path]:
+    """Extra folders added in the dashboard settings (fail-soft)."""
+    try:
+        return settings.configured_export_dirs()
+    except Exception:  # never let a bad config break ingestion
+        log.warning("could not load configured export dirs", exc_info=True)
+        return []
 
 
 def _bundled_fork_candidates() -> list[Path]:
@@ -159,12 +201,21 @@ def _bundled_fork_candidates() -> list[Path]:
     return [app_dir / "HunterPie-Fork" / "HuntExports"]
 
 
+def _configured_kind_dirs() -> tuple[list[Path], list[Path]]:
+    """Split user folders by kind for the status note (path-based heuristic)."""
+    configured = _configured_export_dirs()
+    ref = [p for p in configured if "reframework" in str(p).lower()]
+    pie = [p for p in configured if p not in ref]
+    return pie, ref
+
+
 def known_export_dirs() -> list[Path]:
     """Every candidate source folder (existing or not) — for messages."""
     return _dedupe([
         *_hunterpie_dir_candidates(),
         *_bundled_fork_candidates(),
         *_reframework_dir_candidates(),
+        *_configured_export_dirs(),
     ])
 
 
@@ -172,9 +223,11 @@ def detected_sources() -> list[dict[str, str]]:
     """Existing export folders tagged by kind — for the dashboard status note."""
     out: list[dict[str, str]] = []
     seen: set[str] = set()
+    pie_configured, ref_configured = _configured_kind_dirs()
     groups = (
-        ("hunterpie", [*_hunterpie_dir_candidates(), *_bundled_fork_candidates()]),
-        ("reframework", _reframework_dir_candidates()),
+        ("hunterpie", [*_hunterpie_dir_candidates(), *_bundled_fork_candidates(),
+                       *pie_configured]),
+        ("reframework", [*_reframework_dir_candidates(), *ref_configured]),
     )
     for kind, candidates in groups:
         for path in candidates:

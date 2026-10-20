@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from . import queries, updater
+from . import queries, settings, updater
 from .db import DEFAULT_DB_PATH, init_db, make_session
 from .filters import (
     MAX_LIMIT,
@@ -95,6 +95,56 @@ class IgnoreBody(BaseModel):
 
 class LabelBody(BaseModel):
     label: str | None = Field(default=None, max_length=120)
+
+
+class SettingsBody(BaseModel):
+    export_dirs: list[str] = Field(default_factory=list,
+                                   max_length=settings.MAX_EXPORT_DIRS)
+
+
+def _clean_export_dirs(raw: list[str]) -> list[str]:
+    """Trim, dedupe and normalize user-supplied export folders.
+
+    Missing folders are kept: MO2 creates ``overwrite/...`` only after the
+    first hunt, so a user can configure it before it exists. The importer
+    skips non-existent dirs and picks them up once they appear.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in raw:
+        text = value.strip().strip('"')
+        if not text:
+            continue
+        path = Path(text)
+        key = str(path).lower() if os.name == "nt" else str(path)
+        if key not in seen:
+            seen.add(key)
+            out.append(str(path))
+    return out
+
+
+def _app_settings() -> dict:
+    dirs = [str(p) for p in settings.configured_export_dirs()]
+    return {
+        "export_dirs": dirs,
+        "missing": [d for d in dirs if not Path(d).is_dir()],
+        "detected": detected_sources(),
+        "env_override": bool(os.environ.get("HUNT_EXPORTS")),
+    }
+
+
+@app.get("/api/settings")
+def get_app_settings():
+    """Folders the importer will scan (auto-detected + user-configured)."""
+    return _app_settings()
+
+
+@app.put("/api/settings")
+def put_app_settings(body: SettingsBody):
+    """Replace the user-configured export folders (empty list = auto only)."""
+    dirs = _clean_export_dirs(body.export_dirs)
+    settings.save_settings({"export_dirs": dirs})
+    return _app_settings()
 
 
 @app.get("/api/filter-options")
@@ -370,7 +420,10 @@ def import_hunts(db: Session = Depends(get_db), force: bool = False):
     dirs = [d for d in dirs if d.is_dir()]
     if not dirs:
         looked = " / ".join(str(d) for d in known_export_dirs())
-        raise HTTPException(404, f"no hunt exports dir found ({looked})")
+        raise HTTPException(
+            404,
+            f"no hunt exports folder found (looked in: {looked}). "
+            "Add one in Settings or set $HUNT_EXPORTS.")
     try:
         job = start_import_job(_session_db_path(db), dirs, force=force)
     except JobBusyError as e:

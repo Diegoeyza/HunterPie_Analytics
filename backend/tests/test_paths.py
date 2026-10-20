@@ -45,10 +45,35 @@ def test_dedupe_case_insensitive_on_windows(monkeypatch):
     assert import_hunt._dedupe([a, b, d]) == [a, d]
 
 
-def _patch_candidates(monkeypatch, hp, rf, fork=()):
+def _patch_candidates(monkeypatch, hp, rf, fork=(), configured=()):
     monkeypatch.setattr(import_hunt, "_hunterpie_dir_candidates", lambda: list(hp))
     monkeypatch.setattr(import_hunt, "_reframework_dir_candidates", lambda: list(rf))
     monkeypatch.setattr(import_hunt, "_bundled_fork_candidates", lambda: list(fork))
+    monkeypatch.setattr(import_hunt, "_configured_export_dirs",
+                        lambda: list(configured))
+
+
+def test_mo2_overwrite_candidates(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    instance = tmp_path / "ModOrganizer" / "custom"
+    overwrite = instance / import_hunt._MO2_OVERWRITE_REL
+    overwrite.mkdir(parents=True)
+
+    monkeypatch.setattr(import_hunt, "os", SimpleNamespace(
+        name="nt", environ={"LOCALAPPDATA": str(tmp_path)}))
+    assert import_hunt._mo2_overwrite_candidates() == [overwrite]
+
+
+def test_configured_dirs_are_scanned_and_tagged(monkeypatch, tmp_path):
+    rf = tmp_path / "custom" / "overwrite" / "reframework" / "data" / "HuntExports"
+    rf.mkdir(parents=True)
+    _patch_candidates(monkeypatch, [], [], configured=[rf])
+
+    assert rf in import_hunt.known_export_dirs()
+    assert import_hunt.default_export_dirs() == [rf]
+    assert import_hunt.detected_sources() == [
+        {"kind": "reframework", "path": str(rf)}]
 
 
 def test_detected_sources_tags_kinds(monkeypatch, tmp_path):

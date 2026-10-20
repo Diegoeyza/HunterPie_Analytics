@@ -95,7 +95,39 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function errorFromResponse(path: string, res: Response): Promise<Error> {
+  try {
+    const body = await res.json();
+    const detail = body?.detail;
+    if (typeof detail === "string") return new Error(detail);
+    if (Array.isArray(detail)) {
+      const msgs = detail.map((d) => d?.msg).filter(Boolean);
+      if (msgs.length > 0) return new Error(msgs.join("; "));
+    }
+  } catch { /* non-JSON error body */ }
+  return new Error(`${path}: HTTP ${res.status}`);
+}
+
+export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(apiUrl(path), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await errorFromResponse(path, res);
+  return (await res.json()) as T;
+}
+
 export interface HealthSource { kind: "hunterpie" | "reframework"; path: string; }
+
+export interface AppSettings {
+  export_dirs: string[];
+  /** Configured folders that don't exist yet (created later by MO2/game). */
+  missing: string[];
+  detected: HealthSource[];
+  /** $HUNT_EXPORTS is set: it overrides the configured list for imports. */
+  env_override: boolean;
+}
 export interface Health {
   status: string; hunts: number;
   hunterpie_version?: string; game_version?: string;
