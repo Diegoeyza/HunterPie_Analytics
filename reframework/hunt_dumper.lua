@@ -606,7 +606,9 @@ end
 
 local function users_by_index(idx)
     for _, u in pairs(state.users or {}) do
-        if u and u.idx == idx and u.name then return u.name end
+        if u and (u.idx == idx or u.slot == idx) and u.name then
+            return u.name
+        end
     end
     return nil
 end
@@ -630,8 +632,17 @@ local function name_of(inst, pi, i, qi, slot)
         if n then return n, "user_index" end
     end
     if type(slot) == "number" then
+        -- The compact user list has no entry at this control slot, but the
+        -- entry itself records it (SOS slots can be 6 while position is 1).
+        for _, u in pairs(state.users or {}) do
+            if u and u.slot == slot and u.name then
+                return u.name, "user_slot"
+            end
+        end
         local u = state.users and state.users[slot]
-        if u and u.name then return u.name, "player_list" end
+        if u and u.name and (u.slot == nil or u.slot == slot) then
+            return u.name, "player_list"
+        end
     end
     return roster_name(i, qi)
 end
@@ -866,18 +877,6 @@ local function php_health_steps(key)
     return out
 end
 
--- Samples are keyed by user slot (or user index when the slot match failed).
--- Accept either number for the same roster entry, then the legacy name key.
-local function php_steps_for_user(slot, u)
-    local steps = php_health_steps(slot)
-    if steps then return steps end
-    if u and u.idx ~= nil then
-        steps = php_health_steps(u.idx)
-        if steps then return steps end
-    end
-    return u and php_health_steps(u.name) or nil
-end
-
 -- find the cQuestAwardSync object inside a hook's args and its userIndex
 local function find_award_sync(args)
     if args == nil then return nil, nil end
@@ -959,10 +958,15 @@ local function quest_users()
     local out = {}
     for i, u in ipairs(collect(arr, 8)) do
         if u then
+            local uid = boxed_float(safe(function() return u:get_UserIndex() end))
             out[i - 1] = {
                 name = safe_str(safe(function() return u:get_PlName() end)),
                 is_self = safe(function() return u:get_IsSelf() end),
-                idx = boxed_float(safe(function() return u:get_UserIndex() end)),
+                idx = uid,
+                -- _PlayerList is indexed by this user/control slot; the list
+                -- itself is compact join order, so a slot can be 6 while its
+                -- list position is 1 (SOS quests).
+                slot = uid,
             }
         end
     end
@@ -1428,11 +1432,53 @@ local function finish_session()
         return out
     end
 
+    -- Map HP series to roster entries. `php` is keyed by control slot; the
+    -- compact user list position is not that slot (an SOS player can sit at
+    -- slot 6 while being list position 1), so try position, user slot, and
+    -- index, then rescue a single unmatched series instead of dropping it.
+    local hp_assigned = {}
+    local hp_used = {}
+    local missing = {}
+    local function has_samples(key)
+        local rec = state.php and state.php[key]
+        return rec ~= nil and #rec.samples > 0
+    end
+    for i = 0, 7 do
+        local u = state.users and state.users[i]
+        if u and u.name then
+            local key
+            for _, k in ipairs({ i, u.slot, u.idx }) do
+                if k ~= nil and not hp_used[k] and has_samples(k) then
+                    key = k
+                    break
+                end
+            end
+            if key == nil and not hp_used[u.name] and has_samples(u.name) then
+                key = u.name
+            end
+            if key ~= nil then
+                hp_used[key] = true
+                hp_assigned[i] = key
+            else
+                missing[#missing + 1] = i
+            end
+        end
+    end
+    local unused_hp = {}
+    for k, rec in pairs(state.php or {}) do
+        if not hp_used[k] and rec and #rec.samples > 0 then
+            unused_hp[#unused_hp + 1] = k
+        end
+    end
+    if #missing == 1 and #unused_hp == 1 then
+        hp_assigned[missing[1]] = unused_hp[1]
+    end
+
     -- players: name + damage + awards (weapons come from HunterPie)
     local local_buffs = buff_abnormalities(finished)
     local players = {}
     local n_players = 0
-    for i = 0, 3 do
+    for i = 0, 7 do
         local u = state.users[i]
         if u and u.name then
             local rec = awards[i + 1]
@@ -1448,9 +1494,8 @@ local function finish_session()
                 damages = { { damage = damage, dealt_at = iso(finished) } },
                 awards = awards_list_for(rec),
                 abnormalities = u.is_self and local_buffs or nil,
-                -- Samples are slot-keyed; accept legacy name keys only as a
-                -- fallback for hunts captured before the slot-key change.
-                health_steps = php_steps_for_user(i, u),
+                health_steps = hp_assigned[i]
+                    and php_health_steps(hp_assigned[i]) or nil,
                 is_hunterpie_user = false,
             }
             n_players = n_players + 1
