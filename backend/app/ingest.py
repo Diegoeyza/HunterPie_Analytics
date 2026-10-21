@@ -105,12 +105,17 @@ CROSS_SOURCE_WINDOW_SECONDS = 30
 old mod dumps): same monster + (subset) roster starting this close is the
 same hunt."""
 
-CROSS_SOURCE_DAMAGE_WINDOW_SECONDS = 600
-"""Wide window used only when the quest damage total also matches. The mod
-records quest start when its script notices the quest, up to a couple of
-minutes after HunterPie's timestamp (observed 78 s), so time alone cannot
-unite them. Damage is the reliable witness: two different hunts of the same
-monster with the same party essentially never end on the same total."""
+CROSS_SOURCE_DAMAGE_WINDOW_SECONDS = 180
+"""Wide start window used only when the quest also ENDS at the same time.
+The mod records quest start when its script notices the quest, up to a couple
+of minutes after HunterPie's timestamp (observed 78 s), so start time alone
+cannot unite them."""
+
+CROSS_SOURCE_END_WINDOW_SECONDS = 120
+"""End timestamps are the reliable witness: the mod and companion both mark
+the quest end, while farming repeats of the same monster minutes apart have
+different ends. This prevents a later solo run from enriching an earlier
+one just because its damage total is within 1%."""
 
 
 def _hunt_player_names(session: Session, hunt_id: int) -> set[str]:
@@ -166,6 +171,8 @@ def find_hunt_by_payload(session: Session, payload: dict) -> Hunt | None:
         return None
     want = {p["display_name"] for p in players}
     started = _coerce_ts(payload["started_at"])
+    incoming_end = (_coerce_ts(payload["ended_at"])
+                    if payload.get("ended_at") else None)
     our_total = sum(float(p.get("total_damage", 0)) for p in players)
     lo = started - timedelta(seconds=CROSS_SOURCE_DAMAGE_WINDOW_SECONDS)
     hi = started + timedelta(seconds=CROSS_SOURCE_DAMAGE_WINDOW_SECONDS)
@@ -182,6 +189,13 @@ def find_hunt_by_payload(session: Session, payload: dict) -> Hunt | None:
         ) <= CROSS_SOURCE_WINDOW_SECONDS
         if same_party_tight:
             return cand
+        # Wider start window is only safe when the quests also END together:
+        # repeated solo hunts of the same monster can land within 1% damage.
+        if incoming_end and cand.ended_at:
+            end_delta = abs(
+                (cand.ended_at - incoming_end).total_seconds())
+            if end_delta > CROSS_SOURCE_END_WINDOW_SECONDS:
+                continue
         # Wider window needs damage agreement: within 1% of the larger total.
         theirs = cand.quest_damage
         if theirs and our_total > 0:

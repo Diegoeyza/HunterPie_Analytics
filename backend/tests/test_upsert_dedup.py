@@ -169,6 +169,24 @@ def test_cross_source_far_apart_coexist(session):
     assert h1.id != h2.id
 
 
+def test_cross_source_repeat_solo_hunts_coexist(session):
+    """Farming repeats of the same monster must not merge just because their
+    damage totals happen to be within 1%. Even inside the wide start window,
+    different end timestamps mean different quests."""
+    h1, c1, _ = upsert_hunt(session, base_payload(
+        quest_id_external="pie-early",
+        started_at=datetime(2026, 2, 1, 12, 0, 0),
+        ended_at=datetime(2026, 2, 1, 12, 1, 40)))
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="rf-late",
+        started_at=datetime(2026, 2, 1, 12, 2, 30),
+        ended_at=datetime(2026, 2, 1, 12, 4, 10),
+        players=[{"display_name": "Diego", "weapon_id": 1,
+                  "total_damage": 9030, "peak_dps": 120}]))
+    assert (c1, c2) == (True, True)
+    assert h1.id != h2.id
+
+
 def test_cross_source_different_roster_coexist(session):
     """Same monster + same window but a different roster is a different hunt."""
     h1, c1, _ = upsert_hunt(session, base_payload(quest_id_external="pie-hash"))
