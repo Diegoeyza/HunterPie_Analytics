@@ -1,5 +1,7 @@
 # Publishing on Nexus Mods
 
+Live page: <https://www.nexusmods.com/monsterhunterwilds/mods/5158>
+
 Nexus hosts the **in-game mod** (HuntDumper) only. The desktop app and the
 HunterPie companion live on GitHub Releases — the installer is intentionally
 **not** uploaded here (unsigned, and VirusTotal flagged the bundled .NET app, so

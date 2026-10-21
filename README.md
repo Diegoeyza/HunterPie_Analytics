@@ -138,7 +138,7 @@ capture tool is what actually records your hunts; the dashboard reads it.
 ### 0. Download
 
 Grab the latest release from **[GitHub Releases](https://github.com/Diegoeyza/HunterPie_Analytics/releases)**
-(or from the file list on the mod page). Verify downloads with `SHA256SUMS.txt`.
+(or the [Nexus Mods page](https://www.nexusmods.com/monsterhunterwilds/mods/5158)). Verify downloads with `SHA256SUMS.txt`.
 
 | File | What it's for |
 |------|---------------|
