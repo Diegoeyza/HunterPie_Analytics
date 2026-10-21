@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { seriesColor, type HuntSummary } from "../../lib/api";
-import { fmtInt, fmtPct, fmtTime } from "../../lib/format";
+import { fmtDate, fmtInt, fmtPct, fmtTime } from "../../lib/format";
 import { computeDps, smoothDps } from "../../lib/metrics";
 import { ApiState, useApi } from "../../lib/useApi";
 import SearchSelect from "../SearchSelect";
@@ -218,7 +218,7 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
           value={huntId === null ? "" : String(huntId)}
           options={(hunts ?? []).map((h) => ({
             value: String(h.id),
-            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${h.started_at.slice(0, 10)} · ${h.players}p${h.has_health ? " · HP" : ""}`,
+            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${fmtDate(h.started_at)} · ${h.players}p${h.has_health ? " · HP" : ""}`,
           }))}
           onChange={selectHunt}
         />

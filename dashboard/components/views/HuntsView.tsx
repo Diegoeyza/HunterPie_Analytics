@@ -7,7 +7,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { seriesColor, type HuntSummary, type HuntHighlights } from "../../lib/api";
-import { fmtAward, fmtDps, fmtInt, fmtPct, fmtTime } from "../../lib/format";
+import { fmtAward, fmtDateTime, fmtDps, fmtInt, fmtPct, fmtTime } from "../../lib/format";
 import { type Metric, computeDps, smoothDps, computeBurst } from "../../lib/metrics";
 import { ApiState, useApi } from "../../lib/useApi";
 import ChartTooltip from "../ChartTooltip";
@@ -74,7 +74,7 @@ const columns: ColumnDef<HuntSummary>[] = [
   },
   {
     id: "date", accessorKey: "started_at", header: "Date",
-    cell: ({ row }) => row.original.started_at.slice(0, 16).replace("T", " "),
+    cell: ({ row }) => fmtDateTime(row.original.started_at),
   },
   { id: "monster", accessorKey: "monster", header: "Monster" },
   {
@@ -206,7 +206,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
   const team = members.reduce((s, m) => s + m.total_damage, 0);
   const enrages = (curve?.events ?? []).filter((e) => e.type === "enrage");
   const stats: [string, string][] = [
-    ["Date", hunt.started_at.slice(0, 10)],
+    ["Date", fmtDateTime(hunt.started_at)],
     ["Quest", hunt.quest_id === null
       ? "—"
       : `#${hunt.quest_id}${hunt.quest_stars ? ` ${hunt.quest_stars}★` : ""}`],

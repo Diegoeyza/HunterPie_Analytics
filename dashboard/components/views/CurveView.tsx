@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { seriesColor, type HuntSummary } from "../../lib/api";
-import { fmtInt } from "../../lib/format";
+import { fmtDate, fmtInt } from "../../lib/format";
 import { ApiState, useApi } from "../../lib/useApi";
 import SearchSelect from "../SearchSelect";
 import EmptyState from "../EmptyState";
@@ -260,7 +260,7 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
           value={huntId === null ? "" : String(huntId)}
           options={(hunts ?? []).map((h) => ({
             value: String(h.id),
-            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${h.started_at.slice(0, 10)} · ${h.players}p${h.quest_id != null ? ` · quest #${h.quest_id}` : ""}`,
+            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${fmtDate(h.started_at)} · ${h.players}p${h.quest_id != null ? ` · quest #${h.quest_id}` : ""}`,
           }))}
           onChange={selectHunt}
         />

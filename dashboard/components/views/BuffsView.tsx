@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { HuntSummary } from "../../lib/api";
-import { fmtTime } from "../../lib/format";
+import { fmtDate, fmtTime } from "../../lib/format";
 import { ApiState, useApi } from "../../lib/useApi";
 import DataTable from "../DataTable";
 import SearchSelect from "../SearchSelect";
@@ -253,7 +253,7 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
           showAll={false}
           options={(hunts ?? []).map((h) => ({
             value: String(h.id),
-            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${h.started_at.slice(0, 10)} · ${h.players}p · ${h.source === "reframework" ? "mod" : "companion"}${h.has_buffs ? "" : " · no buffs"}`,
+            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${fmtDate(h.started_at)} · ${h.players}p · ${h.source === "reframework" ? "mod" : "companion"}${h.has_buffs ? "" : " · no buffs"}`,
           }))}
           onChange={(v) => { if (v) setHuntId(Number(v)); }}
         />

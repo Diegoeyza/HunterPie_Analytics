@@ -14,8 +14,30 @@ export const fmtPct = (f: number | null | undefined, digits = 0): string =>
 export const fmtInt = (n: number | null | undefined): string =>
   n === null || n === undefined ? "—" : Math.round(n).toLocaleString();
 
-export const fmtDate = (iso: string | null | undefined): string =>
-  !iso ? "—" : iso.slice(0, 10);
+/** Backend timestamps are naive UTC (game dumps end in Z); a bare string
+ *  would otherwise be parsed as local time and shift the date. */
+const parseUtc = (iso: string): Date => {
+  const zoned = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso);
+  return new Date(zoned ? iso : `${iso}Z`);
+};
+
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+
+/** Local calendar date (YYYY-MM-DD). */
+export const fmtDate = (iso: string | null | undefined): string => {
+  if (!iso) return "—";
+  const d = parseUtc(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+
+/** Local date + time (YYYY-MM-DD HH:mm). */
+export const fmtDateTime = (iso: string | null | undefined): string => {
+  if (!iso) return "—";
+  const d = parseUtc(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 16).replace("T", " ");
+  return `${fmtDate(iso)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+};
 
 /** Award value: unit 0 = count, 1 = time (mm'ss"cc), 2 = plain. */
 export function fmtAward(value: number | null | undefined, unit: number): string {

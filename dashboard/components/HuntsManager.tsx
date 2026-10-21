@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiInvalidate, apiPatch, type HuntSummary } from "../lib/api";
-import { fmtTime } from "../lib/format";
+import { fmtDate, fmtDateTime, fmtTime } from "../lib/format";
 import { ApiState, useApi } from "../lib/useApi";
 import Modal from "./Modal";
 import { useToast } from "./Toast";
@@ -38,7 +38,7 @@ export default function HuntsManager() {
     return (hunts ?? []).filter((h) =>
       String(h.id).includes(needle) ||
       h.monster.toLowerCase().includes(needle) ||
-      h.started_at.slice(0, 10).includes(needle));
+      fmtDate(h.started_at).includes(needle));
   }, [hunts, q]);
 
   const toggle = async (h: HuntSummary) => {
@@ -85,7 +85,7 @@ export default function HuntsManager() {
                     <strong>{h.monster}</strong>
                     {h.quest_stars != null && <span> {h.quest_stars}★</span>}
                     <span className="hunt-sub">
-                      {h.started_at.slice(0, 10)} · {h.players}p ·{" "}
+                      {fmtDateTime(h.started_at)} · {h.players}p ·{" "}
                       {h.clear_s != null ? fmtTime(h.clear_s) : "—"}{" "}
                       · {h.cleared ? "cleared" : "failed"}
                     </span>
