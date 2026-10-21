@@ -33,11 +33,19 @@ a mod-only page keeps the Lua mod clean).
 ```bbcode
 [b][size=5]A post-hunt analytics dashboard for Monster Hunter Wilds[/size][/b]
 
-HuntDumper records your hunts and a companion dashboard turns them into charts: DPS and clear-time trends, per-party damage curves with the monster's HP overlay, weapon breakdowns, and the 30 quest-end awards (hunter highlights). Everything runs on your own PC — no account, no cloud.
+HuntDumper records your hunts and a companion dashboard turns them into charts: DPS and clear-time trends, per-party damage curves with the monster's HP overlay, per-hunter survival, weapon breakdowns, and the 30 quest-end awards (hunter highlights). Everything runs on your own PC — no account, no cloud.
+
+[b][size=4]New in 0.11.0[/size][/b]
+[list]
+[*][b]Survival[/b] — per-hunter HP and DPS on one timeline, with min/avg HP and time spent below 50%/25% or at full HP.
+[*]Quest result detection (clear / fail / time-up) instead of relying only on cart count.
+[*]Buffs export: consumables, songs, debuffs and skill windows.
+[*]More reliable party HP mapping for SOS hunts, plus corrected HP/DPS timeline alignment.
+[/list]
 
 [b][size=4]Two ways to capture a hunt[/size][/b]
 [list]
-[*][b]REFramework mod (HuntDumper)[/b] — the in-game half. After each quest it writes one JSON to [code]reframework\data\HuntExports\[/code] with quest metadata, monster id + HP curve, per-player damage totals, party HP samples, the 30 awards, CPU-supporter flags, quest result, buffs, and your local weapon name.
+[*][b]REFramework mod (HuntDumper)[/b] — the in-game half. After each quest it writes one JSON to [code]reframework\data\HuntExports\[/code] with quest metadata, monster id + HP curve, per-player damage totals, party HP samples, quest result, buffs, the 30 awards, CPU-supporter flags, and your local weapon name.
 [*][b]HunterPie Analytics companion[/b] — a HunterPie build with local hunt export, for per-player weapon classes and per-second DPS curves. Use either or both; the dashboard merges them.
 [/list]
 
@@ -47,7 +55,7 @@ HuntDumper records your hunts and a companion dashboard turns them into charts: 
 [*][b]Damage curves[/b] — per-party DPS curves with the monster's HP and enrage markers
 [*][b]Growth[/b] — how your DPS improves over time
 [*][b]Highlights[/b] — the 30 quest awards with per-award leaderboards and damage share
-[*][b]Survival[/b] — per-hunter HP and DPS over time with a time-in-danger summary (new in 0.11)
+[*][b]Survival[/b] — per-hunter HP and DPS over time with a time-in-danger summary. Requires HuntDumper 0.11+.
 [*][b]Weapons, Leaderboard, High Scores, Compare, Synergy, Activity, Buffs and Review[/b] — filterable breakdowns
 [/list]
 
@@ -73,15 +81,17 @@ This mod is the in-game half of HunterPie Analytics. The Windows dashboard app a
 [/list]
 [url=https://github.com/Diegoeyza/HunterPie_Analytics/releases]Download the dashboard + companion[/url]
 
-[b][size=4]Mod Organizer 2[/size][/b]
+[b][size=4]Mod Organizer 2 (Skip this section if not using it)[/size][/b]
 MO2 redirects writes made inside the game folder into its instance's [code]overwrite[/code] folder, so dumps land in [code]<MO2 instance>\overwrite\reframework\data\HuntExports\[/code]. The dashboard auto-detects standard MO2 instances; for a portable one, add that path under [b]Settings -> Hunt exports folders[/b], then click Import.
 
 [b][size=4]Notes[/size][/b]
 [list]
+[*]Use HuntDumper 0.11.0 or newer for party HP and the Survival tab. Older versions still export awards and the monster HP curve.
 [*]Load the REFramework script before a quest starts; reloading scripts mid-hunt resets its state and skips that hunt (the next one is fine).
 [*]The companion keeps up with game patches on its own — it refreshes only its offset maps, so it keeps working after a game update.
 [*]The dashboard installer is not code-signed, so Windows may show "Windows protected your PC" (More info -> Run anyway). Verify downloads against [code]SHA256SUMS.txt[/code] on the releases page.
 [*]The app runs locally. The only network access is an optional GitHub update check (turn it off in Settings); no hunt data is ever uploaded.
+[*]When a desktop app update needs a newer HuntDumper build, the app shows a "Mod vX -> reinstall" notice with instructions.
 [/list]
 
 [b][size=4]Credits[/size][/b]
