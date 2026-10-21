@@ -66,9 +66,9 @@ data, and they merge per hunt (never double-counted):
   damage share, per monster / weapon / hunter.
 - **Leaderboards & records** — best players by DPS, one row per cleared hunt
   ranked by DPS or clear time.
-- **Weapons, Quests, Compare, Synergy, Activity, Buffs, Review** — weapon
-  breakdowns, per-quest clear stats, you-vs-party comparisons, teammate
-  pairings, daily activity, buff uptime, and hunter-name cleanup.
+- **Weapons, Survival, Compare, Synergy, Activity, Buffs, Review** — weapon
+  breakdowns, per-hunter HP and time-in-danger, you-vs-party comparisons,
+  teammate pairings, daily activity, buff uptime, and hunter-name cleanup.
 
 Every tab shares a **filter bar** (monster, quest, stars, weapon, hunter) and a
 **hunter scope bar** — star yourself or teammates to focus the whole dashboard.
@@ -117,8 +117,8 @@ All screenshots are captured from the current build; the full set lives in
 
 | Hunts | Survival |
 |:---:|:---:|
-| ![Hunts tab](docs/images/hunts.png) | Per-hunter HP and DPS over time (screenshot pending 0.11 data). |
-| Every run, expandable to the full curve. | Time-in-danger summary per hunter. |
+| ![Hunts tab](docs/images/hunts.png) | ![Survival tab](docs/images/survival.png) |
+| Every run, expandable to the full curve. | Per-hunter HP and DPS with the time-in-danger summary. |
 
 | Weapons | High Scores |
 |:---:|:---:|
@@ -373,7 +373,7 @@ configured list for Docker/source runs.
 
 Star hunters in the top bar to focus views on specific players.
 Scope applies to Progress, Growth, Weapons, Damage curves, Hunts, Leaderboard,
-High Scores, Compare, Synergy, and Buffs (Quests and Activity stay global).
+High Scores, Compare, Synergy, Survival, and Buffs (Activity stays global).
 Scope, party size, and the active tab sync to the URL (`?tab=&scope=&party=`) —
 shareable links, back-button safe. Stored in `localStorage` too — survives refreshes.
 

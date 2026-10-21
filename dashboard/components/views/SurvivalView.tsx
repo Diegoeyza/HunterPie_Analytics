@@ -218,7 +218,7 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
           value={huntId === null ? "" : String(huntId)}
           options={(hunts ?? []).map((h) => ({
             value: String(h.id),
-            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${fmtDate(h.started_at)} · ${h.players}p${h.has_health ? " · HP" : ""}`,
+            label: `#${h.id} ${h.monster} · ${fmtDate(h.started_at)} · ${h.players}p`,
           }))}
           onChange={selectHunt}
         />
@@ -362,8 +362,8 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
                 {hasDps
                   ? " Dashed lines: DPS (left axis)."
                   : " No DPS for this hunt: the companion wasn\u2019t running, and only the companion records damage over time."}
-                {" "}Averages and time-in-danger cap gaps at 2.5 s so loading
-                screens don&apos;t count as danger. HP is sampled ~1 Hz by
+                {" "}Averages and time-in-danger ignore gaps over 6 s
+                (loading screens/alt-tabs). HP is sampled ~1 Hz by
                 HuntDumper 0.11+.
               </p>
             </>

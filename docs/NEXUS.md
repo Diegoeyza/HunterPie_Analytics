@@ -17,7 +17,7 @@ a mod-only page keeps the Lua mod clean).
 ## Listing details
 
 - **Name:** HuntDumper — Quest Awards & HP Curve Export
-- **Version:** `0.9.3` (from `reframework/hunt_dumper.lua`)
+- **Version:** `0.11.0` (from `reframework/hunt_dumper.lua`)
 - **Category:** Miscellaneous (or Utilities). REFramework Lua mods usually sit
   under Miscellaneous.
 - **Requirements:** [REFramework for MH Wilds](https://github.com/praydog/REFramework) — add it as a
@@ -25,8 +25,8 @@ a mod-only page keeps the Lua mod clean).
 
 ### Short description
 
-> Exports a JSON after each quest (awards, HP curve, damage totals, weapon) for
-> the HunterPie Analytics dashboard. Offline, no game-file edits.
+> Exports a JSON after each quest (awards, monster HP, party HP, damage totals,
+> weapon) for the HunterPie Analytics dashboard. Offline, no game-file edits.
 
 ### Full description (BBCode)
 
@@ -37,7 +37,7 @@ HuntDumper records your hunts and a companion dashboard turns them into charts: 
 
 [b][size=4]Two ways to capture a hunt[/size][/b]
 [list]
-[*][b]REFramework mod (HuntDumper)[/b] — the in-game half. After each quest it writes one JSON to [code]reframework\data\HuntExports\[/code] with quest metadata, monster id + HP curve, per-player damage totals, the 30 awards, CPU-supporter flags, and your local weapon name.
+[*][b]REFramework mod (HuntDumper)[/b] — the in-game half. After each quest it writes one JSON to [code]reframework\data\HuntExports\[/code] with quest metadata, monster id + HP curve, per-player damage totals, party HP samples, the 30 awards, CPU-supporter flags, quest result, buffs, and your local weapon name.
 [*][b]HunterPie Analytics companion[/b] — a HunterPie build with local hunt export, for per-player weapon classes and per-second DPS curves. Use either or both; the dashboard merges them.
 [/list]
 
@@ -47,7 +47,8 @@ HuntDumper records your hunts and a companion dashboard turns them into charts: 
 [*][b]Damage curves[/b] — per-party DPS curves with the monster's HP and enrage markers
 [*][b]Growth[/b] — how your DPS improves over time
 [*][b]Highlights[/b] — the 30 quest awards with per-award leaderboards and damage share
-[*][b]Weapons, Leaderboard, High Scores, Compare, Synergy, Quests, Activity, Buffs and Review[/b] — filterable breakdowns
+[*][b]Survival[/b] — per-hunter HP and DPS over time with a time-in-danger summary (new in 0.11)
+[*][b]Weapons, Leaderboard, High Scores, Compare, Synergy, Activity, Buffs and Review[/b] — filterable breakdowns
 [/list]
 
 [b][size=4]Requirements[/size][/b]
@@ -59,7 +60,7 @@ HuntDumper records your hunts and a companion dashboard turns them into charts: 
 [b][size=4]Install — REFramework side[/size][/b]
 [list=1]
 [*]Install REFramework for MH Wilds first.
-[*]Extract HuntDumper 0.9.3 (Main file) into your game folder so you get [code]...\steamapps\common\MonsterHunterWilds\reframework\autorun\hunt_dumper.lua[/code]. (Vortex: install the archive normally.)
+[*]Extract HuntDumper 0.11.0 (Main file) into your game folder so you get [code]...\steamapps\common\MonsterHunterWilds\reframework\autorun\hunt_dumper.lua[/code]. (Vortex: install the archive normally.)
 [*]Open the in-game REFramework menu -> HuntDumper to confirm it is enabled.
 [/list]
 
@@ -103,6 +104,7 @@ Use them as the mod-page gallery; `hero.png` is a 2×2 montage for the header.
 | `images/highlights.png` | Highlights — the 30 quest awards + damage share |
 | `images/growth.png` | Growth — DPS improvement over time |
 | `images/hunts.png` | Hunts — every run, expandable |
+| `images/survival.png` | Survival — per-hunter HP/DPS + time in danger |
 | `images/weapons.png`, `leaderboard.png`, `high-scores.png` | More tabs |
 | `images/hero.png` | Montage (Progress / Curves / Growth / Highlights) |
 
