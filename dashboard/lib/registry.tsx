@@ -5,7 +5,7 @@ import WeaponsView from "../components/views/WeaponsView";
 import HighlightsView from "../components/views/HighlightsView";
 import CurveView from "../components/views/CurveView";
 import HuntsView from "../components/views/HuntsView";
-import QuestsView from "../components/views/QuestsView";
+import SurvivalView from "../components/views/SurvivalView";
 import LeaderboardView from "../components/views/LeaderboardView";
 import CompareView from "../components/views/CompareView";
 import ActivityView from "../components/views/ActivityView";
@@ -79,10 +79,10 @@ export const TABS: TabDef[] = [
     render: (ctx) => <HuntsView scope={ctx.scope} weaponName={ctx.weaponName} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
-    id: "quests",
-    title: "Quests",
-    blurb: "Same monster, different HP per quest — per-quest clear stats, best DPS and enrage uptime.",
-    render: (ctx) => <QuestsView partySize={ctx.partySize} />,
+    id: "survival",
+    title: "Survival",
+    blurb: "Per-hunter HP and DPS over time with time-in-danger summary. Requires HuntDumper 0.11+.",
+    render: (ctx) => <SurvivalView scope={ctx.scope} partySize={ctx.partySize} />,
   },
   {
     id: "leaderboard",
@@ -117,7 +117,7 @@ export const TABS: TabDef[] = [
   {
     id: "buffs",
     title: "Buffs",
-    blurb: "Consumable, skill, song and debuff uptime for the local player. Requires the HunterPie Analytics companion.",
+    blurb: "Consumable, skill, song and debuff uptime for the local player. Companion data preferred; mod data fills in for hunts the companion missed.",
     render: (ctx) => <BuffsView scope={ctx.scope} partySize={ctx.partySize} />,
   },
   {

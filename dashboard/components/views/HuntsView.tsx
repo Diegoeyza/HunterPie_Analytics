@@ -29,6 +29,9 @@ interface HuntCurve {
   };
   players: CurvePlayer[]; events: CurveEvent[];
   hp_curve: { t: number; hp: number }[];
+  survival?: { player: string; min_hp: number | null; avg_hp: number | null;
+    time_below_50: number; time_below_25: number; time_full: number;
+    samples: number }[];
 }
 
 /** Active window for one hunter: own first→last damage snapshot, falling
@@ -36,13 +39,21 @@ interface HuntCurve {
  *  time. Mirrors _player_engagement_s/_engagement_duration_s in queries.py
  *  (curve downsampling keeps first/last points, so the windows match the
  *  backend's exactly) — DPS here is comparable with every other tab. */
+/** First sample that actually carries damage: the curve may start with an
+ *  anchoring (0, 0) point so cumulative charts begin at quest start, and
+ *  that must not stretch the engagement window back over the run-up. */
+function firstHitT(points: { t: number; dmg: number }[]): number | null {
+  const hit = points.find((p) => p.dmg > 0);
+  return hit ? hit.t : (points.length > 0 ? points[0].t : null);
+}
+
 function engagementOf(curve: HuntCurve, idx: number): number | null {
   const pts = curve.players[idx].points;
-  const first = pts.length > 0 ? pts[0].t : null;
+  const first = firstHitT(pts);
   const last = pts.length > 0 ? pts[pts.length - 1].t : null;
   if (first !== null && last !== null && last > first) return last - first;
   const firsts = curve.players
-    .map((p) => (p.points.length > 0 ? p.points[0].t : null))
+    .map((p) => firstHitT(p.points))
     .filter((t): t is number => t !== null);
   const lasts = curve.players
     .map((p) => (p.points.length > 0 ? p.points[p.points.length - 1].t : null))
@@ -285,6 +296,33 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                 </ResponsiveContainer>
               </div>
               <p className="blurb">Red bands: enrage windows. DPS uses engagement time (own first→last hit), same as Damage curves tab.</p>
+              {(curve.survival ?? []).length > 0 && (
+                <>
+                  <h3 className="chart-title">Survival</h3>
+                  <div className="table-wrap">
+                    <table className="grid">
+                      <thead>
+                        <tr>
+                          <th>Hunter</th>
+                          <th className="num">Min HP</th>
+                          <th className="num">&lt; 50%</th>
+                          <th className="num">&lt; 25%</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(curve.survival ?? []).map((s) => (
+                          <tr key={s.player}>
+                            <td>{s.player}</td>
+                            <td className="num">{s.min_hp != null ? fmtPct(s.min_hp) : "—"}</td>
+                            <td className="num">{fmtTime(s.time_below_50)}</td>
+                            <td className="num">{fmtTime(s.time_below_25)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
               {highlights && highlights.awards.length > 0 && (
                 <>
                   <h3 className="chart-title">Hunter highlights</h3>

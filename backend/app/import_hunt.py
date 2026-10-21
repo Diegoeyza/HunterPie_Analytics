@@ -346,8 +346,20 @@ def _min_hp_frac(m: dict) -> float | None:
 
 
 def _quest_failed(doc: dict) -> bool:
-    """Carted out: deaths reached the quest's cart limit."""
+    """Quest outcome: explicit result first, then cart limit as a fallback.
+
+    HunterDumper records `quest.result` (success/fail/quit) from the game's
+    SuccessState. Older dumps only carry deaths, which could not express a
+    time-up failure (the reward screen appears for those too).
+    """
     quest = doc.get("quest") or {}
+    result = quest.get("result")
+    if result in ("fail", "quit"):
+        return True
+    if result == "success":
+        return False
+    if quest.get("cleared") is False:
+        return True
     max_deaths = quest.get("max_deaths") or 0
     return bool(max_deaths and (quest.get("deaths") or 0) >= max_deaths)
 
@@ -396,7 +408,7 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
                                          "gear": None,
                                          "is_supporter": bool(p.get("is_supporter", False)),
                                          "weapon_name": p.get("weapon_name") if trust_name else None,
-                                         "awards": None,
+                                         "awards": None, "health": None,
                                          "damages": [], "abnormalities": []})
         # Gear fingerprint (fork >= gear build, local player only):
         # first non-null snapshot wins; stats are taken at quest start.
@@ -405,6 +417,9 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
         # Awards/hunter highlights (REFramework mod): keep the first non-empty.
         if entry["awards"] is None and p.get("awards"):
             entry["awards"] = p["awards"]
+        # Player HP samples (REFramework mod): keep the first non-empty.
+        if entry["health"] is None and p.get("health_steps"):
+            entry["health"] = p["health_steps"]
         if trust_name and entry["weapon_name"] is None and p.get("weapon_name"):
             entry["weapon_name"] = p["weapon_name"]
         entry["damages"].extend(p.get("damages") or [])
@@ -448,7 +463,10 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
         payload["is_split_quest"] = is_split
     # Awards/hunter highlights are quest-level (not per monster): keep them on
     # the primary (first) hunt so a split quest can't double-count them across
-    # sibling rows in the aggregate highlight leaderboards.
+    # sibling rows in the aggregate highlight leaderboards. Player HP is also
+    # quest-wide, but it stays on EVERY sibling: the Survival tab reads one
+    # hunt at a time, so duplicating it means clicking any monster of a
+    # multi-monster quest still shows the party's HP.
     for payload, _ in out[1:]:
         for p in payload["players"]:
             p["awards"] = []
@@ -475,6 +493,7 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
     players = []
     snapshots = []
     abnormalities = []
+    player_health = []
     for name, p in merged.items():
         frames = sorted(p["damages"], key=lambda f: f["dealt_at"])
         total = sum(f.get("damage", 0) for f in frames)
@@ -515,6 +534,18 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
                     "finished_at_offset": (parse_ts(act["finished_at"]) - started).total_seconds()
                     if act.get("finished_at") else None,
                 })
+        for h in p.get("health") or []:
+            frac = h.get("percentage")
+            if not h.get("time") or not isinstance(frac, (int, float)):
+                continue
+            red = h.get("red_percentage")
+            player_health.append({
+                "display_name": name,
+                "ts_offset_seconds": (parse_ts(h["time"]) - started).total_seconds(),
+                "hp_fraction": frac,
+                "red_fraction": red if isinstance(red, (int, float)) else None,
+                "max_hp": h.get("max_hp") if isinstance(h.get("max_hp"), (int, float)) else None,
+            })
 
     events = []
     for a in (m.get("enrage") or {}).get("activations") or []:
@@ -553,12 +584,14 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
         "players": players,
         "snapshots": snapshots,
         "abnormalities": abnormalities,
+        "player_health": player_health,
         "events": events,
         "hp_steps": hp_steps,
         "awards_meta": doc.get("awards_meta"),
         "source": _doc_source(doc),
         "hunterpie_version": hunterpie_version,
         "game_version": game_version,
+        "mod_version": doc.get("mod_version"),
     }
 
 

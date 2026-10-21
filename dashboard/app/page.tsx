@@ -11,6 +11,7 @@ import HuntsManager from "../components/HuntsManager";
 import ImportButton from "../components/ImportButton";
 import SettingsMenu from "../components/SettingsMenu";
 import UpdatePill from "../components/UpdatePill";
+import ModPill from "../components/ModPill";
 import { ToastProvider } from "../components/Toast";
 
 const TAB_IDS = new Set(TABS.map((t) => t.id));
@@ -169,6 +170,7 @@ export default function Home() {
         <ImportButton onImported={() => { apiInvalidate(); healthQ.refetch(); }} />
         <HuntsManager />
         <UpdatePill enabled={scopeReady && checkUpdates} />
+        <ModPill mod={health?.mod} />
         <SettingsMenu includeFailed={includeFailed} onIncludeFailed={changeIncludeFailed}
           checkUpdates={checkUpdates} onCheckUpdates={changeCheckUpdates}
           appVersion={health?.app_version} />

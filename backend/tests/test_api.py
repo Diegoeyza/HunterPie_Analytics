@@ -102,29 +102,37 @@ def test_hunts_flag_buff_data():
                    Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn")])
         s.flush()
 
-        def payload(start, abnormalities):
+        def payload(start, abnormalities, source="hunterpie"):
             return {
                 "monster_id": 31, "_monster_name": "Xu Wu",
                 "started_at": start, "ended_at": start + timedelta(minutes=3),
                 "hunterpie_version": "t", "game_version": "g",
+                "source": source,
                 "players": [{"display_name": "Isi", "weapon_id": 6,
                              "total_damage": 1000.0, "peak_dps": 50.0,
                              "is_supporter": False}],
                 "abnormalities": abnormalities,
             }
 
-        upsert_hunt(s, payload(datetime(2026, 9, 6, 3, 0), []))
-        upsert_hunt(s, payload(datetime(2026, 9, 7, 3, 0), [{
-            "display_name": "Isi", "abnormality_id": "SKILL_INSPIRATION_1",
-            "category": "SKILL", "started_at_offset": 10.0,
+        skill = [{
+            "display_name": "Isi", "abnormality_id": "Songs_Songs.12",
+            "category": "Songs", "started_at_offset": 10.0,
             "finished_at_offset": 20.0,
-        }]))
-        # Newest hunt = companion wasn't running.
+        }]
+        upsert_hunt(s, payload(datetime(2026, 9, 6, 3, 0), []))
+        upsert_hunt(s, payload(datetime(2026, 9, 7, 3, 0), skill))
+        # Newest companion hunt = companion wasn't running.
         upsert_hunt(s, payload(datetime(2026, 9, 8, 3, 0), []))
+        upsert_hunt(s, payload(datetime(2026, 9, 9, 3, 0), skill,
+                               source="reframework"))
 
     client, _ = make_client(seed)
     hunts = client.get("/api/hunts").json()["hunts"]
-    assert [h["has_buffs"] for h in hunts] == [False, True, False]
+    assert [h["has_buffs"] for h in hunts] == [True, False, True, False]
+    assert [h["source"] for h in hunts] == ["reframework", "hunterpie",
+                                            "hunterpie", "hunterpie"]
+    mod = client.get("/api/hunts", params={"source": "reframework"}).json()
+    assert [h["source"] for h in mod["hunts"]] == ["reframework"]
 
 
 def test_sos_join_dps_uses_own_window():
@@ -1211,6 +1219,66 @@ def test_health_reports_app_version():
 
     client, _ = make_client(seed_two_hunts)
     assert client.get("/api/health").json()["app_version"] == APP_VERSION
+
+
+def test_health_reports_mod_status_without_mod_hunts():
+    from app.version import bundled_mod_version
+
+    client, _ = make_client(seed_two_hunts)
+    mod = client.get("/api/health").json()["mod"]
+    assert mod == {"expected": bundled_mod_version(),
+                   "installed": None, "outdated": False}
+
+
+def test_health_flags_outdated_mod_after_app_update():
+    """Newest mod dump older than the bundled HuntDumper -> reinstall notice."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    def seed(s):
+        s.add_all([Monster(id=31, name="Xu Wu"),
+                   Weapon(id=6, name="HuntingHorn",
+                          weapon_type="HuntingHorn")])
+        s.flush()
+        upsert_hunt(s, {
+            "quest_id_external": "q-old", "dedup_hash": "h-old",
+            "monster_id": 31, "_monster_name": "Xu Wu",
+            "started_at": datetime(2026, 9, 1, 3, 0),
+            "ended_at": datetime(2026, 9, 1, 3, 5),
+            "hunterpie_version": "t", "game_version": "g",
+            "source": "reframework", "mod_version": "0.0.1",
+            "players": [{"display_name": "Isi", "weapon_id": 6,
+                         "total_damage": 100.0, "peak_dps": 10.0,
+                         "is_supporter": False}],
+            "snapshots": [],
+        })
+
+    client, _ = make_client(seed)
+    mod = client.get("/api/health").json()["mod"]
+    assert mod["installed"] == "0.0.1"
+    assert mod["outdated"] is True
+
+
+def test_version_lt_pads_missing_parts():
+    from app.version import version_lt
+
+    assert version_lt("0.10.9", "0.11.0")
+    assert not version_lt("0.11", "0.11.0")
+    assert not version_lt("0.11.0", "0.11")
+    assert not version_lt(None, "0.11.0")
+
+
+def test_bundled_mod_version_matches_lua():
+    """APP's copy and the shipped Lua must never drift."""
+    import re
+    from pathlib import Path
+
+    from app.version import bundled_mod_version
+
+    lua = (Path(__file__).resolve().parent.parent.parent
+           / "reframework" / "hunt_dumper.lua").read_text(encoding="utf-8")
+    m = re.search(r'^local VERSION = "([^"]+)"', lua, re.M)
+    assert m and bundled_mod_version() == m.group(1)
 
 
 def _isolate_sources(monkeypatch):

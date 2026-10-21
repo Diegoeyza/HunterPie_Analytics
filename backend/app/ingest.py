@@ -29,6 +29,7 @@ from .models import (
     Player,
     PlayerAbnormality,
     PlayerAlias,
+    PlayerHealthStep,
     Weapon,
     WeaponIdentity,
 )
@@ -41,6 +42,46 @@ REQUIRED_HUNT_FIELDS = (
     "hunterpie_version",
     "game_version",
 )
+
+
+def _shift_payload_offsets(payload: dict, delta: float) -> None:
+    """Move every offset in a payload by `delta` seconds.
+
+    Used when the incoming dump's clock starts later than the hunt's (the
+    companion attached mid-hunt): its offsets are attach-relative, so the
+    true quest timeline needs them pushed later."""
+    for x in payload.get("snapshots", []):
+        x["ts_offset_seconds"] += delta
+    for x in payload.get("events", []):
+        x["start_offset_seconds"] += delta
+        if x.get("end_offset_seconds") is not None:
+            x["end_offset_seconds"] += delta
+    for x in payload.get("hp_steps", []):
+        x["ts_offset_seconds"] += delta
+    for x in payload.get("player_health", []):
+        x["ts_offset_seconds"] += delta
+    for x in payload.get("abnormalities", []):
+        x["started_at_offset"] += delta
+        if x.get("finished_at_offset") is not None:
+            x["finished_at_offset"] += delta
+
+
+def _shift_existing_offsets(session: Session, hunt_id: int, delta: float) -> None:
+    """Move an existing hunt's child offsets by `delta` (same alignment)."""
+    for model, fields in (
+        (DpsSnapshot, ("ts_offset_seconds",)),
+        (MonsterHealthStep, ("ts_offset_seconds",)),
+        (PlayerHealthStep, ("ts_offset_seconds",)),
+        (MonsterEvent, ("start_offset_seconds", "end_offset_seconds")),
+        (PlayerAbnormality, ("started_at_offset", "finished_at_offset")),
+    ):
+        for row in session.execute(
+                select(model).where(model.hunt_id == hunt_id)).scalars():
+            for f in fields:
+                v = getattr(row, f)
+                if v is not None:
+                    setattr(row, f, v + delta)
+    session.flush()
 
 
 def _coerce_ts(value: datetime | str) -> datetime:
@@ -60,12 +101,16 @@ def compute_dedup_hash(monster_id: int, player_keys: list[str], started_at: date
 
 
 CROSS_SOURCE_WINDOW_SECONDS = 30
-"""Two dumps of the same quest from different tools (HunterPie fork vs the
-REFramework mod) never share an external id and their start timestamps differ
-by only a few seconds. Treat same monster + (subset) roster starting within
-this window as the same hunt so running both sources cannot double-count.
-Kept tight (30s): consecutive hunts of the same monster share a party but are
-minutes apart, so a wide window would wrongly merge legitimate repeats."""
+"""Tight window used when damage cannot corroborate the match (failed quests,
+old mod dumps): same monster + (subset) roster starting this close is the
+same hunt."""
+
+CROSS_SOURCE_DAMAGE_WINDOW_SECONDS = 600
+"""Wide window used only when the quest damage total also matches. The mod
+records quest start when its script notices the quest, up to a couple of
+minutes after HunterPie's timestamp (observed 78 s), so time alone cannot
+unite them. Damage is the reliable witness: two different hunts of the same
+monster with the same party essentially never end on the same total."""
 
 
 def _hunt_player_names(session: Session, hunt_id: int) -> set[str]:
@@ -121,16 +166,28 @@ def find_hunt_by_payload(session: Session, payload: dict) -> Hunt | None:
         return None
     want = {p["display_name"] for p in players}
     started = _coerce_ts(payload["started_at"])
-    lo = started - timedelta(seconds=CROSS_SOURCE_WINDOW_SECONDS)
-    hi = started + timedelta(seconds=CROSS_SOURCE_WINDOW_SECONDS)
+    our_total = sum(float(p.get("total_damage", 0)) for p in players)
+    lo = started - timedelta(seconds=CROSS_SOURCE_DAMAGE_WINDOW_SECONDS)
+    hi = started + timedelta(seconds=CROSS_SOURCE_DAMAGE_WINDOW_SECONDS)
     candidates = session.execute(
         select(Hunt).where(Hunt.monster_id == payload["monster_id"],
                            Hunt.started_at >= lo, Hunt.started_at <= hi)
     ).scalars().all()
     for cand in candidates:
         have = _hunt_player_names(session, cand.id)
-        if have == want or want <= have or have <= want:
+        if not (have == want or want <= have or have <= want):
+            continue
+        same_party_tight = abs(
+            (cand.started_at - started).total_seconds()
+        ) <= CROSS_SOURCE_WINDOW_SECONDS
+        if same_party_tight:
             return cand
+        # Wider window needs damage agreement: within 1% of the larger total.
+        theirs = cand.quest_damage
+        if theirs and our_total > 0:
+            bigger = max(theirs, our_total)
+            if abs(theirs - our_total) / bigger <= 0.01:
+                return cand
     return None
 
 
@@ -265,6 +322,14 @@ def _validate_payload_numbers(payload: dict) -> None:
         frac = h.get("hp_fraction")
         if frac is not None and not 0 <= frac <= 1:
             raise ValueError(f"hp_fraction must be 0..1, got {frac!r}")
+    for h in payload.get("player_health", []):
+        _nonneg(h.get("ts_offset_seconds"), "player_health ts_offset_seconds")
+        frac = h.get("hp_fraction")
+        if frac is None or not 0 <= frac <= 1:
+            raise ValueError(f"player hp_fraction must be 0..1, got {frac!r}")
+        red = h.get("red_fraction")
+        if red is not None and not 0 <= red <= 1:
+            raise ValueError(f"player red_fraction must be 0..1, got {red!r}")
 
 
 def _hunt_columns(payload: dict, started_at: datetime,
@@ -298,6 +363,7 @@ def _hunt_columns(payload: dict, started_at: datetime,
         is_split_quest=bool(payload.get("is_split_quest", False)),
         hunterpie_version=payload["hunterpie_version"],
         game_version=payload["game_version"],
+        mod_version=payload.get("mod_version"),
     )
 
 
@@ -318,7 +384,7 @@ def _add_award(session: Session, hunt_id: int, player_id: int, a: dict) -> None:
 
 def _delete_children(session: Session, hunt_id: int) -> None:
     for model in (DpsSnapshot, MonsterEvent, MonsterHealthStep,
-                  PlayerAbnormality):
+                  PlayerAbnormality, PlayerHealthStep):
         session.execute(delete(model).where(model.hunt_id == hunt_id))
     session.execute(delete(HuntPlayer).where(HuntPlayer.hunt_id == hunt_id))
 
@@ -396,6 +462,15 @@ def _insert_children(session: Session, hunt: Hunt, payload: dict,
             abnormality_id=a["abnormality_id"], category=a["category"],
             started_at_offset=a["started_at_offset"],
             finished_at_offset=a.get("finished_at_offset")))
+    for h in payload.get("player_health", []):
+        if h.get("display_name") not in player_ids:
+            continue
+        session.add(PlayerHealthStep(
+            hunt_id=hunt.id, player_id=player_ids[h["display_name"]],
+            ts_offset_seconds=h["ts_offset_seconds"],
+            hp_fraction=h["hp_fraction"],
+            red_fraction=h.get("red_fraction"),
+            max_hp=h.get("max_hp")))
 
 
 def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
@@ -407,6 +482,22 @@ def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
     weapons and curves; its awards are left in place (keyed by hunt_id)."""
     started = _coerce_ts(payload["started_at"])
     ended = _coerce_ts(payload["ended_at"]) if payload.get("ended_at") else None
+    # Keep the EARLIEST start (the mod usually sees the quest before a
+    # late-launched companion) and push the incoming dump's offsets later so
+    # both sources share one true timeline.
+    old_started, old_ended = hunt.started_at, hunt.ended_at
+    late_by = (started - old_started).total_seconds()
+    if late_by > 0:
+        _shift_payload_offsets(payload, late_by)
+        started = old_started
+        if old_ended is not None:
+            ended = old_ended
+        payload["quest_time_seconds"] = (
+            (ended - started).total_seconds() if ended else None)
+    elif late_by < 0:
+        # The companion attached before the mod: keep its earlier timeline as
+        # the origin and move the mod's existing samples later with it.
+        _shift_existing_offsets(session, hunt.id, -late_by)
     # HunterPie lists CPU support hunters as ordinary players; keep the
     # mod's supporter flags (they drive party size and synergy).
     supporters = {name for name, sup in session.execute(
@@ -425,14 +516,43 @@ def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
     cols["player_count"] = max(1, sum(
         1 for p in payload["players"]
         if p["display_name"] not in supporters))
+    # The companion has no mod_version; keep the last one seen for this hunt
+    # so the "reinstall the mod" notice doesn't disappear on a refresh.
+    if not cols.get("mod_version"):
+        cols["mod_version"] = hunt.mod_version
     try:
         for key, value in cols.items():
             setattr(hunt, key, value)
         hunt.source = "hunterpie"
+        # HunterPie has no player HP; keep the mod's samples across the
+        # refresh (player ids are name-keyed, so they survive re-insert).
+        saved_health = [(
+            r.player_id, r.ts_offset_seconds, r.hp_fraction,
+            r.red_fraction, r.max_hp,
+        ) for r in session.execute(
+            select(PlayerHealthStep)
+            .where(PlayerHealthStep.hunt_id == hunt.id)).scalars().all()]
+        # Companion buffs win when it has them; otherwise keep the mod's
+        # (HunterPie versions without buff export must not wipe mod data).
+        saved_abn = [] if payload.get("abnormalities") else [(
+            r.player_id, r.abnormality_id, r.category,
+            r.started_at_offset, r.finished_at_offset,
+        ) for r in session.execute(
+            select(PlayerAbnormality)
+            .where(PlayerAbnormality.hunt_id == hunt.id)).scalars().all()]
         _delete_children(session, hunt.id)
         session.flush()
         _insert_children(session, hunt, payload, now, warnings, cache,
                          supporter_names=supporters, weapon_names=names)
+        for pid, ts, hp, red, mx in saved_health:
+            session.add(PlayerHealthStep(
+                hunt_id=hunt.id, player_id=pid, ts_offset_seconds=ts,
+                hp_fraction=hp, red_fraction=red, max_hp=mx))
+        for pid, ab_id, cat, start, finish in saved_abn:
+            session.add(PlayerAbnormality(
+                hunt_id=hunt.id, player_id=pid, abnormality_id=ab_id,
+                category=cat, started_at_offset=start,
+                finished_at_offset=finish))
         session.commit()
     except Exception:
         session.rollback()
@@ -444,17 +564,37 @@ def _enrich_from_reframework(session: Session, hunt: Hunt,
     """Apply the mod's extras to an existing HunterPie hunt.
 
     The mod contributes only what HunterPie lacks: the local player's weapon
-    name, CPU-supporter flags, and the quest awards. Damage and weapon classes
-    stay as HunterPie recorded them."""
+    name, CPU-supporter flags, player HP samples, and the quest awards.
+    Damage and weapon classes stay as HunterPie recorded them."""
     hp_by_name = {name: hp for name, hp in session.execute(
         select(Player.display_name, HuntPlayer)
         .select_from(HuntPlayer)
         .join(Player, Player.id == HuntPlayer.player_id)
         .where(HuntPlayer.hunt_id == hunt.id)).all()}
+    # The companion created this hunt, possibly after a mid-hunt attach: its
+    # clock is later than the mod's. Rebase everything onto the mod's earlier
+    # (true) start so HP and DPS share one timeline.
+    mod_start = _coerce_ts(payload["started_at"])
+    lead = (hunt.started_at - mod_start).total_seconds()
+    if lead > 0:
+        _shift_existing_offsets(session, hunt.id, lead)
+        hunt.started_at = mod_start
+        if hunt.ended_at is not None:
+            hunt.ended_at = hunt.ended_at - timedelta(seconds=lead)
+    elif lead < 0:
+        # The companion attached first: its start is the timeline origin, so
+        # the mod's offsets (relative to its later start) move forward.
+        _shift_payload_offsets(payload, -lead)
     have = set(session.execute(
         select(HuntPlayerAward.player_id, HuntPlayerAward.award_id)
         .where(HuntPlayerAward.hunt_id == hunt.id)).all())
     changed = False
+    # A newer mod dump for a companion-created hunt updates the version we
+    # report (the "reinstall the mod" notice clears after an upgrade).
+    mod_version = payload.get("mod_version")
+    if mod_version and hunt.mod_version != mod_version:
+        hunt.mod_version = mod_version
+        changed = True
     for p in payload["players"]:
         hp = hp_by_name.get(p["display_name"])
         if hp is None:
@@ -471,6 +611,41 @@ def _enrich_from_reframework(session: Session, hunt: Hunt,
             if aid is None or (hp.player_id, int(aid)) in have:
                 continue
             _add_award(session, hunt.id, hp.player_id, a)
+            changed = True
+    # Mod buffs fill in only when the companion recorded none for this hunt
+    # (companion buffs always win; they were imported/refreshed first).
+    if payload.get("abnormalities"):
+        have_abn = session.execute(
+            select(func.count()).select_from(PlayerAbnormality)
+            .where(PlayerAbnormality.hunt_id == hunt.id)).scalar_one()
+        if not have_abn:
+            for a in payload["abnormalities"]:
+                hp = hp_by_name.get(a.get("display_name"))
+                if hp is None:
+                    continue
+                session.add(PlayerAbnormality(
+                    hunt_id=hunt.id, player_id=hp.player_id,
+                    abnormality_id=a["abnormality_id"],
+                    category=a["category"],
+                    started_at_offset=a["started_at_offset"],
+                    finished_at_offset=a.get("finished_at_offset")))
+                changed = True
+    # Player HP samples are quest-wide and mod-only: replace any previous
+    # attach so repeated enriches can't duplicate rows.
+    mod_health = payload.get("player_health") or []
+    if mod_health:
+        session.execute(delete(PlayerHealthStep)
+                        .where(PlayerHealthStep.hunt_id == hunt.id))
+        for h in mod_health:
+            hp = hp_by_name.get(h.get("display_name"))
+            if hp is None:
+                continue
+            session.add(PlayerHealthStep(
+                hunt_id=hunt.id, player_id=hp.player_id,
+                ts_offset_seconds=h["ts_offset_seconds"],
+                hp_fraction=h["hp_fraction"],
+                red_fraction=h.get("red_fraction"),
+                max_hp=h.get("max_hp")))
             changed = True
     if changed:
         hunt.player_count = max(1, sum(

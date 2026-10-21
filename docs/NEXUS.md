@@ -103,7 +103,7 @@ Use them as the mod-page gallery; `hero.png` is a 2×2 montage for the header.
 | `images/highlights.png` | Highlights — the 30 quest awards + damage share |
 | `images/growth.png` | Growth — DPS improvement over time |
 | `images/hunts.png` | Hunts — every run, expandable |
-| `images/weapons.png`, `quests.png`, `leaderboard.png`, `high-scores.png` | More tabs |
+| `images/weapons.png`, `leaderboard.png`, `high-scores.png` | More tabs |
 | `images/hero.png` | Montage (Progress / Curves / Growth / Highlights) |
 
 ## Permissions / credits

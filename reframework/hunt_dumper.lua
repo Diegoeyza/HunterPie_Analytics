@@ -22,7 +22,7 @@ local imgui = imgui
 local os = os
 local io = io
 
-local VERSION = "0.9.3"
+local VERSION = "0.11.0"
 local OUT_SUBDIR = "HuntExports"
 local CONFIG_FILE = "hunt_dumper.json"
 local GAME_TYPE = 2
@@ -58,7 +58,11 @@ end
 
 local function iso(epoch)
     if epoch == nil then return nil end
-    return os.date("!%Y-%m-%dT%H:%M:%S", math.floor(epoch)) .. "Z"
+    local secs = math.floor(epoch)
+    local ms = math.floor((epoch - secs) * 1000 + 0.5)
+    if ms >= 1000 then secs, ms = secs + 1, ms - 1000 end
+    return os.date("!%Y-%m-%dT%H:%M:%S", secs)
+        .. string.format(".%03dZ", ms)
 end
 
 local QuestUtil = safe(sdk.find_type_definition, "app.QuestUtil")
@@ -88,6 +92,42 @@ local function collect(list, maxItems)
         out[#out + 1] = v
     end
     return out
+end
+
+-- Read an instance field by name via the field's get_data. `obj:get_field()`
+-- returns nil for several of the Hunter/Wilds structs, but the field
+-- descriptor's get_data(obj) works (same path the probe uses).
+local function field_value(obj, fieldName)
+    if obj == nil then return nil end
+    local td = safe(function() return obj:get_type_definition() end)
+    if not td then return nil end
+    for _, f in ipairs(safe(function() return td:get_fields() end) or {}) do
+        if safe(function() return f:get_name() end) == fieldName then
+            local is_static = safe(function() return f:is_static() end)
+            return safe(function() return f:get_data(is_static and nil or obj) end)
+        end
+    end
+    return nil
+end
+
+-- Boxed System.Single (System.Single[] elements) -> number.
+local function boxed_float(elem)
+    if elem == nil then return nil end
+    local v = field_value(elem, "m_value")
+    if type(v) == "number" then return v end
+    if type(elem) == "number" then return elem end
+    return nil
+end
+
+-- Game enum (ITEM_EFECTIVE etc.) -> nonzero means active.
+local function enum_active(v)
+    if v == nil then return false end
+    if type(v) == "number" then return v ~= 0 end
+    for _, n in ipairs({ "m_value", "value__", "Value" }) do
+        local x = field_value(v, n)
+        if type(x) == "number" then return x ~= 0 end
+    end
+    return false
 end
 
 -- output directory, derived from this script's own path (autorun/ -> data/)
@@ -139,6 +179,704 @@ local state = nil
 local awards = {} -- userIndex+1 -> { index, awards={id->count}, channels } (multiplayer)
 local weapon_name, self_weapon_id -- self weapon name lookup (defined below)
 
+-- ---------------------------------------------------------------------------
+-- buff / abnormality tracking (managed API; no memory offsets)
+-- ---------------------------------------------------------------------------
+
+local SONG_SLOTS = 58
+
+-- Forward declaration: buff debug (above) also samples party HP.
+local read_instanced_hp
+
+-- cHunterItemBuff fields -> HunterPie abnormality id. `enum` entries are
+-- ITEM_EFECTIVE values (Demondrug/Armorskin family), nonzero = active.
+local CONSUMABLES = {
+    { field = "_KijinDrink",          id = "Consumables.7C", enum = true },
+    { field = "_KijinDrink_G",        id = "Consumables.88", enum = true },
+    { field = "_KoukaDrink",          id = "Consumables.94", enum = true },
+    { field = "_KoukaDrink_G",        id = "Consumables.A0", enum = true },
+    { field = "_KijinAmmo_Timer",     id = "Consumables.24" },
+    { field = "_KijinPowder_Timer",   id = "Consumables.30" },
+    { field = "_KoukaAmmo_Timer",     id = "Consumables.48" },
+    { field = "_KoukaPowder_Timer",   id = "Consumables.54" },
+    { field = "_DashJuice_Timer",     id = "Consumables.5C" },
+    { field = "_HotDrink_Timer",      id = "Consumables.6C" },
+    { field = "_CoolerDrink_Timer",   id = "Consumables.74" },
+    { field = "_PickUpStamina_Timer", id = "Consumables.10" },
+    { field = "_Kairiki_Timer",       id = "Consumables.14" },
+    { field = "_Kairiki_G_Timer",     id = "Consumables.1C" },
+    { field = "_Nintai_Timer",        id = "Consumables.38" },
+    { field = "_Nintai_G_Timer",      id = "Consumables.40" },
+}
+
+-- cHunterBadConditions fields -> HunterPie debuff id.
+local DEBUFFS = {
+    { field = "_Poison",   id = "Debuffs.0" },
+    { field = "_Stench",   id = "Debuffs.1" },
+    { field = "_Blast",    id = "Debuffs.2" },
+    { field = "_Bleed",    id = "Debuffs.3" },
+    { field = "_DefDown",  id = "Debuffs.4" },
+    { field = "_Frenzy",   id = "Debuffs.5" },
+    { field = "_Stun",     id = "Debuffs.6" },
+    { field = "_Paralyze", id = "Debuffs.7" },
+    { field = "_Sleep",    id = "Debuffs.8" },
+    { field = "_Sticky",   id = "Debuffs.9" },
+    { field = "_Frozen",   id = "Debuffs.10" },
+    { field = "_Fire",     id = "Debuffs.11" },
+    { field = "_Elec",     id = "Debuffs.12" },
+    { field = "_Water",    id = "Debuffs.13" },
+    { field = "_Ice",      id = "Debuffs.14" },
+    { field = "_Dragon",   id = "Debuffs.15" },
+}
+local DEBUFF_TIMERS = {
+    "_DurationTimer", "_DamageIntervalTimer", "_ReduceTimer",
+    "_CureTimer",
+}
+
+local function buff_group(id)
+    return id:match("^([%w]+)%.") or "Unknown"
+end
+
+-- state.buffs[id] = { active, start, windows={{start,finish}} }
+local function mark_buff(id, active, now)
+    local rec = state.buffs[id]
+    if rec == nil then
+        rec = { active = false, start = nil, windows = {} }
+        state.buffs[id] = rec
+    end
+    if active and not rec.active then
+        rec.active = true
+        rec.start = now
+    elseif not active and rec.active then
+        rec.active = false
+        if rec.start then
+            rec.windows[#rec.windows + 1] = { start = rec.start, finish = now }
+            rec.start = nil
+        end
+    end
+end
+
+local function poll_buffs(now)
+    local PM = safe(sdk.find_type_definition, "app.PlayerManager")
+    local pm = PM and safe(function() return sdk.get_managed_singleton("app.PlayerManager") end)
+    local player = pm and typecall("app.PlayerManager", "getMasterPlayer", pm)
+    if not player then return end
+    local st = typecall("app.HunterCharacter", "get_HunterStatus",
+                        field_value(player, "<Character>k__BackingField"))
+    if not st then return end
+
+    local ib = field_value(st, "_ItemBuff")
+    if ib then
+        for _, m in ipairs(CONSUMABLES) do
+            local v = field_value(ib, m.field)
+            local active
+            if m.enum then
+                active = enum_active(v)
+            else
+                active = type(v) == "number" and v > 0
+            end
+            mark_buff(m.id, active, now)
+        end
+    end
+
+    local bc = field_value(st, "_BadConditions")
+    if bc then
+        for _, d in ipairs(DEBUFFS) do
+            local obj = field_value(bc, d.field)
+            local active = false
+            if obj then
+                for _, tf in ipairs(DEBUFF_TIMERS) do
+                    local v = field_value(obj, tf)
+                    if type(v) == "number" and v > 0 then
+                        active = true
+                        break
+                    end
+                end
+            end
+            mark_buff(d.id, active, now)
+        end
+    end
+
+    local sk = field_value(st, "_Skill")
+    if sk then
+        local wp05 = field_value(sk, "_Wp05MusicSkill")
+        local timers = wp05 and field_value(wp05, "_SkillTimer")
+        if timers then
+            for i = 0, SONG_SLOTS do
+                local v = boxed_float(safe(function() return timers[i] end))
+                if v ~= nil then mark_buff("Songs." .. i, v > 0, now) end
+            end
+        end
+
+        -- NOTE: _CurrentSkillInfoDic is the EQUIPPED list, not active
+        -- skills: presence-tracking it paints every equipped skill at ~100%
+        -- uptime (the "15 random skill rows"). Skill uptime stays
+        -- companion-only until the per-skill timer layout is known.
+    end
+end
+
+local function buff_abnormalities(now)
+    if not state or not state.buffs then return {} end
+    local out = {}
+    for id, rec in pairs(state.buffs) do
+        if rec.active and rec.start then
+            rec.windows[#rec.windows + 1] = { start = rec.start, finish = now }
+            rec.active = false
+            rec.start = nil
+        end
+        if #rec.windows > 0 then
+            local acts = {}
+            for _, w in ipairs(rec.windows) do
+                acts[#acts + 1] = {
+                    started_at = iso(w.start),
+                    finished_at = w.finish and iso(w.finish) or nil,
+                }
+            end
+            local group = buff_group(id)
+            out[#out + 1] = {
+                id = group .. "_" .. id,
+                category = group,
+                activations = acts,
+            }
+        end
+    end
+    return out
+end
+
+
+-- ---------------------------------------------------------------------------
+-- party HP (Survival tab)
+-- ---------------------------------------------------------------------------
+
+local PHP_CHANGE = 0.005   -- emit a sample on >=0.5% HP change
+local PHP_HEARTBEAT = 5.0  -- ...or at least every 5 s
+
+-- Call a method on the object's OWN type definition. The old code guessed
+-- class names (app.cHunterHealth, app.cHealthManager) and silently lost the
+-- whole chain when a guess was wrong; this works for any runtime type.
+local function call_method(obj, name)
+    if obj == nil then return nil end
+    local td = safe(function() return obj:get_type_definition() end)
+    if not td then return nil end
+    local m = safe(function() return td:get_method(name .. "()") end)
+        or safe(function() return td:get_method(name) end)
+    if not m then return nil end
+    local v = safe(function() return m:call(obj) end)
+    if type(v) == "number" then return v end
+    local b = boxed_float(v)
+    if b ~= nil then return b end
+    return v
+end
+
+local function type_name(obj)
+    return safe_str(safe(function()
+        return obj:get_type_definition():get_full_name()
+    end))
+end
+
+-- Health of a character object -> { hp, max_hp, red, fail, char_type }
+-- (hp/red are 0..1 fractions). Shared by the party list and the master player.
+local function health_of(ch)
+    local info = { char_type = type_name(ch) }
+
+    -- get_Character may be the HunterCharacter itself or a wrapper whose
+    -- real character lives in <Character>k__BackingField (master-player path).
+    local hc = ch
+    local hh = call_method(hc, "get_HunterHealth")
+    if hh == nil then
+        local wrapped = field_value(ch, "<Character>k__BackingField")
+            or field_value(ch, "_Character")
+        if wrapped then
+            hc = wrapped
+            info.char_type = type_name(hc)
+            hh = call_method(hc, "get_HunterHealth")
+        end
+    end
+    if hh == nil then
+        local st = call_method(hc, "get_HunterStatus")
+            or field_value(hc, "<HunterStatus>k__BackingField")
+        hh = st and (field_value(st, "_HunterHealth")
+                     or field_value(st, "<HunterHealth>k__BackingField")
+                     or field_value(st, "_Health"))
+    end
+    if hh == nil then
+        info.fail = "no_hunter_health"
+        return info
+    end
+
+    local mgr = call_method(hh, "get_HealthMgr")
+        or field_value(hh, "<HealthMgr>k__BackingField")
+        or field_value(hh, "_HealthMgr")
+        or field_value(hh, "_HealthManager")
+    if mgr == nil then
+        info.fail = "no_health_mgr"
+        return info
+    end
+    local hp = call_method(mgr, "get_Health")
+    local mx = call_method(mgr, "get_MaxHealth")
+    if mx == nil then mx = call_method(mgr, "get_MaxHealthValue") end
+    if hp == nil then hp = call_method(hh, "get_Health") end
+    if mx == nil then mx = call_method(hh, "get_MaxHealth") end
+    if type(hp) ~= "number" or type(mx) ~= "number" or mx <= 0 then
+        info.fail = "no_hp_value"
+        return info
+    end
+    info.hp = hp / mx
+    info.max_hp = mx
+    local red = call_method(hh, "get_RedHealth")
+    if type(red) == "number" and red >= 0 then
+        -- red is reported on the same scale as HP; normalise just in case.
+        info.red = red <= mx and (red / mx) or nil
+    end
+    return info
+end
+
+-- The character object behind one instanced player. Different game builds
+-- name the accessor differently; try the known ones plus the backing field.
+local function character_of(inst, pi)
+    for _, name in ipairs({ "get_Character", "get_Hunter", "get_Player",
+                            "get_CharacterInfo", "get_Pl" }) do
+        local v = pi and call_method(pi, name)
+        if v ~= nil and v ~= 0 then return v end
+    end
+    for _, name in ipairs({ "get_Hunter", "get_Character" }) do
+        local v = call_method(inst, name)
+        if v ~= nil and v ~= 0 then return v end
+    end
+    return field_value(inst, "<Character>k__BackingField")
+        or field_value(inst, "_Character")
+end
+
+-- One instanced party member -> { hp, max_hp, red, pi, char_type, fail }.
+-- Declared early (buff debug samples it too), so this is the actual body.
+read_instanced_hp = function(inst)
+    local info = {}
+    local pi = call_method(inst, "get_PlayerInfo")
+    info.pi = pi
+    local ch = character_of(inst, pi)
+    if ch == nil or ch == 0 then
+        info.fail = "no_character"
+        return info
+    end
+    local h = health_of(ch)
+    info.char_type = h.char_type
+    if type(h.hp) ~= "number" then
+        info.fail = h.fail
+        return info
+    end
+    info.hp, info.max_hp, info.red = h.hp, h.max_hp, h.red
+    return info
+end
+
+-- Locate the instanced party list. Field names drift between game builds, so
+-- fall back to scanning PlayerManager's fields for an "Instanced"/"PlayerList"
+-- field rather than trusting one hardcoded name.
+local function instanced_list(pm)
+    local list = field_value(pm, "_InstancedPlayerList")
+        or field_value(pm, "<InstancedPlayerList>k__BackingField")
+        or field_value(pm, "_PlayerList")
+    if list then return list end
+    local td = safe(function() return pm:get_type_definition() end)
+    for _, f in ipairs(safe(function() return td and td:get_fields() end) or {}) do
+        local n = safe(function() return f:get_name() end)
+        if n and (n:find("Instanced") or n:find("PlayerList")) then
+            local v = safe(function() return f:get_data(pm) end)
+            if v then return v end
+        end
+    end
+    return nil
+end
+
+local function instanced_array(pm)
+    local list = instanced_list(pm)
+    if not list then return nil end
+    return field_value(list, "_Array")
+        or field_value(list, "<Array>k__BackingField")
+        or field_value(list, "_Items")
+        or list
+end
+
+local function array_get(arr, i)
+    local v = safe(function() return arr[i] end)
+    if v == nil then
+        -- Some lists expose get_Item(int) instead of a raw array.
+        local td = safe(function() return arr:get_type_definition() end)
+        local m = td and safe(function() return td:get_method("get_Item(System.Int32)") end)
+        if m then
+            v = safe(function() return m:call(arr, i) end)
+            if v == nil then v = safe(function() return m:call(arr, i + 1) end) end
+        end
+    end
+    return v
+end
+
+-- Samples are keyed by USER SLOT, never by name. The same instance can
+-- resolve to different names across polls (context vs roster), and a bad
+-- name used to merge the host's HP into the local player's series. The slot
+-- is stable; the display name is only resolved once, at dump time.
+local function record_hp(key, name, h, now)
+    if key == nil or type(h.hp) ~= "number" then return false end
+    state.php = state.php or {}
+    local rec = state.php[key]
+    if rec == nil then
+        rec = { samples = {}, last = nil, last_emit = 0 }
+        state.php[key] = rec
+    end
+    local changed = rec.last == nil or math.abs(h.hp - rec.last) >= PHP_CHANGE
+    local heartbeat = (now - (rec.last_emit or 0)) >= PHP_HEARTBEAT
+    if changed or heartbeat then
+        rec.samples[#rec.samples + 1] = {
+            t = now, hp = h.hp, red = h.red, max_hp = h.max_hp,
+        }
+        rec.last = h.hp
+        rec.last_emit = now
+    end
+    return true
+end
+
+-- Slot-indexed name map. `_InstancedPlayerList` is compact (join order), so
+-- using its index as a roster slot can swap player names. `_PlayerList` is a
+-- plain cPlayerManageControl[] indexed by user slot, so match the SAME object
+-- by identity and read the slot from there.
+local function player_list_slots(pm)
+    local out = {}
+    local plist = field_value(pm, "_PlayerList")
+    if plist == nil then return out end
+    for i = 0, 7 do
+        local inst = safe(function() return array_get(plist, i) end)
+        if inst then out[tostring(inst)] = i end
+    end
+    return out
+end
+
+-- Player names: the context chain (get_ContextHolder():get_Pl()) is nil on
+-- some builds, so fall back to the quest roster. _QuestPlayerList holds the
+-- user index of each instanced slot, which maps back to NetworkManager users.
+local function quest_player_indices(pm)
+    local q = field_value(pm, "_QuestPlayerList")
+    local out = {}
+    if q == nil then return out end
+    for i = 0, 7 do
+        local v = safe(function() return array_get(q, i) end)
+        v = boxed_float(v) or safe(function() return sdk.to_int64(v) end)
+        if type(v) == "number" then out[i] = v end
+    end
+    return out
+end
+
+local function roster_name(i, qi)
+    local users = state.users or {}
+    if type(qi) == "number" then
+        for _, u in pairs(users) do
+            if u and u.idx == qi and u.name then return u.name, "roster_qi" end
+        end
+        local u = users[qi]
+        if u and u.name then return u.name, "roster_pos" end
+    end
+    local u = users[i]
+    if u and u.name then return u.name, "roster_i" end
+    return nil, nil
+end
+
+-- A player-object user index, when the build exposes one. That is the most
+-- direct link to NetworkManager's user list, so try it before any positional
+-- heuristic.
+local function player_index(inst, pi)
+    for _, m in ipairs({ "get_UserIndex", "get_PlayerIndex", "get_PlayerNo" }) do
+        local v = boxed_float(safe(function() return call_method(inst, m) end))
+        if type(v) == "number" and v >= 0 and v < 8 then return v end
+    end
+    for _, fn in ipairs({ "_UserIndex", "_PlayerIndex", "_PlayerNo" }) do
+        local v = boxed_float(field_value(inst, fn))
+        if type(v) == "number" and v >= 0 and v < 8 then return v end
+    end
+    if pi then
+        for _, m in ipairs({ "get_UserIndex", "get_PlayerIndex",
+                             "get_PlayerNo" }) do
+            local v = boxed_float(safe(function() return call_method(pi, m) end))
+            if type(v) == "number" and v >= 0 and v < 8 then return v end
+        end
+        for _, fn in ipairs({ "_UserIndex", "_PlayerIndex", "_PlayerNo" }) do
+            local v = boxed_float(field_value(pi, fn))
+            if type(v) == "number" and v >= 0 and v < 8 then return v end
+        end
+    end
+    return nil
+end
+
+local function users_by_index(idx)
+    for _, u in pairs(state.users or {}) do
+        if u and u.idx == idx and u.name then return u.name end
+    end
+    return nil
+end
+
+local function name_of(inst, pi, i, qi, slot)
+    local ctx = call_method(inst, "get_ContextHolder")
+    local pl = ctx and (call_method(ctx, "get_Pl")
+        or call_method(ctx, "get_Player")
+        or field_value(ctx, "_Pl"))
+    local n = safe_str(pl and (call_method(pl, "get_PlayerName")
+        or call_method(pl, "get_Name")))
+    if n then return n, "context" end
+    n = safe_str(pi and (call_method(pi, "get_PlayerName")
+        or call_method(pi, "get_PlName")))
+    if n then return n, "playerinfo" end
+    n = safe_str(call_method(inst, "get_PlayerName"))
+    if n then return n, "inst" end
+    local idx = player_index(inst, pi)
+    if idx then
+        n = users_by_index(idx)
+        if n then return n, "user_index" end
+    end
+    if type(slot) == "number" then
+        local u = state.users and state.users[slot]
+        if u and u.name then return u.name, "player_list" end
+    end
+    return roster_name(i, qi)
+end
+
+local function poll_party_hp(now)
+    state.php_seen = 0
+    state.php_fail = 0
+    state.php_error = nil
+    local PM = safe(sdk.find_type_definition, "app.PlayerManager")
+    local pm = PM and safe(function() return sdk.get_managed_singleton("app.PlayerManager") end)
+    if not pm then return end
+
+    -- 1) Instanced party list (every hunter in the quest).
+    local arr = instanced_array(pm)
+    local qidx = quest_player_indices(pm)
+    local slots = player_list_slots(pm)
+    if arr then
+        for i = 0, 7 do
+            local inst = array_get(arr, i)
+            if inst then
+                state.php_seen = state.php_seen + 1
+                local r = safe(read_instanced_hp, inst) or {}
+                local pi = r.pi
+                local slot = slots[tostring(inst)]
+                local idx = player_index(inst, pi)
+                local n, src = name_of(inst, pi, i, qidx[i], slot)
+                if n then r.name = n; r.name_src = src end
+                -- Strongest identity first: _PlayerList slot, then the
+                -- player object's user index, then the quest list index.
+                local key = slot or idx or qidx[i] or i
+                state.php_names = state.php_names or {}
+                local u = state.users and state.users[i]
+                state.php_names[i] = { name = n, src = src,
+                                       slot = slot, idx = idx,
+                                       key = key,
+                                       roster_self = u and u.is_self or nil,
+                                       hp_ok = r.hp_ok, fail = r.fail }
+                if not record_hp(key, n, r, now) then
+                    state.php_fail = (state.php_fail or 0) + 1
+                    state.php_last_fail = r.fail or "unknown"
+                end
+            end
+        end
+    end
+
+    -- 2) Master player fallback, ONLY when the party list yielded nobody.
+    -- getMasterPlayer() is the quest HOST, not the local hunter: in a hunt
+    -- hosted by someone else it must never be recorded under the local
+    -- player's name (it used to interleave two hunters' HP in one series).
+    if state.php_seen > 0 then return end
+    local mp = call_method(pm, "getMasterPlayer")
+    if mp then
+        local ch = field_value(mp, "<Character>k__BackingField")
+            or field_value(mp, "_Character") or mp
+        local h = health_of(ch)
+        state.master_fail = h.fail
+        state.master_hp_ok = type(h.hp) == "number"
+        -- getMasterPlayer() is the HOST (slot 0), not the local player. Only
+        -- fall back to self_name when the roster proves this is solo.
+        local host_name = users_by_index(0)
+        if not host_name and state.self_name then
+            local n = 0
+            for _ in pairs(state.users or {}) do n = n + 1 end
+            if n <= 1 then host_name = state.self_name end
+        end
+        if state.master_hp_ok and host_name then
+            record_hp(0, host_name, h, now)
+        end
+    else
+        state.master_fail = "no_master_player"
+    end
+end
+
+-- Diagnostics for the party-HP chain, embedded in the dump itself (the dump
+-- is the one file we know reaches the importer). Lists each instanced player,
+-- which accessor produced a character, and the broken link when HP is missing.
+local function party_debug()
+    local out = { array_found = false, players = {} }
+    local PM = safe(sdk.find_type_definition, "app.PlayerManager")
+    local pm = PM and safe(function() return sdk.get_managed_singleton("app.PlayerManager") end)
+    if not pm then out.fail = "no_player_manager" return out end
+    if config.debug then
+        out.pm_type = type_name(pm)
+        local pmtd = safe(function() return pm:get_type_definition() end)
+        out.pm_fields = {}
+        for _, f in ipairs(safe(function() return pmtd and pmtd:get_fields() end) or {}) do
+            local n = safe(function() return f:get_name() end)
+            if n and (n:find("Instanc") or n:find("Player") or n:find("List")) then
+                local ft = safe(function()
+                    local t = f:get_type()
+                    return t and t:get_full_name()
+                end)
+                out.pm_fields[#out.pm_fields + 1] = { name = n,
+                                                     type = safe_str(ft) }
+            end
+        end
+    end
+    local list = instanced_list(pm)
+    out.list_type = type_name(list)
+    local arr = instanced_array(pm)
+    if not arr then out.fail = "no_instanced_list" return out end
+    out.array_found = true
+    out.php_seen = state.php_seen
+    out.php_fail = state.php_fail
+    out.php_names = state.php_names
+    if config.debug then
+        out.arr_type = type_name(arr)
+        out.qidx = {}
+        for k, v in pairs(quest_player_indices(pm)) do out.qidx[k] = v end
+        out.users = {}
+        for k, u in pairs(state.users or {}) do
+            out.users[tostring(k)] = { name = u.name, idx = u.idx,
+                                       is_self = u.is_self }
+        end
+        out.player_list = {}
+        local plist = field_value(pm, "_PlayerList")
+        if plist then
+            for i = 0, 7 do
+                local inst = array_get(plist, i)
+                if inst then
+                    local ch = character_of(inst,
+                        call_method(inst, "get_PlayerInfo")) or inst
+                    local h = safe(function() return health_of(ch) end) or {}
+                    local u = state.users and state.users[i]
+                    out.player_list[#out.player_list + 1] = {
+                        slot = i, ptr = tostring(inst),
+                        char_ptr = tostring(ch),
+                        name = u and u.name or nil,
+                        is_self = u and u.is_self or nil,
+                        hp_ok = type(h.hp) == "number", hp = h.hp }
+                end
+            end
+        end
+        out.instanced = {}
+        for i = 0, 7 do
+            local inst = array_get(arr, i)
+            if inst then
+                local ch = character_of(inst,
+                    call_method(inst, "get_PlayerInfo")) or inst
+                out.instanced[#out.instanced + 1] = { index = i,
+                                                      ptr = tostring(inst),
+                                                      char_ptr = tostring(ch) }
+            end
+        end
+    end
+    for i = 0, 7 do
+        local inst = array_get(arr, i)
+        if inst then
+            local info = { index = i, inst_type = type_name(inst) }
+            local ctx = call_method(inst, "get_ContextHolder")
+            local pl = ctx and call_method(ctx, "get_Pl")
+            info.name = safe_str(pl and call_method(pl, "get_PlayerName"))
+            local n, src = name_of(inst, call_method(inst, "get_PlayerInfo"), i, nil)
+            info.resolved_name = n
+            info.name_src = src
+            local pi = call_method(inst, "get_PlayerInfo")
+            info.pi_type = type_name(pi)
+            if config.debug then
+                info.user_control = safe(function()
+                    return inst:get_IsUserControl() end)
+                info.indices = {}
+                for _, m in ipairs({ "get_UserIndex", "get_PlayerIndex",
+                                     "get_Index", "get_PlayerNo" }) do
+                    local v = safe(function() return call_method(inst, m) end)
+                    if v ~= nil then info.indices[m] = v end
+                end
+                for _, fn in ipairs({ "_UserIndex", "_PlayerIndex", "_Index",
+                                      "_PlayerNo", "_Slot" }) do
+                    local v = field_value(inst, fn)
+                    if v ~= nil then info.indices[fn] = v end
+                end
+                for _, m in ipairs({ "get_UserIndex", "get_PlayerIndex",
+                                     "get_Index", "get_PlayerNo" }) do
+                    local v = safe(function() return call_method(pi, m) end)
+                    if v ~= nil then info.indices["pi." .. m] = v end
+                end
+                for _, fn in ipairs({ "_UserIndex", "_PlayerIndex", "_Index",
+                                      "_PlayerNo", "_Slot" }) do
+                    local v = field_value(pi, fn)
+                    if v ~= nil then info.indices["pi." .. fn] = v end
+                end
+            end
+            local ch = character_of(inst, pi)
+            info.char_type = type_name(ch)
+            if ch == nil or ch == 0 then
+                -- Record what the player-info object CAN do, so the right
+                -- accessor is obvious from one real dump.
+                info.pi_methods = {}
+                local td = safe(function() return pi and pi:get_type_definition() end)
+                for _, m in ipairs(safe(function() return td and td:get_methods() end) or {}) do
+                    local n = safe(function() return m:get_name() end)
+                    if n then info.pi_methods[#info.pi_methods + 1] = n end
+                end
+                info.fail = "no_character"
+            else
+                local h = health_of(ch)
+                info.hp_ok = type(h.hp) == "number"
+                info.fail = h.fail
+                info.hh_type = h.char_type
+                if type(h.hp) == "number" then
+                    info.hp = h.hp
+                    info.max_hp = h.max_hp
+                end
+            end
+            out.players[#out.players + 1] = info
+        end
+    end
+    local mp = call_method(pm, "getMasterPlayer")
+    if mp then
+        local ch = field_value(mp, "<Character>k__BackingField")
+            or field_value(mp, "_Character") or mp
+        local h = health_of(ch)
+        out.master = { hp_ok = type(h.hp) == "number", fail = h.fail,
+                       char_type = h.char_type, ptr = tostring(ch),
+                       hp = h.hp, max_hp = h.max_hp }
+    else
+        out.master = { fail = "no_master_player" }
+    end
+    return out
+end
+
+-- Export shape for one player: { percentage, red_percentage, max_hp, time }.
+local function php_health_steps(key)
+    if not state or not state.php then return nil end
+    local rec = state.php[key]
+    if rec == nil or #rec.samples == 0 then return nil end
+    local out = {}
+    for _, s in ipairs(rec.samples) do
+        out[#out + 1] = { percentage = s.hp, red_percentage = s.red,
+                          max_hp = s.max_hp, time = iso(s.t) }
+    end
+    return out
+end
+
+-- Samples are keyed by user slot (or user index when the slot match failed).
+-- Accept either number for the same roster entry, then the legacy name key.
+local function php_steps_for_user(slot, u)
+    local steps = php_health_steps(slot)
+    if steps then return steps end
+    if u and u.idx ~= nil then
+        steps = php_health_steps(u.idx)
+        if steps then return steps end
+    end
+    return u and php_health_steps(u.name) or nil
+end
 
 -- find the cQuestAwardSync object inside a hook's args and its userIndex
 local function find_award_sync(args)
@@ -224,6 +962,7 @@ local function quest_users()
             out[i - 1] = {
                 name = safe_str(safe(function() return u:get_PlName() end)),
                 is_self = safe(function() return u:get_IsSelf() end),
+                idx = boxed_float(safe(function() return u:get_UserIndex() end)),
             }
         end
     end
@@ -256,13 +995,19 @@ local function begin_session()
         em_ids = get_active_em_ids(),
         meta = meta,
         users = quest_users(),
+        self_name = nil,
         hp = {},          -- [bossIndex] = { {t, norm}, ... }
         max_hp = nil,
         last_poll = 0,
         finished = false,
         self_wtype = self_wtype,
         self_wid_start = self_wid_start,
+        buffs = {},          -- [abnormalityId] = { active, start, windows }
+        php = {},            -- [playerName] = { samples, last, last_emit }
     }
+    for _, u in pairs(state.users or {}) do
+        if u and u.is_self and u.name then state.self_name = u.name end
+    end
     awards = {}
     dlog("quest start: em_ids=%s lv=%s self_type=%s self_id=%s",
         tostring(#state.em_ids), tostring(state.meta.level),
@@ -287,6 +1032,8 @@ local function poll()
             end
         end
     end
+    safe(poll_buffs, now)
+    safe(poll_party_hp, now)
 end
 
 -- ace.UnionValue stores raw bytes; award id 4 (damage) is a packed float32.
@@ -577,6 +1324,62 @@ local function write_dump(dump)
     return OUT_SUBDIR .. "/" .. fname
 end
 
+-- Quest result. The reward screen fires for failures too, so "the reward
+-- screen opened" is not proof of a clear: read SuccessState (2 = clear,
+-- 1 = leave, >=3 = failed) when the build exposes it, and fall back to the
+-- time limit (time up) and cart limit (wipe).
+local RESULT_HINTS = { "Result", "Success", "Fail", "Clear", "QuestState",
+                       "Life" }
+
+local function quest_result_probe()
+    local probe = {}
+    local mgr = safe(function()
+        return sdk.get_managed_singleton("app.MissionManager") end)
+    local dir = mgr and safe(function()
+        return call_method(mgr, "get_QuestDirector") end)
+    local aqd = mgr and safe(function()
+        return call_method(mgr, "get_ActiveQuestData") end)
+    local qm = safe(function()
+        return sdk.get_managed_singleton("app.cQuestManager") end)
+    local targets = { aqd = aqd, dir = dir, mgr = mgr, qm = qm }
+    for key, obj in pairs(targets) do
+        local td = obj and safe(function() return obj:get_type_definition() end)
+        for _, m in ipairs(safe(function() return td and td:get_methods() end) or {}) do
+            local n = safe(function() return m:get_name() end)
+            local hit = false
+            if n then
+                for _, h in ipairs(RESULT_HINTS) do
+                    if n:find(h) then hit = true break end
+                end
+            end
+            if hit then
+                local v = safe(function() return m:call(obj) end)
+                if v ~= nil and (type(v) == "number" or type(v) == "boolean") then
+                    probe[#probe + 1] = { obj = key, name = n,
+                                          value = tostring(v) }
+                end
+            end
+        end
+    end
+    return probe
+end
+
+local function interpret_result(probe)
+    local ss, fs
+    for _, p in ipairs(probe) do
+        local v = tonumber(p.value)
+        if v then
+            if p.name:find("SuccessState") then ss = v end
+            if p.name:find("FailureState") then fs = v end
+        end
+    end
+    if ss == 2 then return "success" end
+    if ss == 1 then return "quit" end
+    if ss and ss >= 3 then return "fail" end
+    if fs and fs > 0 then return "fail" end
+    return nil
+end
+
 local function finish_session()
     if not config.enabled or state == nil or state.finished then return end
     state.finished = utc_now()
@@ -585,6 +1388,24 @@ local function finish_session()
 
     local started = state.started
     local finished = state.finished
+    local result_probe = quest_result_probe()
+    local result = interpret_result(result_probe)
+    local elapsed = (type(started) == "number" and type(finished) == "number")
+        and (finished - started) or nil
+    if result == nil then
+        -- getActiveTimeLimit units are not documented: values <= 120 are
+        -- minutes (15/25/50), larger ones are seconds (900/1500/3000).
+        local limit = state.meta and state.meta.time_limit
+        local limit_s = nil
+        if type(limit) == "number" and limit > 0 then
+            limit_s = limit <= 120 and limit * 60 or limit
+        end
+        if limit_s and elapsed and elapsed >= limit_s - 5 then
+            result = "fail"  -- time up
+        else
+            result = "success"
+        end
+    end
 
     -- awards: multiplayer fills `awards` via the shared sync (per userIndex);
     -- solo falls back to the self player's get_QuestAwardInfo().
@@ -608,6 +1429,7 @@ local function finish_session()
     end
 
     -- players: name + damage + awards (weapons come from HunterPie)
+    local local_buffs = buff_abnormalities(finished)
     local players = {}
     local n_players = 0
     for i = 0, 3 do
@@ -625,6 +1447,10 @@ local function finish_session()
                 gear = nil,
                 damages = { { damage = damage, dealt_at = iso(finished) } },
                 awards = awards_list_for(rec),
+                abnormalities = u.is_self and local_buffs or nil,
+                -- Samples are slot-keyed; accept legacy name keys only as a
+                -- fallback for hunts captured before the slot-key change.
+                health_steps = php_steps_for_user(i, u),
                 is_hunterpie_user = false,
             }
             n_players = n_players + 1
@@ -671,12 +1497,18 @@ local function finish_session()
 
     local dump = {
         game_type = GAME_TYPE,
+        mod_version = VERSION,
         started_at = iso(started),
         finished_at = iso(finished),
         uploaded_at = iso(utc_now()),
         quest = {
             id = state.meta.level,
             type = 0,
+            result = result,
+            cleared = result == "success",
+            time_limit = state.meta.time_limit,
+            elapsed = elapsed,
+            result_probe = result_probe,
             deaths = 0,
             max_deaths = state.meta.max_deaths or 0,
             level = state.meta.level or 0,
@@ -685,6 +1517,7 @@ local function finish_session()
         players = players,
         monsters = monsters,
         awards_meta = get_award_meta(),
+        mod_debug = party_debug(),
         source = "reframework",
         -- calibration aid: raw self weapon ids + resolved names at both ends
         self_weapon = { type = state.self_wtype,
@@ -727,7 +1560,24 @@ local function register_hooks()
         if m then sdk.hook(m, function(args) on_award_sync(args) end, nil) end
     end)
 
-    re.on_frame(function() safe(poll) end)
+    -- Load-time guard: a helper that is nil only fails when called at runtime
+-- (a missing read_instanced_hp once cost us a whole debug cycle), so shout
+-- about it as soon as the script loads.
+local REQUIRED_HELPERS = {
+    read_instanced_hp = read_instanced_hp,
+    character_of = character_of,
+    health_of = health_of,
+    record_hp = record_hp,
+    poll_party_hp = poll_party_hp,
+    php_health_steps = php_health_steps,
+}
+for name, fn in pairs(REQUIRED_HELPERS) do
+    if type(fn) ~= "function" then
+        log.error("[HuntDumper] missing helper at load: " .. name)
+    end
+end
+
+re.on_frame(function() safe(poll) end)
 end
 
 -- ---------------------------------------------------------------------------
@@ -739,7 +1589,7 @@ register_hooks()
 
 re.on_draw_ui(function()
     if imgui.tree_node("HuntDumper") then
-        imgui.text("v" .. VERSION .. "  (totals + HP curve + awards)")
+        imgui.text("v" .. VERSION .. "  (totals + HP curve + awards + buffs + party HP)")
         imgui.separator()
         local changed
         changed, config.enabled = imgui.checkbox("Enabled", config.enabled)

@@ -196,7 +196,7 @@ def test_hunterpie_dump_refreshes_reframework_hunt(session):
     and the mod's awards are kept."""
     h1, c1, _ = upsert_hunt(session, base_payload(
         quest_id_external="rf-1", source="reframework",
-        awards_meta=_RF_AWARDS_META,
+        awards_meta=_RF_AWARDS_META, mod_version="0.10.0",
         players=[{"display_name": "Diego", "weapon_id": None,
                   "total_damage": 9000, "peak_dps": 120,
                   "weapon_name": "Onyx Choros", "awards": _rf_award()},
@@ -226,6 +226,9 @@ def test_hunterpie_dump_refreshes_reframework_hunt(session):
         .where(Player.display_name == "Diego")).scalar_one()
     assert diego.weapon_name == "Onyx Choros"
     assert row.player_count == 1
+    # The companion has no mod_version: the one from the mod dump survives
+    # the refresh (it powers the "reinstall the mod" notice).
+    assert row.mod_version == "0.10.0"
     assert session.execute(select(func.count()).select_from(HuntPlayerAward)
                            ).scalar_one() == 1
 
@@ -237,7 +240,7 @@ def test_reframework_dump_enriches_hunterpie_hunt(session):
     assert c1 is True
     h2, c2, _ = upsert_hunt(session, base_payload(
         quest_id_external="rf-1", source="reframework",
-        awards_meta=_RF_AWARDS_META,
+        awards_meta=_RF_AWARDS_META, mod_version="0.11.0",
         started_at=datetime(2026, 2, 1, 12, 0, 5),
         ended_at=datetime(2026, 2, 1, 12, 10, 5),
         players=[{"display_name": "Diego", "weapon_id": None,
@@ -249,6 +252,7 @@ def test_reframework_dump_enriches_hunterpie_hunt(session):
     assert hp.weapon_id == 1              # HunterPie's weapon class, untouched
     assert hp.weapon_name == "Onyx Choros"  # added by the mod
     assert session.get(Hunt, h1.id).source == "hunterpie"
+    assert session.get(Hunt, h1.id).mod_version == "0.11.0"
     assert session.execute(select(func.count()).select_from(HuntPlayerAward)
                            ).scalar_one() == 1
 

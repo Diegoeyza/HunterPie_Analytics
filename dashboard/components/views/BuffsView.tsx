@@ -7,7 +7,6 @@ import { fmtTime } from "../../lib/format";
 import { ApiState, useApi } from "../../lib/useApi";
 import DataTable from "../DataTable";
 import SearchSelect from "../SearchSelect";
-import EmptyState from "../EmptyState";
 import { useFilterOptions } from "../useFilterOptions";
 
 interface AbnormalityEntry {
@@ -122,24 +121,30 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
   const [huntId, setHuntId] = useState<number | null>(null);
   const [catFilter, setCatFilter] = useState<string>("");
   const [view, setView] = useState<"table" | "timeline">("table");
-
+  // One list for every hunt. Buffs are never merged per hunt: the companion
+  // owns hunts it captured, and the mod fills in only for hunts it missed
+  // (backend keeps mod buffs when a companion dump carries none).
   const huntsQ = useApi<{ hunts: HuntSummary[] }>("/hunts", {
     limit: 200,
     ...(partySize != null && { players: partySize }),
   });
   const hunts = huntsQ.data?.hunts ?? null;
-  // Newest hunt the companion captured. The plain newest hunt is often a
-  // mod-only run (HunterPie wasn't running), which would make this tab look
+  // Newest hunt the selected source captured. The plain newest hunt is often
+  // a mod-only run (HunterPie wasn't running), which would make this tab look
   // empty even though older hunts have buff data.
   const latestWithBuffs = useMemo(
     () => hunts?.find((h) => h.has_buffs) ?? null, [hunts]);
 
-  // Default to the latest hunt that has buff data once the list loads.
+  // Default to the latest hunt that has buff data; reset when the source
+  // switch leaves the selected hunt out of the list.
   useEffect(() => {
-    if (!hunts || hunts.length === 0 || huntId !== null) return;
+    if (!hunts || hunts.length === 0) return;
+    if (huntId !== null && hunts.some((h) => h.id === huntId)) return;
     setHuntId((latestWithBuffs ?? hunts[0]).id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hunts, latestWithBuffs]);
+  }, [hunts, latestWithBuffs, huntId]);
+
+  const selected = hunts?.find((h) => h.id === huntId) ?? null;
+  const selectedSource = selected?.source === "reframework" ? "mod" : "companion";
 
   const detailQ = useApi<BuffsData>(
     `/hunts/${huntId}/abnormalities`, huntId === null ? null : {});
@@ -238,13 +243,6 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
 
   if (error) return <ApiState error={error} loading={false} />;
   if (loadingList || !hunts) return <p>Loading…</p>;
-  if (hunts.length === 0) {
-    return (
-      <EmptyState what="hunts">
-        <p>Import one with <code>python -m app.import_hunt --db hunts.db --file hunt.json</code></p>
-      </EmptyState>
-    );
-  }
 
   return (
     <div className="card">
@@ -255,7 +253,7 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
           showAll={false}
           options={(hunts ?? []).map((h) => ({
             value: String(h.id),
-            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${h.started_at.slice(0, 10)} · ${h.players}p`,
+            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${h.started_at.slice(0, 10)} · ${h.players}p · ${h.source === "reframework" ? "mod" : "companion"}${h.has_buffs ? "" : " · no buffs"}`,
           }))}
           onChange={(v) => { if (v) setHuntId(Number(v)); }}
         />
@@ -276,11 +274,25 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
             onClick={() => setView("timeline")}>Timeline</button>
         </div>
       </div>
+      {hunts.length === 0 && (
+        <p className="blurb">
+          No hunts imported yet. Use the <b>HunterPie Analytics companion</b>
+          (its own shortcut) and/or <b>HuntDumper 0.10+</b> in REFramework
+          before a quest, then Import.
+        </p>
+      )}
       {data && (
         <>
           <h2>
             #{data.hunt_id} {data.monster}
             {data.clear_s ? ` · cleared in ${Math.round(data.clear_s)}s` : ""}
+            <span
+              className="muted"
+              style={{ marginLeft: 10, fontSize: 12, fontWeight: 400 }}
+              title="Companion buffs are preferred; the mod fills in for hunts the companion missed"
+            >
+              {selectedSource === "mod" ? "mod buffs" : "companion buffs"}
+            </span>
           </h2>
           {filtered.length === 0 ? (
             catFilter ? (
@@ -292,17 +304,17 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
               </p>
             ) : latestWithBuffs && latestWithBuffs.id !== huntId ? (
               <p className="blurb">
-                This hunt was captured without the companion.{" "}
+                Neither the companion nor the mod recorded buffs for this
+                hunt.{" "}
                 <button type="button" onClick={() => setHuntId(latestWithBuffs.id)}>
                   Open the latest hunt with buffs
                 </button>
               </p>
             ) : (
               <p className="blurb">
-                No buff/debuff data in these hunts yet. Launch the
-                {" "}<b>HunterPie Analytics companion</b> (its own shortcut)
-                before a quest — the REFramework mod alone doesn&apos;t record
-                buffs.
+                No buff/debuff data yet. Run the <b>HunterPie Analytics
+                companion</b> (its own shortcut) or <b>HuntDumper 0.10+</b>
+                before a quest; scripts reloaded mid-hunt skip that hunt.
               </p>
             )
           ) : view === "table" ? (
@@ -314,8 +326,7 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
                 getRowId={(r) => `${r.player}|${r.id}|${r.category}`}
               />
               <p className="blurb">
-                Recorded by the HunterPie Analytics companion for the local
-                player.
+                Recorded by the {selectedSource === "mod" ? "HuntDumper mod" : "HunterPie Analytics companion"} for the local player.
               </p>
             </>
           ) : (

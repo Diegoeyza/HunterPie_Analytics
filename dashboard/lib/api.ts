@@ -128,11 +128,18 @@ export interface AppSettings {
   /** $HUNT_EXPORTS is set: it overrides the configured list for imports. */
   env_override: boolean;
 }
+/** Mod version from the newest dump vs. the mod bundled with the app. */
+export interface ModStatus {
+  expected: string | null;
+  installed: string | null;
+  outdated: boolean;
+}
 export interface Health {
   status: string; hunts: number;
   hunterpie_version?: string; game_version?: string;
   sources?: HealthSource[];
   app_version?: string;
+  mod?: ModStatus;
 }
 
 /** Response of GET /api/update (release check; error is non-fatal). */
@@ -223,8 +230,12 @@ export interface HuntSummary {
   quest_id: number | null; quest_stars: number | null;
   clear_s: number | null; cleared: boolean; carts: number; players: number;
   ignored: boolean;
-  /** Companion recorded buff/debuff uptime (local player) for this hunt. */
+  /** Capture source: "hunterpie" (companion) or "reframework" (mod). */
+  source?: string;
+  /** Companion or mod recorded buff/debuff uptime for this hunt. */
   has_buffs?: boolean;
+  /** Mod recorded per-player HP samples for this hunt (Survival tab). */
+  has_health?: boolean;
   /** Distinct non-damage awards scored by anyone in the hunt (REFramework). */
   highlight_count?: number;
   highlight_names?: string[];

@@ -91,7 +91,7 @@ The update check is opt-out: turn it off for zero network access.
 | **Highlights** | Quest-end awards (hunter highlights) + average damage share. REFramework hunts. |
 | **Damage curves** | Per-hunt cumulative damage / DPS for all party members, monster HP overlay, enrage markers. |
 | **Hunts** | Every run, latest first — click a row for party damage, DPS and the damage curve. |
-| **Quests** | Per-quest aggregates: clear rate, best DPS, enrage uptime. |
+| **Survival** | Per-hunter HP and DPS over time with time-in-danger summary. Requires HuntDumper 0.11+. |
 | **Leaderboard** | Best players by DPS over cleared hunts. |
 | **High Scores** | One row per cleared hunt, ranked by DPS or clear time. |
 | **Compare** | Scoped hunters vs the whole party, hunt by hunt. |
@@ -115,10 +115,10 @@ All screenshots are captured from the current build; the full set lives in
 | ![Growth tab](docs/images/growth.png) | ![Highlights tab](docs/images/highlights.png) |
 | DPS improvement over time. | The 30 quest-end awards and damage share. |
 
-| Hunts | Quests |
+| Hunts | Survival |
 |:---:|:---:|
-| ![Hunts tab](docs/images/hunts.png) | ![Quests tab](docs/images/quests.png) |
-| Every run, expandable to the full curve. | Per-quest clear rate and stats. |
+| ![Hunts tab](docs/images/hunts.png) | Per-hunter HP and DPS over time (screenshot pending 0.11 data). |
+| Every run, expandable to the full curve. | Time-in-danger summary per hunter. |
 
 | Weapons | High Scores |
 |:---:|:---:|

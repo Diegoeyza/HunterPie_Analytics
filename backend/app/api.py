@@ -161,7 +161,7 @@ def health(db: Session = Depends(get_db)):
     # REFramework mod); the dashboard uses it for the first-run status note.
     # `app_version` drives the Settings footer + the in-app updater.
     return {**queries.health(db), "sources": detected_sources(),
-            "app_version": APP_VERSION}
+            "app_version": APP_VERSION, "mod": queries.mod_status(db)}
 
 
 @app.get("/api/hunts")
@@ -169,10 +169,11 @@ def hunts(limit: int = Query(200, ge=1, le=MAX_LIMIT),
           include_ignored: bool = False,
           player_ids: str | None = None, players: int | None = None,
           weapon_name: str | None = None,
+          source: str | None = None,
           db: Session = Depends(get_db)):
     return queries.hunt_list(db, limit, include_ignored,
                              _ids(player_ids), party=_party(players),
-                             weapon_name=weapon_name)
+                             weapon_name=weapon_name, source=source)
 
 
 @app.get("/api/highlights")
@@ -278,6 +279,8 @@ def synergy(player_ids: str | None = None, monster_id: int | None = None,
 
 @app.get("/api/quests")
 def quests(players: int | None = None, db: Session = Depends(get_db)):
+    """Deprecated: the Quests tab was replaced by Survival, but the endpoints
+    stay (harmless, still covered by tests) so old clients don't 404."""
     return queries.quest_stats(db, party=_party(players))
 
 

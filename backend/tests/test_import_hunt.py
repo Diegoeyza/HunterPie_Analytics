@@ -250,3 +250,16 @@ def test_monster_names_use_wilds_section(tmp_path):
         encoding="utf-8",
     )
     assert load_monster_names(xml) == {31: "Xu Wu"}
+
+
+def test_quest_result_fail_is_not_cleared():
+    from app.import_hunt import _quest_failed
+    assert _quest_failed({"quest": {"result": "fail"}}) is True
+    assert _quest_failed({"quest": {"result": "quit"}}) is True
+    assert _quest_failed({"quest": {"cleared": False}}) is True
+    # explicit success wins over a stale deaths counter
+    assert _quest_failed({"quest": {"result": "success", "deaths": 3,
+                                    "max_deaths": 3}}) is False
+    # legacy dumps: carts only
+    assert _quest_failed({"quest": {"deaths": 3, "max_deaths": 3}}) is True
+    assert _quest_failed({"quest": {"deaths": 1, "max_deaths": 3}}) is False

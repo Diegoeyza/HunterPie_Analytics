@@ -29,6 +29,7 @@ from .models import (
     Player,
     PlayerAbnormality,
     PlayerAlias,
+    PlayerHealthStep,
     PlayerPin,
     Weapon,
 )
@@ -40,6 +41,7 @@ from .variants import (
     resolve_variant_filter,
     set_identity_label,
 )
+from .version import bundled_mod_version, version_lt
 
 # Backward-compat aliases (old private names still importable).
 _parse_ids = parse_ids
@@ -229,11 +231,29 @@ def health(session: Session) -> dict:
     return out
 
 
+def mod_status(session: Session) -> dict:
+    """Newest HuntDumper version seen in a dump vs. the one bundled here.
+
+    ``installed`` is the version from the most recent hunt that carried a
+    mod_version (companion-only hunts are ignored: NULL). ``outdated`` drives
+    the dashboard's "reinstall the mod" toast after an app update."""
+    expected = bundled_mod_version()
+    installed = session.execute(
+        select(Hunt.mod_version)
+        .where(Hunt.mod_version.is_not(None))
+        .order_by(Hunt.started_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return {"expected": expected, "installed": installed,
+            "outdated": version_lt(installed, expected)}
+
+
 def hunt_list(session: Session, limit: int = 200,
               include_ignored: bool = False,
               player_ids: list[int] | None = None,
               party: int | None = None,
-              weapon_name: str | None = None) -> dict:
+              weapon_name: str | None = None,
+              source: str | None = None) -> dict:
     stmt = select(Hunt, Monster).join(Monster)
     if not include_ignored:
         stmt = stmt.where(filters.visible())
@@ -245,6 +265,8 @@ def hunt_list(session: Session, limit: int = 200,
         stmt = stmt.join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id).distinct()
     if weapon_name is not None:
         stmt = stmt.where(HuntPlayer.weapon_name == weapon_name)
+    if source is not None:
+        stmt = stmt.where(Hunt.source == source)
     stmt = filters.party(stmt, party)
     rows = session.execute(
         stmt.order_by(Hunt.started_at.desc()).limit(limit)
@@ -256,13 +278,20 @@ def hunt_list(session: Session, limit: int = 200,
         .where(PlayerAbnormality.hunt_id.in_(hunt_ids))
         .distinct()
     ).scalars()) if hunt_ids else set()
+    with_health = set(session.execute(
+        select(PlayerHealthStep.hunt_id)
+        .where(PlayerHealthStep.hunt_id.in_(hunt_ids))
+        .distinct()
+    ).scalars()) if hunt_ids else set()
     return {"hunts": [
         {"id": h.id, "monster": m.name, "started_at": h.started_at.isoformat(),
          "quest_id": h.quest_id, "quest_stars": h.quest_stars,
          "clear_s": hunt_duration_s(h), "cleared": bool(h.cleared),
          "carts": h.cart_count, "players": h.player_count,
          "ignored": bool(h.ignored),
+         "source": h.source,
          "has_buffs": h.id in with_buffs,
+         "has_health": h.id in with_health,
          "highlight_count": highlights.get(h.id, {}).get("count", 0),
          "highlight_names": highlights.get(h.id, {}).get("names", [])}
         for h, m in rows
@@ -465,6 +494,62 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
     return {"weapons": rows}
 
 
+# Longest gap that still counts toward time-in-danger. The mod emits a
+# heartbeat every 5 s, so a normal gap is <=5 s; anything longer is a loading
+# screen/alt-tab (or a capture hole) and must be skipped, not counted.
+_SURVIVAL_MAX_GAP = 6.0
+
+
+def _survival_stats(points: list[tuple[float, float]]) -> dict:
+    """Time-weighted survival summary for sorted [(t, hp_fraction)] samples."""
+    if not points:
+        return {"min_hp": None, "avg_hp": None, "time_below_50": 0.0,
+                "time_below_25": 0.0, "time_full": 0.0,
+                "samples": 0}
+    total = 0.0
+    weighted = 0.0
+    below_50 = 0.0
+    below_25 = 0.0
+    full = 0.0
+    for (t0, hp0), (t1, _hp1) in zip(points, points[1:], strict=False):
+        dt = t1 - t0
+        if dt <= 0 or dt > _SURVIVAL_MAX_GAP:
+            continue
+        total += dt
+        weighted += hp0 * dt
+        if hp0 < 0.5:
+            below_50 += dt
+        if hp0 < 0.25:
+            below_25 += dt
+        if hp0 >= 0.995:
+            full += dt
+    hps = [hp for _t, hp in points]
+    avg = (weighted / total) if total > 0 else (sum(hps) / len(hps))
+    return {"min_hp": min(hps), "avg_hp": avg, "time_below_50": below_50,
+            "time_below_25": below_25, "time_full": full,
+            "samples": len(points)}
+
+
+def _anchor_dps_origin(points: list[dict]) -> None:
+    """Start a damage series at quest time 0.
+
+    Companion exports begin at the first hit, so the cumulative-damage curve
+    would otherwise begin partway across the Survival chart while hunter HP
+    begins at 0. Prepending (0, 0) is factual when no damage was recorded
+    before that sample. A late-attached companion is different: its first
+    sample carries all the damage already dealt (bulk value), so anchoring it
+    at 0 would invent a flat "no damage" stretch. Skip those.
+    """
+    if len(points) < 2:
+        return
+    first, last = points[0], points[-1]
+    if first["t"] <= 0:
+        return
+    if last["dmg"] > 0 and first["dmg"] > 0.25 * last["dmg"]:
+        return
+    points.insert(0, {"t": 0.0, "dmg": 0.0, "dps": 0.0})
+
+
 def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
                quest_hp: bool = False) -> dict:
     """FR-3.3: per-player cumulative damage series + monster event spans.
@@ -515,10 +600,52 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
             stride = len(pts) / max_points
             s["points"] = [pts[int(i * stride)] for i in range(max_points)]
             s["points"].append(pts[-1])
+        _anchor_dps_origin(s["points"])
     hp = session.execute(
         select(MonsterHealthStep).where(MonsterHealthStep.hunt_id == hunt_id)
         .order_by(MonsterHealthStep.ts_offset_seconds)
     ).scalars().all()
+    # Per-player HP samples (REFramework mod only; empty for companion hunts).
+    # Player HP is quest-wide, so a sibling of a multi-monster quest (e.g. a
+    # monster the mod skipped as a bystander) borrows it: siblings share
+    # started_at, so their offsets line up exactly.
+    php_hunt_ids = [hunt_id]
+    has_own_hp = session.execute(
+        select(func.count()).select_from(PlayerHealthStep)
+        .where(PlayerHealthStep.hunt_id == hunt_id)).scalar_one()
+    if not has_own_hp:
+        php_hunt_ids += session.execute(
+            select(PlayerHealthStep.hunt_id)
+            .join(Hunt, Hunt.id == PlayerHealthStep.hunt_id)
+            .where(Hunt.started_at == hunt.started_at,
+                   Hunt.id != hunt_id)
+            .limit(1)).scalars().all()
+    php_rows = session.execute(
+        select(Player.display_name, PlayerHealthStep)
+        .join(Player, Player.id == PlayerHealthStep.player_id)
+        .where(PlayerHealthStep.hunt_id.in_(php_hunt_ids))
+        .order_by(Player.display_name, PlayerHealthStep.ts_offset_seconds)
+    ).all()
+    player_hp: list[dict] = []
+    survival: list[dict] = []
+    grouped: dict[str, list] = {}
+    for name, row in php_rows:
+        grouped.setdefault(name, []).append(row)
+    for name, rows in grouped.items():
+        pts = [{"t": r.ts_offset_seconds, "hp": r.hp_fraction,
+                "red": r.red_fraction, "max": r.max_hp} for r in rows]
+        if len(pts) > max_points:
+            stride = len(pts) / max_points
+            pts = [pts[int(i * stride)] for i in range(max_points)]
+            pts.append({"t": rows[-1].ts_offset_seconds,
+                        "hp": rows[-1].hp_fraction,
+                        "red": rows[-1].red_fraction,
+                        "max": rows[-1].max_hp})
+        player_hp.append({"player": name, "points": pts})
+        stats = _survival_stats([(r.ts_offset_seconds, r.hp_fraction)
+                                 for r in rows])
+        stats["player"] = name
+        survival.append(stats)
     # Sibling hunts = all (visible) hunts from the same quest instance:
     # same started_at (microsecond precision, identical for every monster
     # row imported from one file). quest_id_external must NOT be used here:
@@ -563,12 +690,15 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
         "monster": hunt.monster.name,
         "started_at": hunt.started_at.isoformat(),
         "clear_s": hunt_duration_s(hunt),
+        "cleared": bool(hunt.cleared),
         "quest": {"quest_id": hunt.quest_id, "stars": hunt.quest_stars,
                   "level": hunt.quest_level, "max_hp": hunt.monster_max_hp,
                   "variant": hunt.monster_variant, "crown": hunt.monster_crown},
         "players": list(series.values()),
         "events": events_out,
         "hp_curve": [{"t": s.ts_offset_seconds, "hp": s.hp_fraction} for s in hp],
+        "player_hp": player_hp,
+        "survival": survival,
     }
     if quest_hp:
         quest_curves = []

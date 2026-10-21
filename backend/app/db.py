@@ -54,7 +54,7 @@ EXTRA_COLUMNS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-LATEST_VERSION = 7
+LATEST_VERSION = 9
 
 
 def _sqlite_url(db_path: str | Path) -> str:
@@ -233,11 +233,39 @@ def _migrate_v7(conn) -> None:
     ])
 
 
+def _migrate_v8(conn) -> None:
+    """Per-player HP samples (Survival tab). New table: create_all covers
+    fresh DBs; this backfills existing ones."""
+    conn.execute(text(
+        "CREATE TABLE IF NOT EXISTS player_health_steps ("
+        "id INTEGER PRIMARY KEY, "
+        "hunt_id INTEGER NOT NULL REFERENCES hunts(id) ON DELETE CASCADE, "
+        "player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE, "
+        "ts_offset_seconds REAL NOT NULL, "
+        "hp_fraction REAL NOT NULL, "
+        "red_fraction REAL, "
+        "max_hp REAL)"))
+    conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_playerhp_hunt_player_ts "
+        "ON player_health_steps (hunt_id, player_id, ts_offset_seconds)"))
+
+
+def _migrate_v9(conn) -> None:
+    """HuntDumper version recorded by the dump (mod-only hunts).
+
+    The dashboard compares the newest value with the mod bundled in the app
+    and prompts a reinstall after an update."""
+    _add_missing_columns(conn, "hunts", [
+        ("mod_version", "TEXT"),
+    ])
+
+
 # v4/v5 (the REFramework weapon-model experiment) were reverted before release;
 # their tables/columns never existed in a shipped DB, so those versions are
 # intentionally absent. migrate() tolerates the gap in the sequence.
 MIGRATIONS: dict[int, object] = {1: _migrate_v1, 2: _migrate_v2, 3: _migrate_v3,
-                                 6: _migrate_v6, 7: _migrate_v7}
+                                 6: _migrate_v6, 7: _migrate_v7,
+                                 8: _migrate_v8, 9: _migrate_v9}
 
 
 def migrate(engine=None, db_path: str | Path = DEFAULT_DB_PATH) -> int:

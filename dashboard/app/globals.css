@@ -150,6 +150,15 @@ header.topbar h1 { font-size: 18px; margin: 0; }
 .update-pill:disabled { opacity: 0.6; cursor: wait; }
 .update-pill:not(:disabled):hover { filter: brightness(1.08); }
 
+/* Outdated-mod pill: the newest dump predates the bundled HuntDumper. */
+.mod-pill {
+  background: var(--panel-2); color: var(--bad);
+  border: 1px solid var(--bad); border-radius: 999px;
+  padding: 4px 12px; cursor: pointer; font-size: 12px; font-weight: 600;
+  white-space: nowrap;
+}
+.mod-pill:hover { background: var(--bad); color: var(--bg); }
+
 /* Buffs timeline swimlanes */
 .buff-timeline { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; }
 .buff-lane { display: flex; align-items: center; gap: 10px; }

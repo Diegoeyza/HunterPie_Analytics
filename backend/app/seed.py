@@ -67,6 +67,7 @@ def fake_hunt(i: int, rng: random.Random, max_party: int = 4) -> dict:
             )
     players = []
     abnormalities = []
+    player_health = []
     for n in members:
         entry: dict = {
             "display_name": n,
@@ -86,6 +87,26 @@ def fake_hunt(i: int, rng: random.Random, max_party: int = 4) -> dict:
                 "category": "SKILL",
                 "started_at_offset": quest_time * 0.2,
                 "finished_at_offset": quest_time * 0.5,
+            })
+        # Player HP samples (Survival tab needs data): mostly high with a
+        # mid-hunt dip; every 5th hunt has a near-cart scare below 25%.
+        scare = (i % 5 == 4 and n == members[0])
+        hp = 1.0
+        for k in range(13):
+            dip = 0.45 if k in (5, 6, 7) else 0.0
+            if scare and k in (6, 7):
+                dip = 0.85
+            hp = min(1.0, max(0.05, hp - dip * rng.uniform(0.4, 1.0)
+                              + rng.uniform(0.0, 0.25)))
+            if k == 0:
+                hp = 1.0
+            player_health.append({
+                "display_name": n,
+                "ts_offset_seconds": quest_time * k / 12,
+                "hp_fraction": round(hp, 3),
+                "red_fraction": round(max(0.0, hp - rng.uniform(0.05, 0.2)), 3)
+                if hp < 0.95 else 0.0,
+                "max_hp": 150.0,
             })
     return {
         "quest_id_external": f"seed-quest-{i:04d}",
@@ -108,6 +129,7 @@ def fake_hunt(i: int, rng: random.Random, max_party: int = 4) -> dict:
         "players": players,
         "snapshots": snapshots,
         "abnormalities": abnormalities,
+        "player_health": player_health,
         "events": [{"event_type": "enrage", "start_offset_seconds": quest_time * 0.4,
                     "end_offset_seconds": quest_time * 0.55}],
         "hp_steps": [

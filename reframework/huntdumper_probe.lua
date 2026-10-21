@@ -23,10 +23,11 @@ local json = json
 local log = log
 local imgui = imgui
 
-local PROBE_VERSION = 3
+local PROBE_VERSION = 4
 local OUT_TYPES = "huntdumper_probe_types.json"
 local OUT_RUNTIME = "huntdumper_probe_runtime.json"
 local OUT_NPC = "huntdumper_probe_npc.json"
+local OUT_BUFFS = "huntdumper_probe_buffs.json"
 local MAX_STR = 200
 
 local lastStatus = "(idle)"
@@ -87,6 +88,33 @@ local function localized(guid)
     return safe_str(safe(function() return get:call(nil, guid) end))
 end
 
+-- Read an instance field by name using the field's get_data (works where
+-- obj:get_field() returns nil). Static fields are read with nil instance.
+local function field_value(obj, fieldName)
+    if obj == nil then return nil end
+    local td = safe(function() return obj:get_type_definition() end)
+    if not td then return nil end
+    local fields = safe(function() return td:get_fields() end)
+    if not fields then return nil end
+    for _, f in ipairs(fields) do
+        local n = safe(function() return f:get_name() end)
+        if n == fieldName then
+            local is_static = safe(function() return f:is_static() end)
+            return safe(function() return f:get_data(is_static and nil or obj) end)
+        end
+    end
+    return nil
+end
+
+-- Read a boxed System.Single element (arr[i]) -> number.
+local function boxed_float(elem)
+    if elem == nil then return nil end
+    local v = field_value(elem, "m_value")
+    if type(v) == "number" then return v end
+    if type(elem) == "number" then return elem end
+    return nil
+end
+
 -- ---------------------------------------------------------------------------
 -- Static type reflection
 -- ---------------------------------------------------------------------------
@@ -132,6 +160,23 @@ local TYPES = {
     "app.cPlayerDamage", "app.cMonsterDamage", "app.MonsterDamage",
     "app.cHealthManager", "app.cEnemyHealth", "app.cHitDamageInfo",
     "app.cDamage", "app.cEnemyDamageInfo",
+    -- buff / abnormality / status candidates
+    "app.cStatusManager", "app.StatusManager",
+    "app.cBuffManager", "app.BuffManager",
+    "app.cAbnormalityManager", "app.AbnormalityManager",
+    "app.cPlayerStatus", "app.PlayerStatus",
+    "app.cHunterHealth", "app.HunterHealth",
+    "app.cStatusBase", "app.StatusBase",
+    "app.cStatusData", "app.StatusData",
+    "app.StatusKind", "app.cStatusKind",
+    "app.BuffKind", "app.cBuffKind",
+    "app.AbnormalityKind", "app.cAbnormalityKind",
+    "app.cConsumableManager", "app.ConsumableManager",
+    "app.cSkillManager", "app.SkillManager",
+    "app.cDebuffManager", "app.DebuffManager",
+    "app.cSongManager", "app.SongManager",
+    "app.cOrchestraManager", "app.OrchestraManager",
+    "app.cOtomoSongManager", "app.OtomoSongManager",
 }
 
 local function describe_field(f)
@@ -708,6 +753,470 @@ local function probe_npc_names()
 end
 
 -- ---------------------------------------------------------------------------
+-- Buff / abnormality probe (run mid-quest with active buffs)
+-- ---------------------------------------------------------------------------
+
+local function probe_buffs()
+    local out = { probe_version = PROBE_VERSION, buff_probe = 1 }
+
+    -- 1. managed types that might expose buff state
+    local CANDIDATES = {
+        "app.cStatusManager", "app.StatusManager",
+        "app.cBuffManager", "app.BuffManager",
+        "app.cAbnormalityManager", "app.AbnormalityManager",
+        "app.cPlayerStatus", "app.PlayerStatus",
+        "app.cHunterHealth", "app.HunterHealth",
+        "app.cStatusBase", "app.StatusBase",
+        "app.cConsumableManager", "app.ConsumableManager",
+        "app.cSkillManager", "app.SkillManager",
+        "app.cDebuffManager", "app.DebuffManager",
+        "app.cSongManager", "app.SongManager",
+    }
+    out.managed_types = {}
+    for _, tname in ipairs(CANDIDATES) do
+        local td = safe(sdk.find_type_definition, tname)
+        if td then
+            local rec = { name = tname, exists = true }
+            local fields = safe(function() return td:get_fields() end)
+            if fields then
+                rec.fields = {}
+                for _, f in ipairs(fields) do
+                    rec.fields[#rec.fields + 1] = {
+                        name = safe(function() return f:get_name() end),
+                        type = safe(function() return f:get_type():get_name() end),
+                        static = safe(function() return f:is_static() end),
+                    }
+                end
+            end
+            local methods = safe(function() return td:get_methods() end)
+            if methods then
+                rec.methods = {}
+                for _, m in ipairs(methods) do
+                    rec.methods[#rec.methods + 1] = {
+                        name = safe(function() return m:get_name() end),
+                        full = safe(function() return m:get_full_name() end),
+                        ret = safe(function() return m:get_return_type():get_name() end),
+                    }
+                end
+            end
+            out.managed_types[#out.managed_types + 1] = rec
+        end
+    end
+
+    -- 2. local player via PlayerManager singleton
+    local PM = safe(sdk.find_type_definition, "app.PlayerManager")
+    local pm = PM and safe(function() return sdk.get_managed_singleton("app.PlayerManager") end)
+    out.player_manager = pm ~= nil
+    if not pm then
+        out.error = "PlayerManager singleton not found"
+        json.dump_file(OUT_BUFFS, out)
+        lastStatus = "buff probe: no PlayerManager"
+        return out
+    end
+
+    -- try common accessors for the local/master player
+    local player = nil
+    for _, mname in ipairs({ "getMasterPlayer", "get_LocalPlayer", "getSelfPlayer",
+                             "getSelf", "getLocalPlayer", "getMasterPlayer()" }) do
+        player = typecall("app.PlayerManager", mname, pm)
+        if player then out.player_source = mname break end
+    end
+    if not player then
+        -- try field access
+        for _, fname in ipairs({ "_MasterPlayer", "_LocalPlayer", "_SelfPlayer",
+                                 "<MasterPlayer>k__BackingField",
+                                 "<LocalPlayer>k__BackingField" }) do
+            player = safe(function() return pm:get_field(fname) end)
+            if player then out.player_source = "field:" .. fname break end
+        end
+    end
+    if not player then
+        out.error = "local player not found via PlayerManager"
+        json.dump_file(OUT_BUFFS, out)
+        lastStatus = "buff probe: no local player"
+        return out
+    end
+
+    -- deep-inspect the player object: all fields + buff-related methods
+    out.player = sample_instance(player, 120)
+
+    -- list every field name on the player (for hunting buff-related fields)
+    local ptd = safe(function() return player:get_type_definition() end)
+    if ptd then
+        out.player_type = safe_str(safe(function() return ptd:get_full_name() end))
+        out.player_fields = {}
+        local fields = safe(function() return ptd:get_fields() end)
+        if fields then
+            for _, f in ipairs(fields) do
+                local n = safe(function() return f:get_name() end) or ""
+                local tn = safe(function() return f:get_type():get_name() end) or ""
+                out.player_fields[#out.player_fields + 1] = { name = n, type = tn }
+            end
+        end
+        -- also list all methods (for buff-related accessors)
+        out.player_methods = {}
+        local methods = safe(function() return ptd:get_methods() end)
+        if methods then
+            for _, m in ipairs(methods) do
+                local n = safe(function() return m:get_name() end) or ""
+                out.player_methods[#out.player_methods + 1] = {
+                    name = n,
+                    full = safe(function() return m:get_full_name() end),
+                    ret = safe(function() return m:get_return_type():get_name() end),
+                }
+            end
+        end
+    end
+
+    -- 3. follow <Character>k__BackingField -> HunterCharacter
+    local ch = safe(function() return player:get_field("<Character>k__BackingField") end)
+    if not ch then
+        -- try method access
+        for _, mname in ipairs({ "get_Character", "getHunterCharacter", "getCharacter" }) do
+            ch = typecall("app.PlayerManager", mname, player)
+            if ch then break end
+        end
+    end
+    if ch then
+        out.character_source = "field:<Character>k__BackingField"
+        local ctd = safe(function() return ch:get_type_definition() end)
+        out.character_type = safe_str(ctd and safe(function() return ctd:get_full_name() end))
+        out.character = sample_instance(ch, 100)
+
+        -- list ALL fields on HunterCharacter
+        if ctd then
+            out.character_fields = {}
+            local cf = safe(function() return ctd:get_fields() end)
+            if cf then
+                for _, f in ipairs(cf) do
+                    out.character_fields[#out.character_fields + 1] = {
+                        name = safe(function() return f:get_name() end),
+                        type = safe(function() return f:get_type():get_name() end),
+                    }
+                end
+            end
+            -- list ALL methods
+            out.character_methods = {}
+            local cm = safe(function() return ctd:get_methods() end)
+            if cm then
+                for _, m in ipairs(cm) do
+                    out.character_methods[#out.character_methods + 1] = {
+                        name = safe(function() return m:get_name() end),
+                        full = safe(function() return m:get_full_name() end),
+                        ret = safe(function() return m:get_return_type():get_name() end),
+                    }
+                end
+            end
+        end
+
+        -- 5. follow buff-related sub-objects from cHunterStatus
+        local st = typecall("app.HunterCharacter", "get_HunterStatus", ch)
+        if st then
+            -- read actual consumable timer values (via field get_data)
+            local ib = safe(function() return st:get_field("_ItemBuff") end)
+            if ib then
+                out.itembuff_vals = {}
+                for _, fname in ipairs({
+                    "_Kairiki_Timer", "_Kairiki_G_Timer", "_KijinAmmo_Timer",
+                    "_KijinPowder_Timer", "_Nintai_Timer", "_Nintai_G_Timer",
+                    "_KoukaAmmo_Timer", "_KoukaPowder_Timer", "_DashJuice_Timer",
+                    "_Immunizer_Timer", "_HotDrink_Timer", "_CoolerDrink_Timer",
+                    "_PickUpStamina_Timer",
+                }) do
+                    out.itembuff_vals[fname] = field_value(ib, fname)
+                end
+                for _, ename in ipairs({ "_KijinDrink", "_KijinDrink_G",
+                                         "_KoukaDrink", "_KoukaDrink_G" }) do
+                    local obj = field_value(ib, ename)
+                    if obj ~= nil then
+                        out["enum" .. ename] = {
+                            raw = safe_str(obj),
+                            sample = sample_instance(obj, 12),
+                        }
+                    end
+                end
+                out.revival = field_value(ib, "_IsActiveRevivalDrink")
+            end
+
+            -- read actual debuff timer values
+            local bc2 = safe(function() return st:get_field("_BadConditions") end)
+            if bc2 then
+                out.badcond_vals = {}
+                for _, fname in ipairs({
+                    "_Poison", "_Fire", "_Stun", "_Paralyze", "_Sleep",
+                    "_Blast", "_Bleed", "_Frenzy", "_Sticky", "_Frozen",
+                    "_DefDown", "_Stench", "_Elec", "_Water", "_Ice", "_Dragon",
+                }) do
+                    local obj = safe(function() return bc2:get_field(fname) end)
+                    if obj then
+                        local rec = {}
+                        for _, tf in ipairs({ "_DurationTimer", "_DurationTime",
+                                              "_DamageIntervalTimer", "_StunAccumulateRate",
+                                              "_ReduceTimer", "_CureTimer",
+                                              "_CureAccumerator", "_State" }) do
+                            local v = field_value(obj, tf)
+                            if v ~= nil then rec[tf] = v end
+                        end
+                        out.badcond_vals[fname] = rec
+                    end
+                end
+                out.badcond_any_active = field_value(bc2, "_IsAnyCondActive")
+            end
+
+            -- read meal effect timer
+            local me = safe(function() return st:get_field("_MealEffect") end)
+            if me then
+                out.meal_duration = field_value(me, "_DurationTimer")
+                out.meal_max = field_value(me, "_TimerMax")
+                out.meal_active = field_value(me, "_IsTimerActive")
+                out.meal_effect_active = field_value(me, "_IsEffectActive")
+            end
+            local SUB_OBJECTS = {
+                { field = "_ItemBuff",     label = "itembuff" },
+                { field = "_Skill",        label = "skillsub" },
+                { field = "_MealEffect",   label = "mealeffect" },
+                { field = "_BadConditions", label = "badconditions" },
+            }
+            for _, sub in ipairs(SUB_OBJECTS) do
+                local obj = safe(function() return st:get_field(sub.field) end)
+                if obj then
+                    local otd = safe(function() return obj:get_type_definition() end)
+                    out[sub.label .. "_type"] = safe_str(otd and safe(function() return otd:get_full_name() end))
+                    out[sub.label] = sample_instance(obj, 80)
+                    if otd then
+                        out[sub.label .. "_fields"] = {}
+                        local of = safe(function() return otd:get_fields() end)
+                        if of then
+                            for _, f in ipairs(of) do
+                                out[sub.label .. "_fields"][#out[sub.label .. "_fields"] + 1] = {
+                                    name = safe(function() return f:get_name() end),
+                                    type = safe(function() return f:get_type():get_name() end),
+                                }
+                            end
+                        end
+                        out[sub.label .. "_getters"] = {}
+                        local om = safe(function() return otd:get_methods() end)
+                        if om then
+                            for _, m in ipairs(om) do
+                                local fname = safe(function() return m:get_full_name() end) or ""
+                                if fname:find("get_") and fname:find("%(%)$") then
+                                    local v = safe(function() return m:call(obj) end)
+                                    out[sub.label .. "_getters"][#out[sub.label .. "_getters"] + 1] = {
+                                        name = fname, value = safe_str(v),
+                                    }
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- also follow cHunterSkill sub-objects (HH songs, palico, skill dict)
+            local sk = safe(function() return st:get_field("_Skill") end)
+            if sk then
+                local SKILL_SUBS = {
+                    { field = "_CurrentSkillInfoDic", label = "skillinfo" },
+                    { field = "_NextSkillInfo",       label = "nextskill" },
+                    { field = "_OtomoMusicSkillTimer", label = "otomoskill" },
+                    { field = "_Wp05MusicSkill",      label = "wp05music" },
+                }
+                for _, sub in ipairs(SKILL_SUBS) do
+                    local obj = safe(function() return sk:get_field(sub.field) end)
+                    if obj then
+                        local otd = safe(function() return obj:get_type_definition() end)
+                        out[sub.label .. "_type"] = safe_str(otd and safe(function() return otd:get_full_name() end))
+                        out[sub.label] = sample_instance(obj, 80)
+                        if otd then
+                            out[sub.label .. "_fields"] = {}
+                            local of = safe(function() return otd:get_fields() end)
+                            if of then
+                                for _, f in ipairs(of) do
+                                    out[sub.label .. "_fields"][#out[sub.label .. "_fields"] + 1] = {
+                                        name = safe(function() return f:get_name() end),
+                                        type = safe(function() return f:get_type():get_name() end),
+                                    }
+                                end
+                            end
+                            out[sub.label .. "_getters"] = {}
+                            local om = safe(function() return otd:get_methods() end)
+                            if om then
+                                for _, m in ipairs(om) do
+                                    local fname = safe(function() return m:get_full_name() end) or ""
+                                    if fname:find("get_") and fname:find("%(%)$") then
+                                        local v = safe(function() return m:call(obj) end)
+                                        out[sub.label .. "_getters"][#out[sub.label .. "_getters"] + 1] = {
+                                            name = fname, value = safe_str(v),
+                                        }
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- dump array contents: HH song timers, palico timers, skill info
+                local function dump_array(label, arr)
+                    if arr == nil then return end
+                    local otd = safe(function() return arr:get_type_definition() end)
+                    out[label .. "_arrtype"] = safe_str(otd and safe(function() return otd:get_full_name() end))
+                    out[label .. "_arrlen"] = safe(function() return #arr end)
+                    -- read up to 40 elements
+                    local vals = {}
+                    for i = 0, 39 do
+                        local v = safe(function() return arr[i] end)
+                        if v == nil then break end
+                        vals[#vals + 1] = safe_str(v)
+                    end
+                    out[label .. "_arr"] = vals
+                end
+                -- boxed Single[] -> numbers (HH songs, palico songs)
+                local function read_float_array(arr, maxi)
+                    if arr == nil then return nil end
+                    local vals = {}
+                    for i = 0, (maxi or 58) do
+                        local elem = safe(function() return arr[i] end)
+                        if elem == nil then break end
+                        vals[#vals + 1] = boxed_float(elem)
+                    end
+                    return vals
+                end
+                -- HH song timers
+                local wp05 = safe(function() return sk:get_field("_Wp05MusicSkill") end)
+                if wp05 then
+                    out.wp05_skilltimer_vals = read_float_array(safe(function() return wp05:get_field("_SkillTimer") end))
+                    out.wp05_skillmaxtimer_vals = read_float_array(safe(function() return wp05:get_field("_SkillMaxTimer") end))
+                    out.wp05_skilloverlap_vals = read_float_array(safe(function() return wp05:get_field("_SkillOverlap") end))
+                    out.wp05_healthregen = field_value(wp05, "_CurrentHealthRegeneTime")
+                    out.wp05_staminaregen = field_value(wp05, "_CurrentStaminaRegeneTime")
+                end
+                -- palico song timers
+                local otomo = safe(function() return sk:get_field("_OtomoMusicSkillTimer") end)
+                out.otomo_timer_vals = read_float_array(otomo, 40)
+                -- skill info array: read _Skill and _SkillLv from first non-null
+                local skillarr = safe(function() return sk:get_field("_CurrentSkillInfoDic") end)
+                if skillarr then
+                    local otd = safe(function() return skillarr:get_type_definition() end)
+                    out.skillinfo_arrtype = safe_str(otd and safe(function() return otd:get_full_name() end))
+                    out.skillinfo_arrlen = safe(function() return #skillarr end)
+                    out.skillinfo_active = {}
+                    for i = 0, 30 do
+                        local elem = safe(function() return skillarr[i] end)
+                        if elem == nil then break end
+                        local sid = field_value(elem, "_Skill")
+                        local slv = field_value(elem, "_SkillLv")
+                        local sdata = field_value(elem, "_SkillData")
+                        if sid ~= nil or slv ~= nil then
+                            out.skillinfo_active[#out.skillinfo_active + 1] = {
+                                index = i,
+                                skill = sid,
+                                level = safe_str(slv),
+                                has_data = sdata ~= nil,
+                            }
+                        end
+                    end
+                end
+            end
+
+            -- follow representative debuff sub-objects to see their timer fields
+            local DEBUFF_REPS = {
+                { field = "_Poison", label = "dpoison" },
+                { field = "_Fire",   label = "dfire" },
+                { field = "_Stun",   label = "dstun" },
+                { field = "_Paralyze", label = "dparalyze" },
+                { field = "_Sleep",  label = "dsleep" },
+                { field = "_Blast",  label = "dblast" },
+                { field = "_Bleed",  label = "dbleed" },
+                { field = "_Frenzy", label = "dfrenzy" },
+            }
+            local bc = safe(function() return st:get_field("_BadConditions") end)
+            if bc then
+                for _, sub in ipairs(DEBUFF_REPS) do
+                    local obj = safe(function() return bc:get_field(sub.field) end)
+                    if obj then
+                        local otd = safe(function() return obj:get_type_definition() end)
+                        out[sub.label .. "_type"] = safe_str(otd and safe(function() return otd:get_full_name() end))
+                        if otd then
+                            out[sub.label .. "_fields"] = {}
+                            local of = safe(function() return otd:get_fields() end)
+                            if of then
+                                for _, f in ipairs(of) do
+                                    out[sub.label .. "_fields"][#out[sub.label .. "_fields"] + 1] = {
+                                        name = safe(function() return f:get_name() end),
+                                        type = safe(function() return f:get_type():get_name() end),
+                                    }
+                                end
+                            end
+                            out[sub.label .. "_getters"] = {}
+                            local om = safe(function() return otd:get_methods() end)
+                            if om then
+                                for _, m in ipairs(om) do
+                                    local fname = safe(function() return m:get_full_name() end) or ""
+                                    if fname:find("get_") and fname:find("%(%)$") then
+                                        local v = safe(function() return m:call(obj) end)
+                                        out[sub.label .. "_getters"][#out[sub.label .. "_getters"] + 1] = {
+                                            name = fname, value = safe_str(v),
+                                        }
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        local ACCESSORS = {
+            { getter = "get_HunterStatus", label = "status" },
+            { getter = "get_HunterHealth", label = "health" },
+            { getter = "get_HunterSkill",  label = "skill" },
+            { getter = "get_HunterStamina", label = "stamina" },
+        }
+        for _, acc in ipairs(ACCESSORS) do
+            local obj = typecall("app.HunterCharacter", acc.getter, ch)
+            if obj then
+                local label = acc.label
+                local otd = safe(function() return obj:get_type_definition() end)
+                out[label .. "_source"] = acc.getter
+                out[label .. "_type"] = safe_str(otd and safe(function() return otd:get_full_name() end))
+                out[label] = sample_instance(obj, 120)
+                -- list ALL fields
+                if otd then
+                    out[label .. "_fields"] = {}
+                    local of = safe(function() return otd:get_fields() end)
+                    if of then
+                        for _, f in ipairs(of) do
+                            out[label .. "_fields"][#out[label .. "_fields"] + 1] = {
+                                name = safe(function() return f:get_name() end),
+                                type = safe(function() return f:get_type():get_name() end),
+                            }
+                        end
+                    end
+                    -- call every 0-arg getter
+                    out[label .. "_getters"] = {}
+                    local om = safe(function() return otd:get_methods() end)
+                    if om then
+                        for _, m in ipairs(om) do
+                            local fname = safe(function() return m:get_full_name() end) or ""
+                            if fname:find("get_") and fname:find("%(%)$") then
+                                local v = safe(function() return m:call(obj) end)
+                                out[label .. "_getters"][#out[label .. "_getters"] + 1] = {
+                                    name = fname, value = safe_str(v),
+                                }
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    json.dump_file(OUT_BUFFS, out)
+    lastStatus = string.format("buff probe: char=%s status=%s skill=%s -> %s",
+        out.character_type or "?", out.status_type or "?", out.skill_type or "?", OUT_BUFFS)
+    log.info("[HuntDumperProbe] " .. lastStatus)
+    return out
+end
+
+-- ---------------------------------------------------------------------------
 -- UI
 -- ---------------------------------------------------------------------------
 
@@ -740,6 +1249,11 @@ re.on_draw_ui(function()
         if imgui.button("Probe NPCs") then
             local ok, err = pcall(probe_npc_names)
             if not ok then lastStatus = "npc probe error: " .. tostring(err) end
+        end
+        imgui.same_line()
+        if imgui.button("Probe buffs") then
+            local ok, err = pcall(probe_buffs)
+            if not ok then lastStatus = "buff probe error: " .. tostring(err) end
         end
         imgui.same_line()
         if imgui.button("Dump types + sample") then

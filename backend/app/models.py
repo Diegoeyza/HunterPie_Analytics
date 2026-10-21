@@ -127,6 +127,9 @@ class Hunt(Base):
                                                 default=False)
     hunterpie_version: Mapped[str] = mapped_column(Text, nullable=False)
     game_version: Mapped[str] = mapped_column(Text, nullable=False)
+    # HuntDumper version that produced this dump (NULL for companion-only
+    # hunts). Drives the "reinstall the mod" notice after an app update.
+    mod_version: Mapped[str | None] = mapped_column(Text)
     # Authoritative source: "hunterpie" (owns damage/weapons/curves) or
     # "reframework" (the mod; only its awards are kept when both exist).
     source: Mapped[str] = mapped_column(Text, nullable=False,
@@ -299,6 +302,32 @@ class PlayerPin(Base):
                                            primary_key=True)
     pinned_at: Mapped[datetime] = mapped_column(DateTime, nullable=False,
                                                  default=_utcnow)
+
+
+class PlayerHealthStep(Base):
+    """Per-player HP samples (REFramework mod party poll, ~1 Hz change-only).
+
+    Feeds the Survival tab: per-hunter HP curves + time-in-danger summary.
+    Only the mod writes these; HunterPie refreshes must preserve them."""
+    __tablename__ = "player_health_steps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    hunt_id: Mapped[int] = mapped_column(ForeignKey("hunts.id", ondelete="CASCADE"), nullable=False)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
+    ts_offset_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    hp_fraction: Mapped[float] = mapped_column(Float, nullable=False)
+    red_fraction: Mapped[float | None] = mapped_column(Float)
+    max_hp: Mapped[float | None] = mapped_column(Float)
+
+    __table_args__ = (
+        Index("idx_playerhp_hunt_player_ts", "hunt_id", "player_id",
+              "ts_offset_seconds"),
+        CheckConstraint("hp_fraction >= 0 AND hp_fraction <= 1",
+                        name="ck_playerhp_fraction"),
+        CheckConstraint("red_fraction IS NULL OR "
+                        "(red_fraction >= 0 AND red_fraction <= 1)",
+                        name="ck_playerhp_red"),
+    )
 
 
 class PlayerAbnormality(Base):

@@ -116,3 +116,18 @@ def test_job_registry_bounded():
     finally:
         for i in range(import_job.MAX_KEPT_JOBS + 5):
             import_job._JOBS.pop(f"old-{i}", None)
+
+
+def test_malformed_dump_is_skipped_not_fatal():
+    """One unparseable-shaped dump must not abort the other imports."""
+    tmp, db, src = _setup(nfiles=0)
+    bad = _doc("JOBBAD", day=9)
+    # numeric health-step time: crashes deep in the mapper, not JSON parsing
+    bad["monsters"][0]["health_steps"][0]["time"] = 12345
+    (src / "bad.json").write_text(json.dumps(bad))
+    good = _doc("JOBGOOD", day=10)
+    (src / "good.json").write_text(json.dumps(good))
+    res = import_job.run_import(db, src, force=True)
+    assert res["imported"] == 1
+    assert len(res["errors"]) == 1
+    assert res["errors"][0]["file"] == "bad.json"

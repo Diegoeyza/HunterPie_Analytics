@@ -67,6 +67,7 @@ CREATE TABLE hunts (
     is_split_quest          BOOLEAN NOT NULL DEFAULT 0,  -- multi-monster: total_damage is shared
     hunterpie_version       TEXT NOT NULL,   -- Phase 4 version-mismatch gating needs this stored
     game_version            TEXT NOT NULL,
+    mod_version             TEXT,            -- HuntDumper version (NULL for companion-only hunts)
     source                  TEXT NOT NULL DEFAULT 'hunterpie',  -- hunterpie | reframework
     created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK (player_count >= 1),
@@ -159,6 +160,21 @@ CREATE TABLE monster_health_steps (
     CHECK (hp_fraction >= 0 AND hp_fraction <= 1)
 );
 CREATE INDEX idx_hpsteps_hunt_ts ON monster_health_steps(hunt_id, ts_offset_seconds);
+
+-- Player HP fraction over time (REFramework mod party poll) — feeds the
+-- Survival tab's per-hunter HP curves + time-in-danger summary.
+CREATE TABLE player_health_steps (
+    id                 INTEGER PRIMARY KEY,
+    hunt_id            INTEGER NOT NULL REFERENCES hunts(id) ON DELETE CASCADE,
+    player_id          INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    ts_offset_seconds  REAL NOT NULL,
+    hp_fraction        REAL NOT NULL,   -- 1.0 = full, 0.0 = carted
+    red_fraction       REAL,            -- recoverable (red) HP, NULL when unknown
+    max_hp             REAL,            -- absolute max HP, NULL when unknown
+    CHECK (hp_fraction >= 0 AND hp_fraction <= 1),
+    CHECK (red_fraction IS NULL OR (red_fraction >= 0 AND red_fraction <= 1))
+);
+CREATE INDEX idx_playerhp_hunt_player_ts ON player_health_steps(hunt_id, player_id, ts_offset_seconds);
 
 -- Player abnormality (buff/debuff) activations per hunt.
 CREATE TABLE player_abnormalities (

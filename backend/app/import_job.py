@@ -26,7 +26,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from .db import get_engine, init_db
@@ -254,7 +253,8 @@ def run_import(db_path: str | Path, src, force: bool = False,
                 outcomes = import_doc(session, doc, names,
                                       DEFAULT_HUNTERPIE_VERSION,
                                       DEFAULT_GAME_VERSION, cache=cache)
-            except (ValueError, KeyError, SQLAlchemyError) as e:
+            except Exception as e:  # noqa: BLE001 - one bad dump must never
+                # abort the whole run: skip it, report it, keep importing.
                 session.rollback()
                 log.warning("import failed for %s: %s", path.name, e)
                 result["errors"].append({"file": path.name, "error": str(e)})
