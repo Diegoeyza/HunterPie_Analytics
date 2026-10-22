@@ -341,6 +341,10 @@ end
 -- resolve to different names across polls (context vs roster), and a bad
 -- name used to merge the host's HP into the local player's series. The slot
 -- is stable; the display name is only resolved once, at dump time.
+-- The observed name is still remembered on the series (rec.name) so the
+-- dump-time assignment can cross-check it: slot first, name second, list
+-- position last. Position must never win over slot (SOS slots can be 6
+-- while the list position is 1), or two hunters' HP series swap.
 local function record_hp(key, name, h, now)
     if key == nil or type(h.hp) ~= "number" then return false end
     state.php = state.php or {}
@@ -349,6 +353,7 @@ local function record_hp(key, name, h, now)
         rec = { samples = {}, last = nil, last_emit = 0 }
         state.php[key] = rec
     end
+    if type(name) == "string" and name ~= "" then rec.name = name end
     local changed = rec.last == nil or math.abs(h.hp - rec.last) >= PHP_CHANGE
     local heartbeat = (now - (rec.last_emit or 0)) >= PHP_HEARTBEAT
     if changed or heartbeat then
@@ -1257,10 +1262,12 @@ local function finish_session()
         return out
     end
 
-    -- Map HP series to roster entries. `php` is keyed by control slot; the
-    -- compact user list position is not that slot (an SOS player can sit at
-    -- slot 6 while being list position 1), so try position, user slot, and
-    -- index, then rescue a single unmatched series instead of dropping it.
+    -- Map HP series to roster entries. `php` is keyed by control slot;
+    -- the compact user list position is NOT that slot (an SOS player can sit at
+    -- slot 6 while being list position 1), so position `i` is only a last
+    -- resort. Order: observed name on the series, then stable slot/index,
+    -- then position. Trying `i` first swaps two hunters' HP (e.g. one
+    -- hunter shown with another's cart).
     local hp_assigned = {}
     local hp_used = {}
     local missing = {}
@@ -1268,15 +1275,46 @@ local function finish_session()
         local rec = state.php and state.php[key]
         return rec ~= nil and #rec.samples > 0
     end
+    local function hp_name(key)
+        local rec = state.php and state.php[key]
+        return rec and rec.name or nil
+    end
     for i = 0, 7 do
         local u = state.users and state.users[i]
         if u and u.name then
             local key
-            for _, k in ipairs({ i, u.slot, u.idx }) do
-                if k ~= nil and not hp_used[k] and has_samples(k) then
-                    key = k
-                    break
+            -- 1) series whose observed name matches this roster entry
+            -- (checked in stable-key order so the result is deterministic).
+            for _, k in ipairs({ u.slot, u.idx, i }) do
+                if k ~= nil and not hp_used[k] then
+                    local rec = state.php and state.php[k]
+                    if rec and #rec.samples > 0 and rec.name == u.name then
+                        key = k
+                        break
+                    end
                 end
+            end
+            -- 2) stable identity: control slot, then user index.
+            if key == nil then
+                for _, k in ipairs({ u.slot, u.idx }) do
+                    if k ~= nil and not hp_used[k] and has_samples(k) then
+                        key = k
+                        break
+                    end
+                end
+            end
+            -- 3) list position (only when slot/idx are unknown).
+            if key == nil and not hp_used[i] and has_samples(i) then
+                -- Don't steal a series another roster entry already names.
+                local taken = false
+                for j = 0, 7 do
+                    local o = state.users and state.users[j]
+                    if j ~= i and o and o.name and hp_name(i) == o.name then
+                        taken = true
+                        break
+                    end
+                end
+                if not taken then key = i end
             end
             if key == nil and not hp_used[u.name] and has_samples(u.name) then
                 key = u.name
@@ -1300,12 +1338,17 @@ local function finish_session()
     end
 
     -- players: name + damage + awards (weapons come from HunterPie)
+    -- awards[] is keyed by USER INDEX (the sync hook's userIndex), not by
+    -- compact list position, so look up (slot/idx)+1 — never i+1 alone — or
+    -- damage/awards swap the same way HP did.
     local players = {}
     local n_players = 0
     for i = 0, 7 do
         local u = state.users[i]
         if u and u.name then
-            local rec = awards[i + 1]
+            local rec = awards[(u.idx or u.slot or i) + 1]
+                or awards[(u.slot or i) + 1]
+                or awards[i + 1]
             if u.is_self and rec == nil then rec = self_awards end
             local damage = 0
             if rec and rec.awards and rec.awards[DAMAGE_AWARD_ID] then
