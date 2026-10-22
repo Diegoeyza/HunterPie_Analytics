@@ -296,8 +296,9 @@ def _abn(ab_id="Songs_Songs.12", category="Songs"):
             "finished_at_offset": 20.0}
 
 
-def test_companion_refresh_without_buffs_keeps_mod_buffs():
-    """A HunterPie version without buff export must not wipe mod buffs."""
+def test_ingest_drops_buildup_meters_keeps_timed_debuffs():
+    """Buildup gauges are not timed windows: the import keeps only the
+    displayable companion row from the same payload."""
     from sqlalchemy import select
 
     from app.ingest import upsert_hunt
@@ -308,23 +309,126 @@ def test_companion_refresh_without_buffs_keeps_mod_buffs():
                    Weapon(id=6, name="HuntingHorn",
                           weapon_type="HuntingHorn")])
         s.flush()
-        upsert_hunt(s, _abn_payload(datetime(2026, 9, 6, 3, 0),
-                                    "reframework", [_abn()]))
+        upsert_hunt(s, _abn_payload(
+            datetime(2026, 9, 6, 3, 0), "hunterpie",
+            [_abn("Debuffs_Debuffs.0.BuildUp", "Debuffs"),
+             _abn("Debuffs_Debuffs.0", "Debuffs")]))
 
     _, s, path = make_client(seed)
     try:
-        upsert_hunt(s, health_payload(datetime(2026, 9, 6, 3, 0),
-                                      source="hunterpie"))
         rows = s.execute(select(PlayerAbnormality)).scalars().all()
-        assert [r.abnormality_id for r in rows] == ["Songs_Songs.12"]
+        assert [r.abnormality_id for r in rows] == ["Debuffs_Debuffs.0"]
     finally:
         s.close()
         dispose_engine(path)
         os.unlink(path)
 
 
-def test_companion_buffs_win_over_mod_buffs():
-    """When the companion recorded buffs, its rows replace the mod's."""
+def test_has_buffs_ignores_buildup_only_hunt():
+    """Legacy buildup rows may already be in a DB; `/hunts` must not flag
+    them, and the abnormalities endpoint must not display them."""
+    from sqlalchemy import select
+
+    from app.ingest import upsert_hunt
+    from app.models import (Hunt, Monster, Player, PlayerAbnormality, Weapon)
+
+    def seed(s):
+        s.add_all([Monster(id=31, name="Xu Wu"),
+                   Weapon(id=6, name="HuntingHorn",
+                          weapon_type="HuntingHorn")])
+        s.flush()
+        upsert_hunt(s, health_payload(datetime(2026, 9, 6, 3, 0),
+                                      source="hunterpie"))
+
+    client, s, path = make_client(seed)
+    try:
+        hunt_id = s.execute(select(Hunt.id)).scalar_one()
+        player_id = s.execute(select(Player.id).where(
+            Player.display_name == "Isi")).scalar_one()
+        s.add(PlayerAbnormality(
+            hunt_id=hunt_id, player_id=player_id,
+            abnormality_id="Debuffs_Debuffs.0.BuildUp", category="Debuffs",
+            started_at_offset=5.0, finished_at_offset=20.0))
+        s.commit()
+        hunts = client.get("/api/hunts").json()["hunts"]
+        assert [h["has_buffs"] for h in hunts] == [False]
+        detail = client.get(f"/api/hunts/{hunt_id}/abnormalities").json()
+        assert detail["players"] == []
+    finally:
+        s.close()
+        dispose_engine(path)
+        os.unlink(path)
+
+
+def test_mod_buffs_are_never_stored():
+    """A REFramework payload's abnormalities are dropped at ingest itself, not
+    merely overwritten by a later companion refresh."""
+    from sqlalchemy import select
+
+    from app.ingest import upsert_hunt
+    from app.models import Monster, PlayerAbnormality, Weapon
+
+    def seed(s):
+        s.add_all([Monster(id=31, name="Xu Wu"),
+                   Weapon(id=6, name="HuntingHorn",
+                          weapon_type="HuntingHorn")])
+        s.flush()
+
+    _, s, path = make_client(seed)
+    try:
+        upsert_hunt(s, _abn_payload(datetime(2026, 9, 6, 3, 0),
+                                    "reframework", [_abn()]))
+        assert s.execute(select(PlayerAbnormality)).scalars().all() == []
+
+        upsert_hunt(s, health_payload(datetime(2026, 9, 6, 3, 0),
+                                      source="hunterpie"))
+        assert s.execute(select(PlayerAbnormality)).scalars().all() == []
+    finally:
+        s.close()
+        dispose_engine(path)
+        os.unlink(path)
+
+
+def test_mod_only_hunt_does_not_serve_legacy_buff_rows():
+    """Legacy rows can survive on a mod-only hunt; reads must still hide them,
+    because buffs are companion-only."""
+    from sqlalchemy import select
+
+    from app.ingest import upsert_hunt
+    from app.models import (Hunt, Monster, Player, PlayerAbnormality, Weapon)
+
+    def seed(s):
+        s.add_all([Monster(id=31, name="Xu Wu"),
+                   Weapon(id=6, name="HuntingHorn",
+                          weapon_type="HuntingHorn")])
+        s.flush()
+        upsert_hunt(s, health_payload(datetime(2026, 9, 6, 3, 0),
+                                      source="reframework"))
+
+    client, s, path = make_client(seed)
+    try:
+        # Bypass ingest: this is an old row the companion-only gate never saw.
+        hunt_id = s.execute(select(Hunt.id)).scalar_one()
+        player_id = s.execute(select(Player.id).where(
+            Player.display_name == "Isi")).scalar_one()
+        s.add(PlayerAbnormality(
+            hunt_id=hunt_id, player_id=player_id,
+            abnormality_id="Songs_Songs.12", category="Songs",
+            started_at_offset=5.0, finished_at_offset=20.0))
+        s.commit()
+
+        hunts = client.get("/api/hunts").json()["hunts"]
+        detail = client.get(f"/api/hunts/{hunt_id}/abnormalities").json()
+        assert [h["has_buffs"] for h in hunts] == [False]
+        assert detail["players"] == []
+    finally:
+        s.close()
+        dispose_engine(path)
+        os.unlink(path)
+
+
+def test_companion_buffs_are_stored():
+    """The companion is the only buff source, so its rows are stored."""
     from sqlalchemy import select
 
     from app.ingest import upsert_hunt
@@ -352,7 +456,9 @@ def test_companion_buffs_win_over_mod_buffs():
         os.unlink(path)
 
 
-def test_enrich_attaches_mod_buffs_only_when_companion_has_none():
+def test_enrich_never_attaches_mod_buffs():
+    """Enriching a companion hunt with a REFramework payload must attach no
+    abnormalities, and repeating the enrich stays empty."""
     from sqlalchemy import select
 
     from app.ingest import upsert_hunt
@@ -371,12 +477,12 @@ def test_enrich_attaches_mod_buffs_only_when_companion_has_none():
         upsert_hunt(s, _abn_payload(datetime(2026, 9, 6, 3, 0),
                                     "reframework", [_abn()]))
         rows = s.execute(select(PlayerAbnormality)).scalars().all()
-        assert [r.abnormality_id for r in rows] == ["Songs_Songs.12"]
-        # Idempotent: a second enrich doesn't duplicate.
+        assert rows == []
+        # Idempotent: a second enrich still writes nothing.
         upsert_hunt(s, _abn_payload(datetime(2026, 9, 6, 3, 0),
                                     "reframework", [_abn()]))
         rows = s.execute(select(PlayerAbnormality)).scalars().all()
-        assert len(rows) == 1
+        assert rows == []
     finally:
         s.close()
         dispose_engine(path)
@@ -558,3 +664,46 @@ def test_late_attach_dps_is_not_anchored():
            {"t": 167.0, "dmg": 18186.0, "dps": 80.0}]
     _anchor_dps_origin(pts)
     assert len(pts) == 2 and pts[0]["t"] == 78.9
+
+
+def test_purge_mod_abnormalities_removes_only_mod_only_hunts():
+    """Legacy cleanup: stale buffs on mod-only hunts go, companion hunts stay."""
+    from sqlalchemy import select
+
+    from app.db import purge_mod_abnormalities
+    from app.ingest import upsert_hunt
+    from app.models import Hunt, Monster, Player, PlayerAbnormality, Weapon
+
+    def seed(s):
+        s.add_all([Monster(id=31, name="Xu Wu"),
+                   Weapon(id=6, name="HuntingHorn",
+                          weapon_type="HuntingHorn")])
+        s.flush()
+        upsert_hunt(s, health_payload(datetime(2026, 9, 6, 3, 0),
+                                      source="hunterpie"))
+        upsert_hunt(s, health_payload(datetime(2026, 9, 7, 3, 0),
+                                      source="reframework"))
+
+    _, s, path = make_client(seed)
+    try:
+        # Legacy rows predate the companion-only gate, so insert them directly.
+        hunts = {h.source: h.id for h in s.execute(select(Hunt)).scalars()}
+        player_id = s.execute(select(Player.id).where(
+            Player.display_name == "Isi")).scalar_one()
+        for hunt_id in hunts.values():
+            s.add(PlayerAbnormality(
+                hunt_id=hunt_id, player_id=player_id,
+                abnormality_id="Songs_Songs.12", category="Songs",
+                started_at_offset=5.0, finished_at_offset=20.0))
+        s.commit()
+
+        deleted = purge_mod_abnormalities(s)
+
+        remaining = s.execute(
+            select(PlayerAbnormality.hunt_id)).scalars().all()
+        assert deleted == 1
+        assert remaining == [hunts["hunterpie"]]
+    finally:
+        s.close()
+        dispose_engine(path)
+        os.unlink(path)

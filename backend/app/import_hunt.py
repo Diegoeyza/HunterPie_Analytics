@@ -9,7 +9,6 @@ Dump schema (audited 2026-09-06 against Diegoeyza/HunterPie@analytics-export):
   quest.{id, type, level, stars, deaths, max_deaths} -> hunts quest_* columns
 
 Known gaps (logged as warnings, not silently dropped):
-- player abnormalities have no table yet (count reported)
 - multi-monster quests register one hunt per monster (quest x monster),
   each carrying the FULL quest damage (per-hit damage can't be
   attributed per monster, and a quest's damage belongs to the quest)
@@ -33,6 +32,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import settings
+from .abnormalities import AbnormalityId
 from .db import init_db, make_session
 from .ingest import upsert_hunt
 from .models import Monster, Weapon
@@ -524,7 +524,7 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
             prev = ts
         for ab in p["abnormalities"]:
             ab_id = ab["id"]
-            category = ab_id.split("_")[0] if "_" in ab_id else "Unknown"
+            category = AbnormalityId.parse(ab_id).group
             for act in ab.get("activations") or []:
                 abnormalities.append({
                     "display_name": name,

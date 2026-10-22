@@ -18,6 +18,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .abnormalities import AbnormalityId
 from .models import (
     Award,
     DpsSnapshot,
@@ -546,14 +547,6 @@ def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
         ) for r in session.execute(
             select(PlayerHealthStep)
             .where(PlayerHealthStep.hunt_id == hunt.id)).scalars().all()]
-        # Companion buffs win when it has them; otherwise keep the mod's
-        # (HunterPie versions without buff export must not wipe mod data).
-        saved_abn = [] if payload.get("abnormalities") else [(
-            r.player_id, r.abnormality_id, r.category,
-            r.started_at_offset, r.finished_at_offset,
-        ) for r in session.execute(
-            select(PlayerAbnormality)
-            .where(PlayerAbnormality.hunt_id == hunt.id)).scalars().all()]
         _delete_children(session, hunt.id)
         session.flush()
         _insert_children(session, hunt, payload, now, warnings, cache,
@@ -562,11 +555,6 @@ def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
             session.add(PlayerHealthStep(
                 hunt_id=hunt.id, player_id=pid, ts_offset_seconds=ts,
                 hp_fraction=hp, red_fraction=red, max_hp=mx))
-        for pid, ab_id, cat, start, finish in saved_abn:
-            session.add(PlayerAbnormality(
-                hunt_id=hunt.id, player_id=pid, abnormality_id=ab_id,
-                category=cat, started_at_offset=start,
-                finished_at_offset=finish))
         session.commit()
     except Exception:
         session.rollback()
@@ -626,24 +614,6 @@ def _enrich_from_reframework(session: Session, hunt: Hunt,
                 continue
             _add_award(session, hunt.id, hp.player_id, a)
             changed = True
-    # Mod buffs fill in only when the companion recorded none for this hunt
-    # (companion buffs always win; they were imported/refreshed first).
-    if payload.get("abnormalities"):
-        have_abn = session.execute(
-            select(func.count()).select_from(PlayerAbnormality)
-            .where(PlayerAbnormality.hunt_id == hunt.id)).scalar_one()
-        if not have_abn:
-            for a in payload["abnormalities"]:
-                hp = hp_by_name.get(a.get("display_name"))
-                if hp is None:
-                    continue
-                session.add(PlayerAbnormality(
-                    hunt_id=hunt.id, player_id=hp.player_id,
-                    abnormality_id=a["abnormality_id"],
-                    category=a["category"],
-                    started_at_offset=a["started_at_offset"],
-                    finished_at_offset=a.get("finished_at_offset")))
-                changed = True
     # Player HP samples are quest-wide and mod-only: replace any previous
     # attach so repeated enriches can't duplicate rows.
     mod_health = payload.get("player_health") or []
@@ -693,6 +663,17 @@ def upsert_hunt(session: Session, payload: dict,
     cache = cache if cache is not None else {}
 
     source = payload.get("source", "hunterpie")
+    # R1: abnormalities are companion-only. A REFramework payload's buff export
+    # is dropped outright so the mod can never contribute abnormality rows.
+    # R2: buildup meters (Debuffs.<n>.BuildUp) are 0-100 gauges, not timed
+    # windows, so they are filtered here — the single gate before storage.
+    if source != "hunterpie":
+        payload["abnormalities"] = []
+    else:
+        payload["abnormalities"] = [
+            a for a in (payload.get("abnormalities") or [])
+            if AbnormalityId.parse(a["abnormality_id"]).is_displayable
+        ]
     # Award definitions (idempotent) must exist before ANY path can write
     # hunt_player_awards — including _enrich_from_reframework below, which
     # adds the mod's awards to a hunt a HunterPie dump created first. On a

@@ -117,7 +117,7 @@ export const TABS: TabDef[] = [
   {
     id: "buffs",
     title: "Buffs",
-    blurb: "Consumable, skill, song and debuff uptime for the local player. Companion data preferred; mod data fills in for hunts the companion missed.",
+    blurb: "Consumable, skill, song and debuff uptime for the local player, recorded by the HunterPie Analytics companion.",
     render: (ctx) => <BuffsView scope={ctx.scope} partySize={ctx.partySize} />,
   },
   {

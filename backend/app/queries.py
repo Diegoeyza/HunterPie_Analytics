@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import filters
+from .abnormalities import EXCLUDED_STORED_IDS, AbnormalityId
 from .engagement import (
     batch_engagement_s,
     hunt_duration_s,
@@ -275,7 +276,12 @@ def hunt_list(session: Session, limit: int = 200,
     highlights = _hunt_highlight_summary(session, hunt_ids)
     with_buffs = set(session.execute(
         select(PlayerAbnormality.hunt_id)
+        .join(Hunt, Hunt.id == PlayerAbnormality.hunt_id)
         .where(PlayerAbnormality.hunt_id.in_(hunt_ids))
+        # Buffs are companion-only: legacy rows on hunts the mod created are
+        # stale, and buildup meters are gauges rather than windows.
+        .where(Hunt.source == "hunterpie")
+        .where(PlayerAbnormality.abnormality_id.notin_(EXCLUDED_STORED_IDS))
         .distinct()
     ).scalars()) if hunt_ids else set()
     with_health = set(session.execute(
@@ -719,11 +725,12 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
 
 def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
     """Abnormality activations for a hunt, grouped by player."""
-    from .abnormalities import get_abnormality_name
     hunt = session.get(Hunt, hunt_id)
     if hunt is None:
         raise KeyError(hunt_id)
-    rows = session.execute(
+    # Buffs are companion-only: a hunt only the mod captured has none, even if
+    # a legacy import left rows behind.
+    rows = [] if hunt.source != "hunterpie" else session.execute(
         select(PlayerAbnormality, Player.display_name)
         .join(Player, Player.id == PlayerAbnormality.player_id)
         .where(PlayerAbnormality.hunt_id == hunt_id)
@@ -732,11 +739,14 @@ def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
     ).all()
     players: dict[str, dict] = {}
     for ab, pname in rows:
+        parsed = AbnormalityId.parse(ab.abnormality_id)
+        if not parsed.is_displayable:
+            continue
         pa = players.setdefault(pname, {"player": pname, "abnormalities": []})
         pa["abnormalities"].append({
             "id": ab.abnormality_id,
-            "name": get_abnormality_name(ab.abnormality_id),
-            "category": ab.category,
+            "name": parsed.display_name,
+            "category": parsed.group,
             "start": ab.started_at_offset,
             "end": ab.finished_at_offset,
         })

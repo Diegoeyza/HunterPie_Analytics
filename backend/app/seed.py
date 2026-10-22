@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 
+from .abnormalities import AbnormalityId
 from .db import init_db, make_session
 from .import_hunt import WEAPONS as IMPORTER_WEAPONS
 from .ingest import upsert_hunt
@@ -68,6 +69,7 @@ def fake_hunt(i: int, rng: random.Random, max_party: int = 4) -> dict:
     players = []
     abnormalities = []
     player_health = []
+    demo_buff = AbnormalityId.parse(AbnormalityId.raw_for("Skills.115"))
     for n in members:
         entry: dict = {
             "display_name": n,
@@ -83,8 +85,8 @@ def fake_hunt(i: int, rng: random.Random, max_party: int = 4) -> dict:
         if rng.random() < 0.3:
             abnormalities.append({
                 "display_name": n,
-                "abnormality_id": "SKILL_INSPIRATION_1",
-                "category": "SKILL",
+                "abnormality_id": demo_buff.raw,
+                "category": demo_buff.group,
                 "started_at_offset": quest_time * 0.2,
                 "finished_at_offset": quest_time * 0.5,
             })

@@ -14,7 +14,7 @@ from functools import lru_cache
 
 from .paths import resource_path
 
-APP_VERSION = "1.0.9"
+APP_VERSION = "1.0.10"
 GITHUB_REPO = "Diegoeyza/HunterPie_Analytics"
 RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases"

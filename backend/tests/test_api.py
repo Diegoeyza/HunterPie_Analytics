@@ -92,8 +92,9 @@ def test_hunts_player_filter():
 
 
 def test_hunts_flag_buff_data():
-    """The Buffs tab picks the newest hunt with companion data; `/hunts` must
-    flag it, because the newest hunt is often a mod-only run."""
+    """`/hunts` flags buff data only when the hunt holds displayable
+    abnormalities. Buffs are companion-only, so a mod-only hunt never
+    carries them even if its payload lists abnormalities."""
     from app.ingest import upsert_hunt
     from app.models import Monster, Weapon
 
@@ -123,12 +124,13 @@ def test_hunts_flag_buff_data():
         upsert_hunt(s, payload(datetime(2026, 9, 7, 3, 0), skill))
         # Newest companion hunt = companion wasn't running.
         upsert_hunt(s, payload(datetime(2026, 9, 8, 3, 0), []))
+        # Mod-only payload carries abnormalities, but they are never stored.
         upsert_hunt(s, payload(datetime(2026, 9, 9, 3, 0), skill,
                                source="reframework"))
 
     client, _ = make_client(seed)
     hunts = client.get("/api/hunts").json()["hunts"]
-    assert [h["has_buffs"] for h in hunts] == [True, False, True, False]
+    assert [h["has_buffs"] for h in hunts] == [False, False, True, False]
     assert [h["source"] for h in hunts] == ["reframework", "hunterpie",
                                             "hunterpie", "hunterpie"]
     mod = client.get("/api/hunts", params={"source": "reframework"}).json()

@@ -1,7 +1,29 @@
-"""HunterPie Wilds abnormality ID -> human-readable name mapping.
+"""HunterPie abnormality ids: the single source of truth for their wire format.
 
-Source: HunterPie/Game/Wilds/Data/AbnormalityData.xml + Localization/en-us.xml
+HunterPie emits an abnormality id as ``{Group}_{Id}``, where the inner ``Id``
+already carries the group (``Debuffs.0``, ``Skills.159-1``). This module owns
+that format so no other layer has to re-derive it by splitting strings.
+
+Catalog data (names, exclusions) comes from HunterPie's
+``Game/Wilds/Data/AbnormalityData.xml`` joined with
+``Localization/en-us.xml``; see ``tests/test_abnormalities.py`` for the
+coverage guard that keeps this in sync.
 """
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+_ID_SEPARATOR = "_"
+
+#: Buildup meters (0-100 progress), not timed windows. HunterPie models most of
+#: these as ``IsBuildup`` (``Debuffs.5.BuildUp`` uses a ``DependsOn`` gate
+#: instead), but all of them expose a gauge rather than a duration, so an
+#: on/off activation window would misrepresent them. Dropped on import and
+#: never shown.
+EXCLUDED_SHORT_IDS: frozenset[str] = frozenset(
+    f"Debuffs.{index}.BuildUp" for index in range(16)
+)
+
 ABNORMALITY_NAMES: dict[str, str] = {
     # Consumables
     "Consumables.10": "Wiggly Litchy",
@@ -78,6 +100,7 @@ ABNORMALITY_NAMES: dict[str, str] = {
     "Debuffs.3": "Bleed",
     "Debuffs.4": "Defense Down",
     "Debuffs.5": "The Frenzy",
+    "Debuffs.5.Cleared": "Frenzy Immunity",
     "Debuffs.6": "Stun",
     "Debuffs.7": "Paralysis",
     "Debuffs.8": "Sleep",
@@ -88,7 +111,8 @@ ABNORMALITY_NAMES: dict[str, str] = {
     "Debuffs.13": "Waterblight",
     "Debuffs.14": "Iceblight",
     "Debuffs.15": "Dragonblight",
-    "Debuffs.16": "Bubbleblight",
+    "Debuffs.16.Small": "Minor Bubbleblight",
+    "Debuffs.16.Large": "Major Bubbleblight",
     # Palico
     "Palico.1": "Sporenet: Purrtection",
     "Palico.2": "Sporenet: Purrtection (L)",
@@ -109,7 +133,8 @@ ABNORMALITY_NAMES: dict[str, str] = {
     "Skills.152": "Doshaguma's Might",
     "Skills.154": "Uth Duna's Cover",
     "Skills.156": "Jin Dahaad's Revolt",
-    "Skills.159": "War Cry",
+    "Skills.159-1": "War Cry I",
+    "Skills.159-2": "War Cry II",
     "Skills.164": "Elemental Absorption",
     "Skills.165": "Convert Element",
     "Skills.168": "Xu Wu's Vigor",
@@ -119,11 +144,52 @@ ABNORMALITY_NAMES: dict[str, str] = {
     "Skills.234": "Darkside",
 }
 
+UNKNOWN_GROUP = "Unknown"
 
-def get_abnormality_name(abnormality_id: str) -> str:
-    """Resolve 'Consumables_Consumables.30' -> 'Demon Powder'."""
-    if "_" in abnormality_id:
-        short = abnormality_id.split("_", 1)[1]
-    else:
-        short = abnormality_id
-    return ABNORMALITY_NAMES.get(short, abnormality_id)
+
+@dataclass(frozen=True, slots=True)
+class AbnormalityId:
+    """A HunterPie abnormality id, parsed once from its raw wire form.
+
+    Value object: it knows how to read itself (``group`` / ``short``), how it
+    should be labelled (``display_name``) and whether it is worth keeping
+    (``is_displayable``), so consumers never split or map id strings.
+    """
+
+    raw: str
+    group: str
+    short: str
+
+    @classmethod
+    def parse(cls, raw: str) -> "AbnormalityId":
+        """Build an id from its wire form, e.g. ``Debuffs_Debuffs.0``."""
+        group, separator, short = raw.partition(_ID_SEPARATOR)
+        if not separator:
+            # Not in {Group}_{Id} form: keep the raw value, group it as unknown.
+            return cls(raw=raw, group=UNKNOWN_GROUP, short=raw)
+        return cls(raw=raw, group=group, short=short)
+
+    @staticmethod
+    def raw_for(short: str) -> str:
+        """Rebuild the wire form HunterPie emits for a known short id."""
+        group = short.split(".", 1)[0]
+        return f"{group}{_ID_SEPARATOR}{short}"
+
+    @property
+    def display_name(self) -> str:
+        """Human-readable label, or ``Unknown (<id>)`` when not catalogued."""
+        return ABNORMALITY_NAMES.get(self.short, f"Unknown ({self.short})")
+
+    @property
+    def is_displayable(self) -> bool:
+        """False for buildup meters, which are not timed windows."""
+        return self.short not in EXCLUDED_SHORT_IDS
+
+
+#: Every stored spelling of an excluded id: HunterPie's prefixed wire form and
+#: the bare form, so one SQL predicate agrees with ``is_displayable``.
+EXCLUDED_STORED_IDS: frozenset[str] = frozenset(
+    [AbnormalityId.raw_for(short) for short in EXCLUDED_SHORT_IDS]
+    + list(EXCLUDED_SHORT_IDS)
+)
+

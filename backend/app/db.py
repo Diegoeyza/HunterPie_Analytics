@@ -17,7 +17,7 @@ import threading
 from pathlib import Path
 from urllib.parse import quote
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, delete, event, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import Base
@@ -294,3 +294,23 @@ def _session_factory(db_path: str | Path = DEFAULT_DB_PATH):
 
 def make_session(db_path: str | Path = DEFAULT_DB_PATH) -> Session:
     return _session_factory(db_path)()
+
+
+def purge_mod_abnormalities(session: Session) -> int:
+    """Delete buff rows left by the retired REFramework buff export.
+
+    Buffs are companion-only now, so rows written by the mod are stale. A hunt
+    whose ``source`` is ``reframework`` never received a companion dump (a
+    companion import rewrites the source), so every abnormality row on such a
+    hunt came from the mod. Opt-in and destructive: run once after upgrading.
+    """
+    from .models import Hunt, PlayerAbnormality
+
+    mod_only_hunts = select(Hunt.id).where(Hunt.source == "reframework")
+    deleted = session.execute(
+        delete(PlayerAbnormality)
+        .where(PlayerAbnormality.hunt_id.in_(mod_only_hunts))
+    ).rowcount
+    session.commit()
+    return deleted
+

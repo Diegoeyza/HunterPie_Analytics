@@ -3,7 +3,7 @@
 VENV := .venv/bin/python
 DB ?= backend/hunts.db
 
-.PHONY: setup seed dev test lint build bench import package app installer msix clean
+.PHONY: setup seed dev test lint build bench import purge-mod-buffs package app installer msix clean
 
 setup: ## Install backend + dashboard dependencies
 	python3 -m venv .venv
@@ -31,6 +31,9 @@ bench: ## 1000-hunt endpoint latency bench — HUNTS=2000 for more
 
 import: ## Import HuntExports (default dir, seeds/, or FILE=path.json)
 	./import.sh $${FILE:+--file $(FILE)}
+
+purge-mod-buffs: ## One-off: delete stale buff rows from mod-only hunts
+	cd backend && ../$(VENV) -c "from app.db import make_session, purge_mod_abnormalities; s = make_session(); print('deleted', purge_mod_abnormalities(s)); s.close()"
 
 package: ## Build shareable bundles into dist/ (mod zip + app source zip)
 	./package.sh

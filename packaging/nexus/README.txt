@@ -33,8 +33,8 @@ NOTES
 - Load the script before a quest starts. Reloading scripts mid-hunt resets its
   state, so that hunt is skipped (the next one is fine).
 - This mod captures quest awards, the monster HP curve, party HP samples,
-  damage totals, quest result, buffs, and your local weapon name. Per-player
-  weapon classes and DPS curves come from HunterPie.
+  damage totals, quest result, and your local weapon name. Per-player weapon
+  classes, DPS curves and buff uptime come from HunterPie.
 
 FULL DASHBOARD
 --------------

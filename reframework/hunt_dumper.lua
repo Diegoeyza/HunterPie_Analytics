@@ -22,7 +22,7 @@ local imgui = imgui
 local os = os
 local io = io
 
-local VERSION = "0.11.0"
+local VERSION = "0.12.0"
 local OUT_SUBDIR = "HuntExports"
 local CONFIG_FILE = "hunt_dumper.json"
 local GAME_TYPE = 2
@@ -119,17 +119,6 @@ local function boxed_float(elem)
     return nil
 end
 
--- Game enum (ITEM_EFECTIVE etc.) -> nonzero means active.
-local function enum_active(v)
-    if v == nil then return false end
-    if type(v) == "number" then return v ~= 0 end
-    for _, n in ipairs({ "m_value", "value__", "Value" }) do
-        local x = field_value(v, n)
-        if type(x) == "number" then return x ~= 0 end
-    end
-    return false
-end
-
 -- output directory, derived from this script's own path (autorun/ -> data/)
 local function resolve_out_dir()
     local info = debug.getinfo(1, "S")
@@ -179,170 +168,8 @@ local state = nil
 local awards = {} -- userIndex+1 -> { index, awards={id->count}, channels } (multiplayer)
 local weapon_name, self_weapon_id -- self weapon name lookup (defined below)
 
--- ---------------------------------------------------------------------------
--- buff / abnormality tracking (managed API; no memory offsets)
--- ---------------------------------------------------------------------------
-
-local SONG_SLOTS = 58
-
--- Forward declaration: buff debug (above) also samples party HP.
+-- Forward declaration: the party-HP poll below calls it.
 local read_instanced_hp
-
--- cHunterItemBuff fields -> HunterPie abnormality id. `enum` entries are
--- ITEM_EFECTIVE values (Demondrug/Armorskin family), nonzero = active.
-local CONSUMABLES = {
-    { field = "_KijinDrink",          id = "Consumables.7C", enum = true },
-    { field = "_KijinDrink_G",        id = "Consumables.88", enum = true },
-    { field = "_KoukaDrink",          id = "Consumables.94", enum = true },
-    { field = "_KoukaDrink_G",        id = "Consumables.A0", enum = true },
-    { field = "_KijinAmmo_Timer",     id = "Consumables.24" },
-    { field = "_KijinPowder_Timer",   id = "Consumables.30" },
-    { field = "_KoukaAmmo_Timer",     id = "Consumables.48" },
-    { field = "_KoukaPowder_Timer",   id = "Consumables.54" },
-    { field = "_DashJuice_Timer",     id = "Consumables.5C" },
-    { field = "_HotDrink_Timer",      id = "Consumables.6C" },
-    { field = "_CoolerDrink_Timer",   id = "Consumables.74" },
-    { field = "_PickUpStamina_Timer", id = "Consumables.10" },
-    { field = "_Kairiki_Timer",       id = "Consumables.14" },
-    { field = "_Kairiki_G_Timer",     id = "Consumables.1C" },
-    { field = "_Nintai_Timer",        id = "Consumables.38" },
-    { field = "_Nintai_G_Timer",      id = "Consumables.40" },
-}
-
--- cHunterBadConditions fields -> HunterPie debuff id.
-local DEBUFFS = {
-    { field = "_Poison",   id = "Debuffs.0" },
-    { field = "_Stench",   id = "Debuffs.1" },
-    { field = "_Blast",    id = "Debuffs.2" },
-    { field = "_Bleed",    id = "Debuffs.3" },
-    { field = "_DefDown",  id = "Debuffs.4" },
-    { field = "_Frenzy",   id = "Debuffs.5" },
-    { field = "_Stun",     id = "Debuffs.6" },
-    { field = "_Paralyze", id = "Debuffs.7" },
-    { field = "_Sleep",    id = "Debuffs.8" },
-    { field = "_Sticky",   id = "Debuffs.9" },
-    { field = "_Frozen",   id = "Debuffs.10" },
-    { field = "_Fire",     id = "Debuffs.11" },
-    { field = "_Elec",     id = "Debuffs.12" },
-    { field = "_Water",    id = "Debuffs.13" },
-    { field = "_Ice",      id = "Debuffs.14" },
-    { field = "_Dragon",   id = "Debuffs.15" },
-}
-local DEBUFF_TIMERS = {
-    "_DurationTimer", "_DamageIntervalTimer", "_ReduceTimer",
-    "_CureTimer",
-}
-
-local function buff_group(id)
-    return id:match("^([%w]+)%.") or "Unknown"
-end
-
--- state.buffs[id] = { active, start, windows={{start,finish}} }
-local function mark_buff(id, active, now)
-    local rec = state.buffs[id]
-    if rec == nil then
-        rec = { active = false, start = nil, windows = {} }
-        state.buffs[id] = rec
-    end
-    if active and not rec.active then
-        rec.active = true
-        rec.start = now
-    elseif not active and rec.active then
-        rec.active = false
-        if rec.start then
-            rec.windows[#rec.windows + 1] = { start = rec.start, finish = now }
-            rec.start = nil
-        end
-    end
-end
-
-local function poll_buffs(now)
-    local PM = safe(sdk.find_type_definition, "app.PlayerManager")
-    local pm = PM and safe(function() return sdk.get_managed_singleton("app.PlayerManager") end)
-    local player = pm and typecall("app.PlayerManager", "getMasterPlayer", pm)
-    if not player then return end
-    local st = typecall("app.HunterCharacter", "get_HunterStatus",
-                        field_value(player, "<Character>k__BackingField"))
-    if not st then return end
-
-    local ib = field_value(st, "_ItemBuff")
-    if ib then
-        for _, m in ipairs(CONSUMABLES) do
-            local v = field_value(ib, m.field)
-            local active
-            if m.enum then
-                active = enum_active(v)
-            else
-                active = type(v) == "number" and v > 0
-            end
-            mark_buff(m.id, active, now)
-        end
-    end
-
-    local bc = field_value(st, "_BadConditions")
-    if bc then
-        for _, d in ipairs(DEBUFFS) do
-            local obj = field_value(bc, d.field)
-            local active = false
-            if obj then
-                for _, tf in ipairs(DEBUFF_TIMERS) do
-                    local v = field_value(obj, tf)
-                    if type(v) == "number" and v > 0 then
-                        active = true
-                        break
-                    end
-                end
-            end
-            mark_buff(d.id, active, now)
-        end
-    end
-
-    local sk = field_value(st, "_Skill")
-    if sk then
-        local wp05 = field_value(sk, "_Wp05MusicSkill")
-        local timers = wp05 and field_value(wp05, "_SkillTimer")
-        if timers then
-            for i = 0, SONG_SLOTS do
-                local v = boxed_float(safe(function() return timers[i] end))
-                if v ~= nil then mark_buff("Songs." .. i, v > 0, now) end
-            end
-        end
-
-        -- NOTE: _CurrentSkillInfoDic is the EQUIPPED list, not active
-        -- skills: presence-tracking it paints every equipped skill at ~100%
-        -- uptime (the "15 random skill rows"). Skill uptime stays
-        -- companion-only until the per-skill timer layout is known.
-    end
-end
-
-local function buff_abnormalities(now)
-    if not state or not state.buffs then return {} end
-    local out = {}
-    for id, rec in pairs(state.buffs) do
-        if rec.active and rec.start then
-            rec.windows[#rec.windows + 1] = { start = rec.start, finish = now }
-            rec.active = false
-            rec.start = nil
-        end
-        if #rec.windows > 0 then
-            local acts = {}
-            for _, w in ipairs(rec.windows) do
-                acts[#acts + 1] = {
-                    started_at = iso(w.start),
-                    finished_at = w.finish and iso(w.finish) or nil,
-                }
-            end
-            local group = buff_group(id)
-            out[#out + 1] = {
-                id = group .. "_" .. id,
-                category = group,
-                activations = acts,
-            }
-        end
-    end
-    return out
-end
-
 
 -- ---------------------------------------------------------------------------
 -- party HP (Survival tab)
@@ -448,7 +275,7 @@ local function character_of(inst, pi)
 end
 
 -- One instanced party member -> { hp, max_hp, red, pi, char_type, fail }.
--- Declared early (buff debug samples it too), so this is the actual body.
+-- Declared early, so this is the actual body.
 read_instanced_hp = function(inst)
     local info = {}
     local pi = call_method(inst, "get_PlayerInfo")
@@ -1006,7 +833,6 @@ local function begin_session()
         finished = false,
         self_wtype = self_wtype,
         self_wid_start = self_wid_start,
-        buffs = {},          -- [abnormalityId] = { active, start, windows }
         php = {},            -- [playerName] = { samples, last, last_emit }
     }
     for _, u in pairs(state.users or {}) do
@@ -1036,7 +862,6 @@ local function poll()
             end
         end
     end
-    safe(poll_buffs, now)
     safe(poll_party_hp, now)
 end
 
@@ -1475,7 +1300,6 @@ local function finish_session()
     end
 
     -- players: name + damage + awards (weapons come from HunterPie)
-    local local_buffs = buff_abnormalities(finished)
     local players = {}
     local n_players = 0
     for i = 0, 7 do
@@ -1493,7 +1317,6 @@ local function finish_session()
                 gear = nil,
                 damages = { { damage = damage, dealt_at = iso(finished) } },
                 awards = awards_list_for(rec),
-                abnormalities = u.is_self and local_buffs or nil,
                 health_steps = hp_assigned[i]
                     and php_health_steps(hp_assigned[i]) or nil,
                 is_hunterpie_user = false,
@@ -1634,7 +1457,7 @@ register_hooks()
 
 re.on_draw_ui(function()
     if imgui.tree_node("HuntDumper") then
-        imgui.text("v" .. VERSION .. "  (totals + HP curve + awards + buffs + party HP)")
+        imgui.text("v" .. VERSION .. "  (totals + HP curve + awards + party HP)")
         imgui.separator()
         local changed
         changed, config.enabled = imgui.checkbox("Enabled", config.enabled)
