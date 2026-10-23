@@ -90,7 +90,7 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
     setDpsWindow(window);
     const ok = await saveSettings(exportDirs, window);
     if (ok) toast.push(window === "quest"
-      ? "DPS now divides by first hit \u2192 quest end"
+      ? "DPS now divides by first hit \u2192 kill"
       : "DPS now divides by first \u2192 last hit");
     return ok;
   };
@@ -169,12 +169,13 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
             <button type="button" className={dpsWindow === "quest" ? "on" : ""}
               aria-pressed={dpsWindow === "quest"}
               disabled={saving}
-              onClick={() => saveDpsWindow("quest")}>First hit \u2192 quest end</button>
+              onClick={() => saveDpsWindow("quest")}>First hit \u2192 kill</button>
           </div>
         </div>
         <p className="settings-hint">
-          Engagement divides by your active fighting time. Quest end divides
-          by first hit \u2192 quest clock, so post-kill downtime dilutes DPS.
+          Engagement divides by your active fighting time. Kill freezes the
+          window when the monster goes down (quest end if nothing did),
+          matching the in-game meter.
         </p>
 
         <label className="settings-row settings-check">

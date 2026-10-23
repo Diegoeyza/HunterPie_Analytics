@@ -5,7 +5,7 @@ import {
   CartesianGrid, Legend, Line, LineChart, ReferenceArea,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { seriesColor, type AppSettings, type HuntSummary } from "../../lib/api";
+import { seriesColor, type HuntSummary } from "../../lib/api";
 import { fmtDate, fmtInt } from "../../lib/format";
 import { ApiState, useApi } from "../../lib/useApi";
 import SearchSelect from "../SearchSelect";
@@ -40,9 +40,9 @@ import { type Metric, computeDps, smoothDps, computeBurst } from "../../lib/metr
  *  (enrage start/end) are injected so that Recharts <ReferenceArea> has
  *  exact x-values to anchor to. */
 function mergeSeries(players: CurvePlayer[], hpSeries: { key: string; points: { t: number; hp: number }[] }[],
-                      events: CurveEvent[], metric: Metric, endT?: number) {
+                      events: CurveEvent[], metric: Metric) {
   const lasts = hpSeries.map((s) => s.points.length > 0 ? s.points[s.points.length - 1].t : -Infinity);
-  const deathT = endT ?? (lasts.length > 0 ? Math.max(...lasts) : Infinity);
+  const deathT = lasts.length > 0 ? Math.max(...lasts) : Infinity;
   const smoothed = new Map(
     players.map((p) => [p.player, smoothDps(computeDps(p.points, deathT))])
   );
@@ -116,9 +116,6 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
   // Hunt list follows the hunter scope (any-of): only hunts the scoped
   // hunter(s) fought in. A selection that vanishes from the filtered
   // list falls back to the latest hunt.
-  const settingsQ = useApi<AppSettings>("/settings");
-  const questMode = settingsQ.data?.dps_window === "quest";
-
   const huntsQ = useApi<{ hunts: HuntSummary[] }>("/hunts", {
     limit: 200,
     ...(scope.length > 0 && { player_ids: scope.join(",") }),
@@ -235,18 +232,12 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
     return [...groups.values()];
   }, [curve, visibleEvents, eventColor]);
 
-  // Quest mode ends the DPS window at the quest clock instead of the
-  // monster's death: mergeSeries caps each series at the passed end.
-  const merged = useMemo(() => {
-    if (!curve) return [];
-    let endT: number | undefined;
-    if (questMode && curve.clear_s != null) {
-      const lasts = visibleHp.flatMap((s) => s.points.map((q) => q.t));
-      const deathT = lasts.length > 0 ? Math.max(...lasts) : -Infinity;
-      endT = Math.max(curve.clear_s, deathT);
-    }
-    return mergeSeries(curve.players, showHp ? visibleHp : [], visibleEvents, metric, endT);
-  }, [curve, visibleHp, visibleEvents, showHp, metric, questMode]);
+  // DPS freezes when the monster goes down (computeDps caps at the last
+  // HP step), matching the in-game meter — in both DPS modes.
+  const merged = useMemo(
+    () => (curve ? mergeSeries(curve.players, showHp ? visibleHp : [], visibleEvents, metric) : []),
+    [curve, visibleHp, visibleEvents, showHp, metric]
+  );
 
   const selectHunt = (v: string) => {
     setHuntId(v ? Number(v) : null);

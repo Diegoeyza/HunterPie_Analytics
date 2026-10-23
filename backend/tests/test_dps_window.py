@@ -10,7 +10,8 @@ from app.ingest import upsert_hunt
 from app.models import Hunt, Monster, Weapon
 
 
-def _payload(start, quest_time=100.0, external="dpsw-1", damage_per_hit=100.0):
+def _payload(start, quest_time=100.0, external="dpsw-1", damage_per_hit=100.0,
+             hp_steps=None, cleared=True):
     snaps = [{"display_name": "Isi", "ts_offset_seconds": 10.0 + 10.0 * k,
               "cumulative_damage": damage_per_hit * (k + 1),
               "instant_dps": 10.0}
@@ -25,6 +26,7 @@ def _payload(start, quest_time=100.0, external="dpsw-1", damage_per_hit=100.0):
                      "total_damage": damage_per_hit * 5, "peak_dps": 50.0,
                      "is_supporter": False}],
         "snapshots": snaps, "player_health": [],
+        "hp_steps": hp_steps or [], "cleared": cleared,
     }
 
 
@@ -135,6 +137,50 @@ def test_quest_clock_shorter_than_snapshots_never_inflates():
         hunts = {hid: s.get(Hunt, hid)}
         got = batch_engagement_s(s, hunts, [(hid, 1)], window="quest")
         assert got[(hid, 1)] == 40.0
+    finally:
+        s.close()
+        dispose_engine(path)
+        os.unlink(path)
+
+
+def test_quest_window_freezes_at_kill_not_quest_end():
+    """HunterPie stops the timer when the monster goes down: carving/return
+    must not dilute DPS. Kill at 60, quest clock 100, snapshots 10->50."""
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        hp = [{"ts_offset_seconds": 20.0, "hp_fraction": 0.5},
+              {"ts_offset_seconds": 60.0, "hp_fraction": 0.0}]
+        s, hid = _seeded_session(
+            path, _payload(datetime(2026, 9, 6, 3, 0), quest_time=100.0,
+                           external="dpsw-7", hp_steps=hp))
+        hunts = {hid: s.get(Hunt, hid)}
+        got = batch_engagement_s(s, hunts, [(hid, 1)], window="quest")
+        assert got[(hid, 1)] == 50.0  # kill(60) - first(10), not 100 - 10
+        assert player_engagement_s(s, hid, 1, window="quest") == 50.0
+        # engagement mode unaffected by the kill record
+        assert batch_engagement_s(
+            s, hunts, [(hid, 1)], window="engagement")[(hid, 1)] == 40.0
+    finally:
+        s.close()
+        dispose_engine(path)
+        os.unlink(path)
+
+
+def test_quest_window_failed_hunt_ignores_partial_kill():
+    """One target down then the quest fails: the meter runs to the fail,
+    not the first kill. No 0-fallback to the early kill."""
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        hp = [{"ts_offset_seconds": 60.0, "hp_fraction": 0.0},
+              {"ts_offset_seconds": 90.0, "hp_fraction": 0.4}]
+        s, hid = _seeded_session(
+            path, _payload(datetime(2026, 9, 6, 3, 0), quest_time=100.0,
+                           external="dpsw-8", hp_steps=hp, cleared=False))
+        hunts = {hid: s.get(Hunt, hid)}
+        got = batch_engagement_s(s, hunts, [(hid, 1)], window="quest")
+        assert got[(hid, 1)] == 80.0  # last HP(90) - first(10)
     finally:
         s.close()
         dispose_engine(path)

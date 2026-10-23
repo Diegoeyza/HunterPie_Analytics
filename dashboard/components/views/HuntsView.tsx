@@ -47,10 +47,23 @@ function firstHitT(points: { t: number; dmg: number }[]): number | null {
   return hit ? hit.t : (points.length > 0 ? points[0].t : null);
 }
 
-function engagementOf(curve: HuntCurve, idx: number): number | null {
+function engagementOf(curve: HuntCurve, idx: number, questMode = false, cleared = true): number | null {
   const pts = curve.players[idx].points;
   const first = firstHitT(pts);
   const last = pts.length > 0 ? pts[pts.length - 1].t : null;
+  const death = curve.hp_curve.length > 0
+    ? Math.max(...curve.hp_curve.map((s) => s.t)) : null;
+  // HunterPie freeze point: the kill (last 0-HP step) on a cleared hunt,
+  // else the last HP sample, else the quest clock. Never ends before the
+  // hunter's own last hit (late-flushed snapshots).
+  const kill = cleared
+    ? curve.hp_curve.filter((s) => s.hp <= 0).map((s) => s.t) : [];
+  const freeze = (kill.length > 0 ? Math.max(...kill)
+    : death ?? curve.clear_s);
+  if (questMode && first !== null) {
+    const end = Math.max(freeze ?? -Infinity, last ?? -Infinity);
+    if (end > first) return end - first;
+  }
   if (first !== null && last !== null && last > first) return last - first;
   const firsts = curve.players
     .map((p) => firstHitT(p.points))
@@ -60,8 +73,6 @@ function engagementOf(curve: HuntCurve, idx: number): number | null {
     .filter((t): t is number => t !== null);
   const hFirst = firsts.length > 0 ? Math.min(...firsts) : null;
   const hLast = lasts.length > 0 ? Math.max(...lasts) : null;
-  const death = curve.hp_curve.length > 0
-    ? Math.max(...curve.hp_curve.map((s) => s.t)) : null;
   if (hFirst !== null && death !== null && death > hFirst) return death - hFirst;
   if (hFirst !== null && hLast !== null && hLast > hFirst) return hLast - hFirst;
   return curve.clear_s;
@@ -138,7 +149,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
     return curve.players
       .map((p, i) => {
         const total = p.points.length > 0 ? p.points[p.points.length - 1].dmg : 0;
-        const eng = engagementOf(curve, i);
+        const eng = engagementOf(curve, i, questMode, hunt.cleared);
         return {
           player: p.player, caption: p.weapon_name ?? p.weapon ?? "Unknown",
           total_damage: total,
@@ -147,7 +158,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
         };
       })
       .sort((a, b) => b.total_damage - a.total_damage);
-  }, [curve]);
+  }, [curve, questMode]);
 
   /** Merged time grid (player snapshot times + enrage boundaries, like
    *  CurveView's mergeSeries): one shared dataset so Lines render on the
@@ -297,7 +308,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-              <p className="blurb">Red bands: enrage windows. DPS uses {questMode ? "first hit\u2192quest end" : "engagement time (own first\u2192last hit)"}, same as Damage curves tab.</p>
+              <p className="blurb">Red bands: enrage windows. DPS uses {questMode ? "first hit\u2192kill (quest end if nothing went down)" : "engagement time (own first\u2192last hit)"}, same as Damage curves tab.</p>
               {(curve.survival ?? []).length > 0 && (
                 <>
                   <h3 className="chart-title">Survival</h3>

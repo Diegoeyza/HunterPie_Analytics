@@ -4,6 +4,13 @@ DPS = total_damage / engagement window. The window is per-player (own
 first->last damage snapshot) with fallback to the hunt-wide window
 (first snapshot -> monster death -> last snapshot -> hunt duration),
 so mid-fight (SOS) joiners aren't misattributed party-wide DPS.
+
+``window="quest"`` instead freezes every window when the monster goes
+down (last 0%-HP step on a cleared hunt), falling back to the last HP
+sample and then the quest clock when nothing was killed. This mirrors
+the in-game HunterPie meter (``RelativeToFirstHit``: damage divided by
+the quest timer, which stops at quest end): carving/return downtime
+never dilutes the number.
 """
 from __future__ import annotations
 
@@ -23,15 +30,31 @@ def hunt_duration_s(hunt: Hunt) -> float | None:
     return None
 
 
+def _quest_freeze_s(hunt: Hunt | None,
+                    kill: float | None,
+                    death: float | None,
+                    quest_end: float | None) -> float | None:
+    """HunterPie freeze point: the kill (last 0%-HP step) on a cleared
+    hunt, else the last HP sample, else the quest clock."""
+    if hunt is not None and hunt.cleared and kill is not None:
+        return kill
+    if death is not None:
+        return death
+    return quest_end
+
+
 def _hunt_wide_window(h_first: float | None, h_last: float | None,
                       death: float | None,
+                      kill: float | None,
                       quest_end: float | None,
                       hunt: Hunt | None,
                       window: str) -> float | None:
-    """Shared hunt-wide fallback: quest end, monster death, last snapshot,
-    then total hunt duration (mirrors engagement_duration_s)."""
+    """Shared hunt-wide fallback: quest freeze (kill), monster death,
+    last snapshot, then total hunt duration
+    (mirrors engagement_duration_s)."""
     if window == DPS_WINDOW_QUEST and h_first is not None:
-        end = max([q for q in (quest_end, h_last) if q is not None],
+        freeze = _quest_freeze_s(hunt, kill, death, quest_end)
+        end = max([q for q in (freeze, h_last) if q is not None],
                   default=None)
         if end is not None and end > h_first:
             return end - h_first
@@ -59,6 +82,11 @@ def engagement_duration_s(session: Session, hunt_id: int,
         select(func.max(MonsterHealthStep.ts_offset_seconds))
         .where(MonsterHealthStep.hunt_id == hunt_id)
     ).scalar()
+    kill = session.execute(
+        select(func.max(MonsterHealthStep.ts_offset_seconds))
+        .where(MonsterHealthStep.hunt_id == hunt_id,
+               MonsterHealthStep.hp_fraction <= 0)
+    ).scalar()
     # fallback: last damage snapshot
     last = session.execute(
         select(func.max(DpsSnapshot.ts_offset_seconds))
@@ -66,7 +94,8 @@ def engagement_duration_s(session: Session, hunt_id: int,
     ).scalar()
     hunt = session.get(Hunt, hunt_id)
     quest_end = hunt_duration_s(hunt) if hunt is not None else None
-    return _hunt_wide_window(first, last, death, quest_end, hunt, window)
+    return _hunt_wide_window(first, last, death, kill, quest_end,
+                             hunt, window)
 
 
 def player_engagement_s(session: Session, hunt_id: int,
@@ -79,9 +108,10 @@ def player_engagement_s(session: Session, hunt_id: int,
     time in the fight, not by first-hit->death. Falls back to the
     hunt-wide window when the hunter has fewer than two snapshots.
 
-    ``window="quest"`` ends at the quest clock instead (HunterPie quest
-    time): post-kill downtime dilutes the number. ``None`` follows the
-    ``dps_window`` setting."""
+    ``window="quest"`` freezes at the kill instead (last 0%-HP step on
+    a cleared hunt, else last HP sample, else quest clock), matching the
+    in-game HunterPie meter. ``None`` follows the ``dps_window``
+    setting."""
     window = window or configured_dps_window()
     first, last = session.execute(
         select(func.min(DpsSnapshot.ts_offset_seconds),
@@ -92,10 +122,20 @@ def player_engagement_s(session: Session, hunt_id: int,
     if window == DPS_WINDOW_QUEST and first is not None:
         hunt = session.get(Hunt, hunt_id)
         quest_end = hunt_duration_s(hunt) if hunt is not None else None
-        # Clocks can disagree after a cross-source rebase (quest clock
-        # shorter than the snapshot span): never end before the hunter's
-        # own last hit, so quest mode only dilutes, never inflates.
-        end = max([q for q in (quest_end, last) if q is not None],
+        kill = session.execute(
+            select(func.max(MonsterHealthStep.ts_offset_seconds))
+            .where(MonsterHealthStep.hunt_id == hunt_id,
+                   MonsterHealthStep.hp_fraction <= 0)
+        ).scalar()
+        death = session.execute(
+            select(func.max(MonsterHealthStep.ts_offset_seconds))
+            .where(MonsterHealthStep.hunt_id == hunt_id)
+        ).scalar()
+        freeze = _quest_freeze_s(hunt, kill, death, quest_end)
+        # Clocks can disagree after a cross-source rebase (freeze point
+        # earlier than a late-flushed snapshot): never end before the
+        # hunter's own last hit.
+        end = max([q for q in (freeze, last) if q is not None],
                   default=None)
         if end is not None and end > first:
             return end - first
@@ -118,8 +158,8 @@ def batch_engagement_s(
     and quest-end fallbacks come from the already-loaded Hunt objects —
     no extra query. Semantics match player_engagement_s exactly.
 
-    ``window="quest"`` ends every window at the quest clock (HunterPie
-    quest time). ``None`` follows the ``dps_window`` setting."""
+    ``window="quest"`` freezes every window at the kill (HunterPie
+    freeze point). ``None`` follows the ``dps_window`` setting."""
     window = window or configured_dps_window()
     if not pairs or not hunts_by_id:
         return {}
@@ -156,13 +196,26 @@ def batch_engagement_s(
             .group_by(MonsterHealthStep.hunt_id)
         ).all()
     }
+    kills: dict[int, float] = {
+        hid: mx
+        for hid, mx in session.execute(
+            select(MonsterHealthStep.hunt_id,
+                   func.max(MonsterHealthStep.ts_offset_seconds))
+            .where(MonsterHealthStep.hunt_id.in_(ids),
+                   MonsterHealthStep.hp_fraction <= 0)
+            .group_by(MonsterHealthStep.hunt_id)
+        ).all()
+    }
     out: dict[tuple[int, int], float | None] = {}
     for hid, pid in set(pairs):
+        hunt = hunts_by_id.get(hid)
+        freeze = _quest_freeze_s(hunt, kills.get(hid), deaths.get(hid),
+                                quest_ends.get(hid))
         mn_mx = pp.get((hid, pid))
         if mn_mx is not None:
             first, last = mn_mx
             if window == DPS_WINDOW_QUEST:
-                end = max([q for q in (quest_ends.get(hid), last)
+                end = max([q for q in (freeze, last)
                            if q is not None], default=None)
                 if first is not None and end is not None and end > first:
                     out[(hid, pid)] = end - first
@@ -174,6 +227,6 @@ def batch_engagement_s(
         h_first, h_last = snap.get(hid, (None, None))
         death = deaths.get(hid)
         out[(hid, pid)] = _hunt_wide_window(
-            h_first, h_last, death, quest_ends.get(hid),
-            hunts_by_id.get(hid), window)
+            h_first, h_last, death, kills.get(hid), quest_ends.get(hid),
+            hunt, window)
     return out
