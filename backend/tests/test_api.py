@@ -1303,7 +1303,7 @@ def test_settings_roundtrip_adds_detected_source(tmp_path, monkeypatch):
 
     assert client.get("/api/settings").json() == {
         "export_dirs": [], "missing": [], "detected": [], "env_override": False,
-        "dps_window": "engagement"}
+        "dps_window": "quest"}
 
     body = client.put("/api/settings",
                       json={"export_dirs": [str(folder)]}).json()

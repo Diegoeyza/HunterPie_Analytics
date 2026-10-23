@@ -18,12 +18,15 @@ log = logging.getLogger(__name__)
 SETTINGS_FILE = "config.json"
 MAX_EXPORT_DIRS = 20
 
-#: DPS divisor window. ``engagement`` (default) divides by active fighting
-#: time (own first hit -> own last hit); ``quest`` divides by first hit ->
-#: quest end (HunterPie quest time), so post-kill downtime dilutes the number.
+#: DPS divisor window. ``quest`` (default) freezes the window when the
+#: monster goes down (last 0%-HP step, else last HP sample, else quest
+#: clock), matching the in-game HunterPie meter. ``engagement`` divides
+#: by active fighting time instead (own first hit -> own last hit).
 DPS_WINDOW_ENGAGEMENT = "engagement"
 DPS_WINDOW_QUEST = "quest"
 DPS_WINDOWS = frozenset({DPS_WINDOW_ENGAGEMENT, DPS_WINDOW_QUEST})
+#: Fresh installs (and hand-edited configs with unknown values) get this.
+DEFAULT_DPS_WINDOW = DPS_WINDOW_QUEST
 
 
 def settings_path() -> Path:
@@ -40,13 +43,13 @@ def settings_path() -> Path:
 
 
 def _defaults() -> dict:
-    return {"export_dirs": [], "dps_window": DPS_WINDOW_ENGAGEMENT}
+    return {"export_dirs": [], "dps_window": DEFAULT_DPS_WINDOW}
 
 
 def load_settings(path: Path | None = None) -> dict:
     """Read the settings dict, returning defaults when unavailable.
 
-    Unknown ``dps_window`` values fall back to ``engagement`` (never crash
+    Unknown ``dps_window`` values fall back to the default (never crash
     on a hand-edited config)."""
     path = path or settings_path()
     try:
@@ -59,11 +62,11 @@ def load_settings(path: Path | None = None) -> dict:
     if not isinstance(raw, dict):
         return _defaults()
     dirs = raw.get("export_dirs")
-    window = raw.get("dps_window", DPS_WINDOW_ENGAGEMENT)
+    window = raw.get("dps_window", DEFAULT_DPS_WINDOW)
     return {
         "export_dirs": [d for d in dirs if isinstance(d, str)]
         if isinstance(dirs, list) else [],
-        "dps_window": window if window in DPS_WINDOWS else DPS_WINDOW_ENGAGEMENT,
+        "dps_window": window if window in DPS_WINDOWS else DEFAULT_DPS_WINDOW,
     }
 
 

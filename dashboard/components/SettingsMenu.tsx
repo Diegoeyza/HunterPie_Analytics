@@ -33,7 +33,7 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
   const [detected, setDetected] = useState<AppSettings["detected"]>([]);
   const [envOverride, setEnvOverride] = useState(false);
   const [newDir, setNewDir] = useState("");
-  const [dpsWindow, setDpsWindow] = useState("engagement");
+  const [dpsWindow, setDpsWindow] = useState("quest");
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
