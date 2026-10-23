@@ -92,7 +92,7 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
     setDpsWindow(window);
     const ok = await saveSettings(exportDirs, window);
     if (ok) toast.push(window === "quest"
-      ? "DPS now divides by first hit → kill"
+      ? "DPS now divides by own first hit → quest end"
       : "DPS now divides by first → last hit");
     return ok;
   };

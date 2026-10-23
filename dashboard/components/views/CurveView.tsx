@@ -33,18 +33,17 @@ interface CurveData {
 
 import { type Metric, computeDps, smoothDps, computeBurst } from "../../lib/metrics";
 
-/** Merge n players' series + one HP series per visible monster onto one time
- *  grid. The DPS death cutoff is the last HP point across all visible
- *  series (single-monster view: that monster's death; All view: the last
- *  monster to die, since damage is quest-wide). Event boundary times
- *  (enrage start/end) are injected so that Recharts <ReferenceArea> has
- *  exact x-values to anchor to. */
+/** Merge n players' series onto one time grid. The DPS quest end is the
+ *  party's last damage point (damage is quest-wide, so every curve decays
+ *  to the same frozen results value the headlines show). Event boundary
+ *  times (enrage start/end) are injected so that Recharts <ReferenceArea>
+ *  has exact x-values to anchor to. */
 function mergeSeries(players: CurvePlayer[], hpSeries: { key: string; points: { t: number; hp: number }[] }[],
                       events: CurveEvent[], metric: Metric) {
-  const lasts = hpSeries.map((s) => s.points.length > 0 ? s.points[s.points.length - 1].t : -Infinity);
-  const deathT = lasts.length > 0 ? Math.max(...lasts) : Infinity;
+  const lasts = players.map((p) => p.points.length > 0 ? p.points[p.points.length - 1].t : -Infinity);
+  const endT = lasts.length > 0 ? Math.max(...lasts) : Infinity;
   const smoothed = new Map(
-    players.map((p) => [p.player, smoothDps(computeDps(p.points, deathT))])
+    players.map((p) => [p.player, smoothDps(computeDps(p.points, endT))])
   );
   const burst = new Map(
     players.map((p) => [p.player, computeBurst(p.points)])
@@ -232,8 +231,8 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
     return [...groups.values()];
   }, [curve, visibleEvents, eventColor]);
 
-  // DPS freezes when the monster goes down (computeDps caps at the last
-  // HP step), matching the in-game meter — in both DPS modes.
+  // DPS decays to the quest end (party's last hit), matching the meter's
+  // frozen results value — in both DPS modes.
   const merged = useMemo(
     () => (curve ? mergeSeries(curve.players, showHp ? visibleHp : [], visibleEvents, metric) : []),
     [curve, visibleHp, visibleEvents, showHp, metric]

@@ -47,10 +47,10 @@ function mergeSurvival(
   hpByPlayer: Map<string, SurvivalHpPoint[]>,
   monsterHp: { t: number; hp: number }[],
   events: SurvivalEvent[],
-  deathT: number,
+  endT: number,
 ) {
   const smoothed = new Map(
-    players.map((p) => [p.player, smoothDps(computeDps(p.points, deathT))])
+    players.map((p) => [p.player, smoothDps(computeDps(p.points, endT))])
   );
   const times = Array.from(
     new Set([
@@ -138,21 +138,19 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
     return m;
   }, [curve, hidden]);
 
-  const deathT = useMemo(() => {
-    const lasts = [
-      ...(curve?.hp_curve ?? []).map((s) => s.t),
-      ...[...hpByPlayer.values()].flatMap((pts) => pts.map((q) => q.t)),
-    ];
+  const endT = useMemo(() => {
+    const lasts = (curve?.players ?? []).map((p) =>
+      p.points.length > 0 ? p.points[p.points.length - 1].t : -Infinity);
     return lasts.length > 0 ? Math.max(...lasts) : Infinity;
-  }, [curve, hpByPlayer]);
+  }, [curve]);
 
   const merged = useMemo(
     () => (curve
       ? mergeSurvival(visiblePlayers, hpByPlayer,
           showMonsterHp ? [...curve.hp_curve].sort((a, b) => a.t - b.t) : [],
-          curve.events, deathT)
+          curve.events, endT)
       : []),
-    [curve, visiblePlayers, hpByPlayer, showMonsterHp, deathT]);
+    [curve, visiblePlayers, hpByPlayer, showMonsterHp, endT]);
 
   // A mod-only hunt has a single damage total (one point), not a curve:
   // DPS is companion data. Hide the DPS series/axis instead of drawing a

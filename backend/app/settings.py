@@ -18,10 +18,10 @@ log = logging.getLogger(__name__)
 SETTINGS_FILE = "config.json"
 MAX_EXPORT_DIRS = 20
 
-#: DPS divisor window. ``quest`` (default) freezes the window when the
-#: monster goes down (last 0%-HP step, else last HP sample, else quest
-#: clock), matching the in-game HunterPie meter. ``engagement`` divides
-#: by active fighting time instead (own first hit -> own last hit).
+#: DPS divisor window. ``quest`` (default) ends every window at the
+#: party's last hit (quest end), from each hunter's own first hit —
+#: matching the in-game HunterPie meter. ``engagement`` divides by active
+#: fighting time instead (own first hit -> own last hit).
 DPS_WINDOW_ENGAGEMENT = "engagement"
 DPS_WINDOW_QUEST = "quest"
 DPS_WINDOWS = frozenset({DPS_WINDOW_ENGAGEMENT, DPS_WINDOW_QUEST})

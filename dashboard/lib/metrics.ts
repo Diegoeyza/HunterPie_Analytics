@@ -5,9 +5,13 @@ export type Metric = "damage" | "dps" | "burst";
 
 const SMOOTH_WINDOW = 5;
 
-/** Compute DPS from cumulative damage, starting from each player's first hit
- *  and ending at monster death (last HP step). After death, DPS plateaus. */
-export function computeDps(points: { t: number; dmg: number }[], deathT: number): { t: number; dps: number }[] {
+/** Compute DPS from cumulative damage, starting at each player's first hit.
+ *  The series is a live trace — damage-so-far over (now - first hit) — like
+ *  the in-game meter. When the player stops hitting before the quest ends,
+ *  one decaying point is appended at the quest end so the curve lands on
+ *  the same final DPS the headlines show (total / (quest end - first hit)),
+ *  matching the meter's frozen results value. */
+export function computeDps(points: { t: number; dmg: number }[], endT: number): { t: number; dps: number }[] {
   if (points.length === 0) return [];
   // DPS is measured over engagement time (first hit -> now), the same on every
   // tab. A series may start with an anchoring (0, 0) point so cumulative
@@ -22,20 +26,17 @@ export function computeDps(points: { t: number; dmg: number }[], deathT: number)
   const lastDmg = points[points.length - 1].dmg;
   const bulk = !anchored && lastDmg > 0 && points[first].dmg > 0.25 * lastDmg;
   const baseline = bulk ? points[first].dmg : 0;
-  // Freeze the numerator at the death cutoff too: late-flushed ticks past
-  // it must not keep inflating the plateau (the meter froze with them).
-  let capDmg = 0;
-  for (const q of points) {
-    if (q.t > deathT + 1e-9) break;
-    capDmg = q.dmg;
-  }
-  return points.map((q) => {
+  const series = points.map((q) => {
     if (q.t <= firstHit) return { t: q.t, dps: 0 };
-    const end = Math.min(q.t, deathT);
-    const window = end - firstHit;
-    const dmg = Math.min(q.dmg, capDmg);
-    return { t: q.t, dps: window > 0 ? Math.max(0, dmg - baseline) / window : 0 };
+    const window = q.t - firstHit;
+    return { t: q.t, dps: window > 0 ? Math.max(0, q.dmg - baseline) / window : 0 };
   });
+  const lastP = points[points.length - 1];
+  if (Number.isFinite(endT) && endT > lastP.t + 1e-9) {
+    const window = endT - firstHit;
+    if (window > 0) series.push({ t: endT, dps: Math.max(0, lastP.dmg - baseline) / window });
+  }
+  return series;
 }
 
 /** Rolling mean over a player's DPS series. */

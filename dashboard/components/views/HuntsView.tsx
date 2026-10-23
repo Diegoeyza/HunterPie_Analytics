@@ -34,11 +34,19 @@ interface HuntCurve {
     samples: number }[];
 }
 
-/** Active window for one hunter: own first→last damage snapshot, falling
- *  back to the hunt-wide first-hit→monster-death window, then to clear
- *  time. Mirrors _player_engagement_s/_engagement_duration_s in queries.py
- *  (curve downsampling keeps first/last points, so the windows match the
- *  backend's exactly) — DPS here is comparable with every other tab. */
+/** Shared quest end: the party's last damage point (mirrors the backend's
+ *  party-last snapshot max). The overlay divides each hunter's damage by
+ *  (results - own first), so quest mode ends every window here. */
+function partyLastT(curve: HuntCurve): number | null {
+  const lasts = curve.players
+    .map((p) => (p.points.length > 0 ? p.points[p.points.length - 1].t : null))
+    .filter((t): t is number => t !== null);
+  return lasts.length > 0 ? Math.max(...lasts) : null;
+}
+
+/** Active window for one hunter (mirrors the backend's engagement window
+ *  functions; curve downsampling keeps first/last points, so the windows
+ *  match the backend's exactly) — DPS here is comparable with every tab. */
 /** First sample that actually carries damage: the curve may start with an
  *  anchoring (0, 0) point so cumulative charts begin at quest start, and
  *  that must not stretch the engagement window back over the run-up. */
@@ -47,43 +55,14 @@ function firstHitT(points: { t: number; dmg: number }[]): number | null {
   return hit ? hit.t : (points.length > 0 ? points[0].t : null);
 }
 
-/** Stale-freeze guard, mirroring the backend: post-freeze grace ticks
- *  last seconds, not minutes — past a minute the HP tracker died early
- *  and quest mode falls back to engagement. */
-const STALE_S = 60;
-
-/** HunterPie freeze point shared by the window and the damage lookup: the
- *  kill (last 0-HP step) on a cleared hunt, else the last HP sample,
- *  else the quest clock. */
-function questFreezeT(curve: HuntCurve, cleared: boolean): number | null {
-  const kill = cleared
-    ? curve.hp_curve.filter((s) => s.hp <= 0).map((s) => s.t) : [];
-  if (kill.length > 0) return Math.max(...kill);
-  const death = curve.hp_curve.length > 0
-    ? Math.max(...curve.hp_curve.map((s) => s.t)) : null;
-  return death ?? curve.clear_s;
-}
-
-/** Cumulative damage as of a timestamp (last point at/before it). */
-function dmgAsOf(pts: { t: number; dmg: number }[], freeze: number): number | null {
-  let v: number | null = null;
-  for (const p of pts) {
-    if (p.t > freeze + 1e-9) break;
-    v = p.dmg;
-  }
-  return v;
-}
-
-function engagementOf(curve: HuntCurve, idx: number, questMode = false, cleared = true): number | null {
+function engagementOf(curve: HuntCurve, idx: number, questMode = false): number | null {
   const pts = curve.players[idx].points;
   const first = firstHitT(pts);
   const last = pts.length > 0 ? pts[pts.length - 1].t : null;
-  const freeze = questFreezeT(curve, cleared);
-  // Quest mode freezes numerator and denominator together, like the
-  // in-game meter: post-freeze ticks count for neither.
-  if (questMode && first !== null && freeze !== null && freeze > first
-    && (last === null || last - freeze <= STALE_S)) {
-    return freeze - first;
+  if (questMode) {
+    // Shared quest end from each hunter's own start (like the overlay).
+    const end = partyLastT(curve);
+    if (first !== null && end !== null && end > first) return end - first;
   }
   if (first !== null && last !== null && last > first) return last - first;
   const firsts = curve.players
@@ -94,9 +73,6 @@ function engagementOf(curve: HuntCurve, idx: number, questMode = false, cleared 
     .filter((t): t is number => t !== null);
   const hFirst = firsts.length > 0 ? Math.min(...firsts) : null;
   const hLast = lasts.length > 0 ? Math.max(...lasts) : null;
-  const death = curve.hp_curve.length > 0
-    ? Math.max(...curve.hp_curve.map((s) => s.t)) : null;
-  if (hFirst !== null && death !== null && death > hFirst) return death - hFirst;
   if (hFirst !== null && hLast !== null && hLast > hFirst) return hLast - hFirst;
   return curve.clear_s;
 }
@@ -169,27 +145,18 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
     if (!curve) return [];
     const team = curve.players.reduce(
       (s, p) => s + (p.points.length > 0 ? p.points[p.points.length - 1].dmg : 0), 0);
-    // Quest mode divides damage-as-of-freeze by the frozen window, so the
-    // post-freeze tail (capture cam, late-flushed ticks) counts for neither.
-    const freezeT = questMode ? questFreezeT(curve, hunt.cleared) : null;
+    // Quest mode ends every window at the party's last hit, from each
+    // hunter's own start — the overlay divides each damage by
+    // (results - own first), so early-stoppers dilute like in game.
     return curve.players
       .map((p, i) => {
         const pts = p.points;
         const total = pts.length > 0 ? pts[pts.length - 1].dmg : 0;
-        const first = firstHitT(pts);
-        const last = pts.length > 0 ? pts[pts.length - 1].t : null;
-        const frozen = questMode && first !== null && freezeT !== null
-          && freezeT > first && (last === null || last - freezeT <= STALE_S);
-        const eng = frozen && freezeT !== null && first !== null
-          ? freezeT - first
-          : engagementOf(curve, i, false, hunt.cleared);
-        const dmg = frozen && freezeT !== null
-          ? dmgAsOf(pts, freezeT) ?? total
-          : total;
+        const eng = engagementOf(curve, i, questMode);
         return {
           player: p.player, caption: p.weapon_name ?? p.weapon ?? "Unknown",
           total_damage: total,
-          dps: eng ? dmg / eng : null,
+          dps: eng ? total / eng : null,
           share: team > 0 ? total / team : 0, shareLabel: "of hunt",
         };
       })
@@ -203,13 +170,12 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
     if (!curve) return [];
     const enrages = curve.events.filter((e) => e.type === "enrage");
 
-    // DPS death cutoff: last monster HP step (mirrors CurveView).
+    // DPS quest end: the party's last hit (mirrors CurveView). The curve
+    // decays to the same final DPS the headlines show.
     // Keyed by player index (names are not guaranteed unique).
-    const deathT = curve.hp_curve.length > 0
-      ? Math.max(...curve.hp_curve.map((s) => s.t))
-      : Infinity;
+    const endT = partyLastT(curve) ?? Infinity;
     const smoothed = new Map(
-      curve.players.map((p, i) => [i, smoothDps(computeDps(p.points, deathT))]),
+      curve.players.map((p, i) => [i, smoothDps(computeDps(p.points, endT))]),
     );
     const burst = new Map(
       curve.players.map((p, i) => [i, computeBurst(p.points)]),
@@ -344,7 +310,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-              <p className="blurb">Red bands: enrage windows. DPS uses {questMode ? "first hit\u2192kill (quest end if nothing went down)" : "engagement time (own first\u2192last hit)"}, same as Damage curves tab.</p>
+              <p className="blurb">Red bands: enrage windows. DPS uses {questMode ? "own first hit\u2192quest end (party last hit)" : "engagement time (own first\u2192last hit)"}, same as Damage curves tab.</p>
               {(curve.survival ?? []).length > 0 && (
                 <>
                   <h3 className="chart-title">Survival</h3>
