@@ -47,22 +47,43 @@ function firstHitT(points: { t: number; dmg: number }[]): number | null {
   return hit ? hit.t : (points.length > 0 ? points[0].t : null);
 }
 
+/** Stale-freeze guard, mirroring the backend: post-freeze grace ticks
+ *  last seconds, not minutes — past a minute the HP tracker died early
+ *  and quest mode falls back to engagement. */
+const STALE_S = 60;
+
+/** HunterPie freeze point shared by the window and the damage lookup: the
+ *  kill (last 0-HP step) on a cleared hunt, else the last HP sample,
+ *  else the quest clock. */
+function questFreezeT(curve: HuntCurve, cleared: boolean): number | null {
+  const kill = cleared
+    ? curve.hp_curve.filter((s) => s.hp <= 0).map((s) => s.t) : [];
+  if (kill.length > 0) return Math.max(...kill);
+  const death = curve.hp_curve.length > 0
+    ? Math.max(...curve.hp_curve.map((s) => s.t)) : null;
+  return death ?? curve.clear_s;
+}
+
+/** Cumulative damage as of a timestamp (last point at/before it). */
+function dmgAsOf(pts: { t: number; dmg: number }[], freeze: number): number | null {
+  let v: number | null = null;
+  for (const p of pts) {
+    if (p.t > freeze + 1e-9) break;
+    v = p.dmg;
+  }
+  return v;
+}
+
 function engagementOf(curve: HuntCurve, idx: number, questMode = false, cleared = true): number | null {
   const pts = curve.players[idx].points;
   const first = firstHitT(pts);
   const last = pts.length > 0 ? pts[pts.length - 1].t : null;
-  const death = curve.hp_curve.length > 0
-    ? Math.max(...curve.hp_curve.map((s) => s.t)) : null;
-  // HunterPie freeze point: the kill (last 0-HP step) on a cleared hunt,
-  // else the last HP sample, else the quest clock. Never ends before the
-  // hunter's own last hit (late-flushed snapshots).
-  const kill = cleared
-    ? curve.hp_curve.filter((s) => s.hp <= 0).map((s) => s.t) : [];
-  const freeze = (kill.length > 0 ? Math.max(...kill)
-    : death ?? curve.clear_s);
-  if (questMode && first !== null) {
-    const end = Math.max(freeze ?? -Infinity, last ?? -Infinity);
-    if (end > first) return end - first;
+  const freeze = questFreezeT(curve, cleared);
+  // Quest mode freezes numerator and denominator together, like the
+  // in-game meter: post-freeze ticks count for neither.
+  if (questMode && first !== null && freeze !== null && freeze > first
+    && (last === null || last - freeze <= STALE_S)) {
+    return freeze - first;
   }
   if (first !== null && last !== null && last > first) return last - first;
   const firsts = curve.players
@@ -73,6 +94,8 @@ function engagementOf(curve: HuntCurve, idx: number, questMode = false, cleared 
     .filter((t): t is number => t !== null);
   const hFirst = firsts.length > 0 ? Math.min(...firsts) : null;
   const hLast = lasts.length > 0 ? Math.max(...lasts) : null;
+  const death = curve.hp_curve.length > 0
+    ? Math.max(...curve.hp_curve.map((s) => s.t)) : null;
   if (hFirst !== null && death !== null && death > hFirst) return death - hFirst;
   if (hFirst !== null && hLast !== null && hLast > hFirst) return hLast - hFirst;
   return curve.clear_s;
@@ -146,14 +169,27 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
     if (!curve) return [];
     const team = curve.players.reduce(
       (s, p) => s + (p.points.length > 0 ? p.points[p.points.length - 1].dmg : 0), 0);
+    // Quest mode divides damage-as-of-freeze by the frozen window, so the
+    // post-freeze tail (capture cam, late-flushed ticks) counts for neither.
+    const freezeT = questMode ? questFreezeT(curve, hunt.cleared) : null;
     return curve.players
       .map((p, i) => {
-        const total = p.points.length > 0 ? p.points[p.points.length - 1].dmg : 0;
-        const eng = engagementOf(curve, i, questMode, hunt.cleared);
+        const pts = p.points;
+        const total = pts.length > 0 ? pts[pts.length - 1].dmg : 0;
+        const first = firstHitT(pts);
+        const last = pts.length > 0 ? pts[pts.length - 1].t : null;
+        const frozen = questMode && first !== null && freezeT !== null
+          && freezeT > first && (last === null || last - freezeT <= STALE_S);
+        const eng = frozen && freezeT !== null && first !== null
+          ? freezeT - first
+          : engagementOf(curve, i, false, hunt.cleared);
+        const dmg = frozen && freezeT !== null
+          ? dmgAsOf(pts, freezeT) ?? total
+          : total;
         return {
           player: p.player, caption: p.weapon_name ?? p.weapon ?? "Unknown",
           total_damage: total,
-          dps: eng ? total / eng : null,
+          dps: eng ? dmg / eng : null,
           share: team > 0 ? total / team : 0, shareLabel: "of hunt",
         };
       })

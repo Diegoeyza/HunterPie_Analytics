@@ -22,11 +22,19 @@ export function computeDps(points: { t: number; dmg: number }[], deathT: number)
   const lastDmg = points[points.length - 1].dmg;
   const bulk = !anchored && lastDmg > 0 && points[first].dmg > 0.25 * lastDmg;
   const baseline = bulk ? points[first].dmg : 0;
+  // Freeze the numerator at the death cutoff too: late-flushed ticks past
+  // it must not keep inflating the plateau (the meter froze with them).
+  let capDmg = 0;
+  for (const q of points) {
+    if (q.t > deathT + 1e-9) break;
+    capDmg = q.dmg;
+  }
   return points.map((q) => {
     if (q.t <= firstHit) return { t: q.t, dps: 0 };
     const end = Math.min(q.t, deathT);
     const window = end - firstHit;
-    return { t: q.t, dps: window > 0 ? (q.dmg - baseline) / window : 0 };
+    const dmg = Math.min(q.dmg, capDmg);
+    return { t: q.t, dps: window > 0 ? Math.max(0, dmg - baseline) / window : 0 };
   });
 }
 

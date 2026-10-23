@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from . import filters
 from .abnormalities import EXCLUDED_STORED_IDS, AbnormalityId
 from .engagement import (
+    batch_capped_damage_s,
     batch_engagement_s,
     hunt_duration_s,
 )
@@ -50,6 +51,18 @@ _visible = filters.visible
 _party = filters.party
 _hunt_duration_s = hunt_duration_s
 _batch_engagement_s = batch_engagement_s
+
+
+def _dps_windows(session, hunts_by_id, pairs):
+    """Engagement windows + quest-frozen damage totals in one go.
+
+    ``cap`` maps (hunt, player) -> damage as of the quest freeze point in
+    quest mode ({} in engagement mode): divide it — not total_damage — by
+    the window, so post-freeze ticks count for neither side. Callers keep
+    ``cap.get(key, total)`` so fallback pairs still use the full total.
+    """
+    return (batch_engagement_s(session, hunts_by_id, pairs),
+            batch_capped_damage_s(session, hunts_by_id, pairs))
 _resolve_variant_filter = resolve_variant_filter
 _identity_label_map = identity_label_map
 _gear_variant_label = gear_variant_label
@@ -396,7 +409,7 @@ def progress(session: Session, monster_id: int | None = None,
     labels = identity_label_map(session)
     rows = list(session.execute(stmt))
     hunts_by_id = {h.id: h for h, _hp, _p, _w, _m in rows}
-    eng = batch_engagement_s(
+    eng, cap = _dps_windows(
         session, hunts_by_id,
         [(h.id, hp.player_id) for h, hp, _p, _w, _m in rows])
     points = []
@@ -414,7 +427,7 @@ def progress(session: Session, monster_id: int | None = None,
                 labels, weapon.name if weapon else None,
                 hp.gear_raw, hp.gear_element, hp.gear_affinity),
             "player": player.display_name,
-            "dps": (hp.total_damage / dur) if dur else 0.0,
+            "dps": (cap.get((hunt.id, hp.player_id), hp.total_damage) / dur) if dur else 0.0,
             "clear_s": hunt_duration_s(hunt),
             "cleared": bool(hunt.cleared),
         })
@@ -459,7 +472,7 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
         stmt = stmt.where(Hunt.id.in_(variant_hunts))
     rows = list(session.execute(stmt))
     hunts_by_id = {h.id: h for _n, _w, h, _hp in rows}
-    eng = batch_engagement_s(
+    eng, cap = _dps_windows(
         session, hunts_by_id, [(h.id, hp.player_id) for _n, _w, h, hp in rows])
     by_weapon: dict[str, dict] = {}
     for name, _wid, hunt, hp in rows:
@@ -469,7 +482,7 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
         agg["hunts"].add(hunt.id)
         eligible = include_failed or bool(hunt.cleared)
         if dur and eligible:
-            agg["dps"].append(hp.total_damage / dur)
+            agg["dps"].append(cap.get((hunt.id, hp.player_id), hp.total_damage) / dur)
         if eligible:
             agg["peak"] = max(agg["peak"], hp.peak_dps)
         if hunt.cleared:
@@ -884,7 +897,7 @@ def quest_stats(session: Session, party: int | None = None) -> dict:
     )
     hp_stmt = filters.party(hp_stmt, party)
     hp_rows = session.execute(hp_stmt).all()
-    eng = batch_engagement_s(
+    eng, cap = _dps_windows(
         session, hunts_by_id, [(hid, pid) for _d, pid, hid in hp_rows])
     for dmg, pid, hid in hp_rows:
         agg = by_quest.get(hunt_key.get(hid))
@@ -892,7 +905,7 @@ def quest_stats(session: Session, party: int | None = None) -> dict:
             continue
         e = eng.get((hid, pid))
         if e:
-            agg["best_dps"] = max(agg["best_dps"], (dmg or 0.0) / e)
+            agg["best_dps"] = max(agg["best_dps"], cap.get((hid, pid), dmg or 0.0) / e)
     enrage_stmt = (
         select(MonsterEvent.start_offset_seconds,
                MonsterEvent.end_offset_seconds, MonsterEvent.hunt_id)
@@ -979,7 +992,7 @@ def quest_hunts(session: Session, key: str,
         .where(HuntPlayer.hunt_id.in_(hunt_ids))
     ).all()
     hunts_by_id = {h.id: h for h in hunts}
-    eng = batch_engagement_s(
+    eng, cap = _dps_windows(
         session, hunts_by_id, [(hid, pid) for hid, pid, _n, _w, _d in rows])
     by_hunt: dict[int, list] = {}
     for hid, pid, name, weapon, damage in rows:
@@ -987,7 +1000,7 @@ def quest_hunts(session: Session, key: str,
         e = eng.get((hid, pid))
         by_hunt.setdefault(hid, []).append({
             "player": name, "weapon": weapon or "Unknown",
-            "total_damage": dmg, "dps": (dmg / e) if e else None,
+            "total_damage": dmg, "dps": (cap.get((hid, pid), dmg) / e) if e else None,
         })
     for members in by_hunt.values():
         members.sort(key=lambda m: m["total_damage"], reverse=True)
@@ -1012,7 +1025,7 @@ def records(session: Session, party: int | None = None) -> dict:
     ).all()
     by_monster: dict[str, dict] = {}
     hunts_by_id = {h.id: h for h, _hp, _n, _w, _m in rows}
-    eng = batch_engagement_s(
+    eng, cap = _dps_windows(
         session, hunts_by_id, [(h.id, hp.player_id) for h, hp, _n, _w, _m in rows])
     # Party members per hunt (single pass — was an O(n²) rescan per fastest).
     party_by_hunt: dict[int, set[str]] = {}
@@ -1021,7 +1034,7 @@ def records(session: Session, party: int | None = None) -> dict:
     for hunt, hp, pname, wname, mname in rows:
         dur = hunt_duration_s(hunt)
         e = eng.get((hunt.id, hp.player_id))
-        dps = ((hp.total_damage or 0.0) / e) if e else 0.0
+        dps = (cap.get((hunt.id, hp.player_id), hp.total_damage or 0.0) / e) if e else 0.0
         agg = by_monster.setdefault(mname, {"hunts": set(), "fastest": None,
                                             "top_dps": None})
         agg["hunts"].add(hunt.id)
@@ -1084,7 +1097,7 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
     labels = identity_label_map(session)
     stmt_rows = list(session.execute(stmt))
     hunts_by_id = {h.id: h for h, _hp, _n, _w, _wid, _m in stmt_rows}
-    eng = batch_engagement_s(
+    eng, cap = _dps_windows(
         session, hunts_by_id,
         [(h.id, hp.player_id) for h, hp, _n, _w, _wid, _m in stmt_rows])
     by_hunt: dict[int, dict] = {}
@@ -1099,7 +1112,7 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
             "weapon_id": wid,
             "variant": gear_variant_label(
                 labels, wname, hp.gear_raw, hp.gear_element, hp.gear_affinity),
-            "dps": ((hp.total_damage or 0.0) / e) if e else 0.0,
+            "dps": (cap.get((hunt.id, hp.player_id), hp.total_damage or 0.0) / e) if e else 0.0,
         })
 
     variant_hunts = resolve_variant_filter(session, player_ids, variant_id)
@@ -1187,7 +1200,7 @@ def leaderboard(session: Session, player_ids: list[int] | None = None,
         stmt = stmt.where(Hunt.id.in_(variant_hunts))
     rows = list(session.execute(stmt))
     hunts_by_id = {h.id: h for h, _hp, _n in rows}
-    eng = batch_engagement_s(
+    eng, cap = _dps_windows(
         session, hunts_by_id, [(h.id, hp.player_id) for h, hp, _n in rows])
     by_player: dict[int, dict] = {}
     for hunt, hp, pname in rows:
@@ -1196,7 +1209,7 @@ def leaderboard(session: Session, player_ids: list[int] | None = None,
             "hunts": set(), "dps": [], "best": 0.0})
         agg["hunts"].add(hunt.id)
         e = eng.get((hunt.id, hp.player_id))
-        dps = ((hp.total_damage or 0.0) / e) if e else 0.0
+        dps = (cap.get((hunt.id, hp.player_id), hp.total_damage or 0.0) / e) if e else 0.0
         agg["dps"].append(dps)
         agg["best"] = max(agg["best"], dps)
     want = set(player_ids or [])
@@ -1224,7 +1237,7 @@ def activity(session: Session, party: int | None = None) -> dict:
     ).all()
     by_day: dict[str, dict] = {}
     hunts_by_id = {h.id: h for h, _d, _p in rows}
-    eng = batch_engagement_s(
+    eng, cap = _dps_windows(
         session, hunts_by_id, [(h.id, pid) for h, _d, pid in rows])
     for hunt, dmg, pid in rows:
         day = hunt.started_at.date().isoformat()
@@ -1236,7 +1249,7 @@ def activity(session: Session, party: int | None = None) -> dict:
         agg["damage"] += dmg or 0.0
         dur = eng.get((hunt.id, pid))
         if dur:
-            agg["dps"].append((dmg or 0.0) / dur)
+            agg["dps"].append(cap.get((hunt.id, pid), dmg or 0.0) / dur)
     return {"days": [{
         "date": d, "hunts": len(a["hunts"]),
         "clear_rate": len(a["clears"]) / len(a["hunts"]) if a["hunts"] else 0.0,
@@ -1269,12 +1282,12 @@ def compare(session: Session, player_ids: list[int], window: int = 5,
     rows = session.execute(stmt).all()
     hunts: dict[int, dict] = {}
     hunts_by_id = {h.id: h for h, _hp in rows}
-    eng = batch_engagement_s(
+    eng, cap = _dps_windows(
         session, hunts_by_id, [(h.id, hp.player_id) for h, hp in rows])
     for hunt, hp in rows:
         h = hunts.setdefault(hunt.id, {"hunt": hunt, "all": [], "scope": []})
         dur = eng.get((hunt.id, hp.player_id))
-        dps = ((hp.total_damage or 0.0) / dur) if dur else 0.0
+        dps = (cap.get((hunt.id, hp.player_id), hp.total_damage or 0.0) / dur) if dur else 0.0
         h["all"].append(dps)
         if hp.player_id in want:
             h["scope"].append(dps)
@@ -1543,11 +1556,11 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
 
     imp_rows = list(session.execute(stmt))
     imp_hunts = {h.id: h for h, _hp, _p, _m in imp_rows}
-    imp_eng = batch_engagement_s(
+    imp_eng, imp_cap = _dps_windows(
         session, imp_hunts, [(h.id, hp.player_id) for h, hp, _p, _m in imp_rows])
     for hunt, hp, player, monster in imp_rows:
         dur = imp_eng.get((hunt.id, hp.player_id))
-        dps = (hp.total_damage / dur) if dur else 0.0
+        dps = (imp_cap.get((hunt.id, hp.player_id), hp.total_damage) / dur) if dur else 0.0
         stars_val = hunt.quest_stars
         key = (monster.id, monster.name, stars_val)
 

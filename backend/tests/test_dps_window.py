@@ -1,11 +1,17 @@
-"""DPS window setting: engagement (first->last hit) vs quest (first hit->quest end)."""
+"""DPS window setting: engagement (first->last hit) vs quest (first hit->kill)."""
 import os
 import tempfile
 from datetime import datetime, timedelta
 
+from sqlalchemy import func, select
+
 from app import settings
 from app.db import dispose_engine, init_db, make_session
-from app.engagement import batch_engagement_s, player_engagement_s
+from app.engagement import (
+    batch_capped_damage_s,
+    batch_engagement_s,
+    player_engagement_s,
+)
 from app.ingest import upsert_hunt
 from app.models import Hunt, Monster, Weapon
 
@@ -123,10 +129,11 @@ def test_window_defaults_to_setting(monkeypatch, tmp_path):
         os.unlink(path)
 
 
-def test_quest_clock_shorter_than_snapshots_never_inflates():
+def test_quest_clock_shorter_than_snapshots_freezes_there():
     """Cross-source rebases can leave quest_time shorter than the snapshot
-    span: quest mode must fall back to the hunter's own last hit, so it
-    only ever dilutes DPS, never inflates it."""
+    span: quest mode still freezes at the quest clock with damage as of
+    that point (HunterPie shows damage accumulated by quest end over the
+    same window), it does not stretch to the late-flushed last hit."""
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
     try:
@@ -136,7 +143,9 @@ def test_quest_clock_shorter_than_snapshots_never_inflates():
                            external="dpsw-6"))
         hunts = {hid: s.get(Hunt, hid)}
         got = batch_engagement_s(s, hunts, [(hid, 1)], window="quest")
-        assert got[(hid, 1)] == 40.0
+        assert got[(hid, 1)] == 20.0  # quest_end(30) - first(10)
+        cap = batch_capped_damage_s(s, hunts, [(hid, 1)], window="quest")
+        assert cap[(hid, 1)] == 300.0  # damage as of the 30s snapshot
     finally:
         s.close()
         dispose_engine(path)
@@ -181,6 +190,93 @@ def test_quest_window_failed_hunt_ignores_partial_kill():
         hunts = {hid: s.get(Hunt, hid)}
         got = batch_engagement_s(s, hunts, [(hid, 1)], window="quest")
         assert got[(hid, 1)] == 80.0  # last HP(90) - first(10)
+    finally:
+        s.close()
+        dispose_engine(path)
+        os.unlink(path)
+
+
+def test_quest_capped_damage_excludes_post_freeze_tail():
+    """Hunt 1006 shape: capture at 60 (last HP sample, no kill), quest clock
+    100, damage flushed to 90. Quest DPS = damage-as-of-60 / (60 - first),
+    matching the meter, which froze at capture."""
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        s, hid = _seeded_session(
+            path, _payload(datetime(2026, 9, 6, 3, 0), quest_time=100.0,
+                           external="dpsw-9",
+                           hp_steps=[{"ts_offset_seconds": 20.0,
+                                      "hp_fraction": 0.5},
+                                     {"ts_offset_seconds": 60.0,
+                                      "hp_fraction": 0.13}]),
+        )
+        hunts = {hid: s.get(Hunt, hid)}
+        # snapshots run 10->50 in the helper; extend the tail past the
+        # freeze with a late-flushed hit worth 1000 at t=90.
+        from app.models import DpsSnapshot
+        last = s.execute(
+            select(func.max(DpsSnapshot.ts_offset_seconds))
+            .where(DpsSnapshot.hunt_id == hid)).scalar()
+        assert last == 50.0
+        s.add(DpsSnapshot(hunt_id=hid, player_id=1,
+                          ts_offset_seconds=90.0,
+                          cumulative_damage=1500.0, instant_dps=5.0))
+        s.flush()
+        got = batch_engagement_s(s, hunts, [(hid, 1)], window="quest")
+        assert got[(hid, 1)] == 50.0  # freeze(60) - first(10)
+        cap = batch_capped_damage_s(s, hunts, [(hid, 1)], window="quest")
+        assert cap[(hid, 1)] == 500.0  # tail excluded, not 1500
+        assert player_engagement_s(
+            s, hid, 1, window="quest") == 50.0
+    finally:
+        s.close()
+        dispose_engine(path)
+        os.unlink(path)
+
+
+def test_quest_stale_freeze_falls_back_to_engagement():
+    """HP tracker died early (last sample 67, damage runs to 152): the
+    freeze would collapse the numerator to ~nothing, so quest mode falls
+    back to engagement and the capped dict stays empty (full totals)."""
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        from app.models import DpsSnapshot
+        s, hid = _seeded_session(
+            path, _payload(datetime(2026, 9, 6, 3, 0), quest_time=587.0,
+                           external="dpsw-10",
+                           hp_steps=[{"ts_offset_seconds": 7.0,
+                                      "hp_fraction": 1.0},
+                                     {"ts_offset_seconds": 67.0,
+                                      "hp_fraction": 0.25}]),
+        )
+        # stretch Isi's damage to 152 (SOS shape: freeze 67 << last 152)
+        s.add(DpsSnapshot(hunt_id=hid, player_id=1,
+                          ts_offset_seconds=152.0,
+                          cumulative_damage=23385.0, instant_dps=5.0))
+        s.flush()
+        hunts = {hid: s.get(Hunt, hid)}
+        got = batch_engagement_s(s, hunts, [(hid, 1)], window="quest")
+        assert got[(hid, 1)] == 142.0  # engagement: 152 - 10
+        cap = batch_capped_damage_s(s, hunts, [(hid, 1)], window="quest")
+        assert cap == {}
+    finally:
+        s.close()
+        dispose_engine(path)
+        os.unlink(path)
+
+
+def test_capped_damage_empty_in_engagement_mode():
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        s, hid = _seeded_session(
+            path, _payload(datetime(2026, 9, 6, 3, 0), quest_time=100.0,
+                           external="dpsw-11"))
+        hunts = {hid: s.get(Hunt, hid)}
+        assert batch_capped_damage_s(
+            s, hunts, [(hid, 1)], window="engagement") == {}
     finally:
         s.close()
         dispose_engine(path)
