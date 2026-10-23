@@ -22,7 +22,7 @@ local imgui = imgui
 local os = os
 local io = io
 
-local VERSION = "0.12.0"
+local VERSION = "0.12.1"
 local OUT_SUBDIR = "HuntExports"
 local CONFIG_FILE = "hunt_dumper.json"
 local GAME_TYPE = 2
@@ -463,6 +463,15 @@ local function name_of(inst, pi, i, qi, slot)
         n = users_by_index(idx)
         if n then return n, "user_index" end
     end
+    if type(qi) == "number" then
+        -- The quest roster maps this instance to its true user index.
+        -- Identity, not position: lobby order and join order often differ
+        -- (SOS), so this must beat every positional guess below. A
+        -- users[slot] hit further down proves nothing when the two orders
+        -- disagree — it silently relabels one hunter as another.
+        n = users_by_index(qi)
+        if n then return n, "roster_qi" end
+    end
     if type(slot) == "number" then
         -- The compact user list has no entry at this control slot, but the
         -- entry itself records it (SOS slots can be 6 while position is 1).
@@ -502,14 +511,17 @@ local function poll_party_hp(now)
                 local idx = player_index(inst, pi)
                 local n, src = name_of(inst, pi, i, qidx[i], slot)
                 if n then r.name = n; r.name_src = src end
-                -- Strongest identity first: _PlayerList slot, then the
-                -- player object's user index, then the quest list index.
-                local key = slot or idx or qidx[i] or i
+                -- Strongest identity first: the player object's user index,
+                -- then the quest roster's user index for this instance, then
+                -- the _PlayerList position. The list position is join order,
+                -- NOT the control slot (SOS lobbies), so it ranks last: it
+                -- can only label a series, never identify it.
+                local key = idx or qidx[i] or slot or i
                 state.php_names = state.php_names or {}
                 local u = state.users and state.users[i]
                 state.php_names[i] = { name = n, src = src,
                                        slot = slot, idx = idx,
-                                       key = key,
+                                       qi = qidx[i], key = key,
                                        roster_self = u and u.is_self or nil,
                                        hp_ok = r.hp_ok, fail = r.fail }
                 if not record_hp(key, n, r, now) then
@@ -580,15 +592,17 @@ local function party_debug()
     out.php_seen = state.php_seen
     out.php_fail = state.php_fail
     out.php_names = state.php_names
+    -- Always recorded (not debug-only): the roster order is the only way to
+    -- audit series-to-hunter mapping after the fact. Small: two short maps.
+    out.qidx = {}
+    for k, v in pairs(quest_player_indices(pm)) do out.qidx[k] = v end
+    out.users = {}
+    for k, u in pairs(state.users or {}) do
+        out.users[tostring(k)] = { name = u.name, idx = u.idx,
+                                   slot = u.slot, is_self = u.is_self }
+    end
     if config.debug then
         out.arr_type = type_name(arr)
-        out.qidx = {}
-        for k, v in pairs(quest_player_indices(pm)) do out.qidx[k] = v end
-        out.users = {}
-        for k, u in pairs(state.users or {}) do
-            out.users[tostring(k)] = { name = u.name, idx = u.idx,
-                                       is_self = u.is_self }
-        end
         out.player_list = {}
         local plist = field_value(pm, "_PlayerList")
         if plist then
