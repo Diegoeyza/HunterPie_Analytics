@@ -265,7 +265,9 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
           </div>
           {!selectedHasHealth ? (
             <p className="blurb">
-              This hunt has no hunter HP (captured without HuntDumper 0.11+).{" "}
+              This hunt has no hunter HP — older captures predate HP
+              tracking, and 0.12.1 dropped every sample (fixed in 0.12.2;
+              reload the in-game script).{" "}
               {latestWithHealth && latestWithHealth.id !== huntId && (
                 <button type="button" onClick={() => setHuntId(latestWithHealth.id)}>
                   Open the latest hunt with HP
