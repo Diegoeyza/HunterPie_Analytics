@@ -61,22 +61,28 @@ header.topbar h1 { font-size: 18px; margin: 0; }
   padding: 4px 10px; cursor: pointer; font-size: 13px;
 }
 
-/* Settings popover (header, right): theme + include-failed toggle */
-.settings { position: relative; }
-.settings > summary {
+/* Settings dialog (header, right): gear button + modal page */
+.settings-open {
   list-style: none; cursor: pointer; user-select: none;
   background: var(--panel-2); color: var(--text);
   border: 1px solid var(--border); border-radius: 6px;
   padding: 3px 10px; font-size: 15px; line-height: 1.2;
 }
-.settings > summary::marker { content: ""; }
-.settings > summary::-webkit-details-marker { display: none; }
-.settings[open] > summary { border-color: var(--accent); }
-.settings-menu {
-  position: absolute; right: 0; top: calc(100% + 6px); z-index: 40;
-  min-width: 248px; background: var(--panel); border: 1px solid var(--border);
-  border-radius: 8px; padding: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+.settings-page { overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+.settings-page section h3 {
+  margin: 0 0 6px; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted);
 }
+.settings-choices { display: flex; flex-direction: column; gap: 6px; }
+.settings-choices button {
+  text-align: left; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; cursor: pointer; font-size: 13px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.settings-choices button span { color: var(--muted); font-size: 12px; }
+.settings-choices button.on { border-color: var(--accent); }
+.settings-choices button:disabled { opacity: 0.6; cursor: default; }
 .settings-row {
   display: flex; align-items: center; justify-content: space-between;
   gap: 10px; padding: 4px 2px; font-size: 13px;

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiGet, apiInvalidate, apiPut, type AppSettings } from "../lib/api";
+import Modal from "./Modal";
 import { useToast } from "./Toast";
 
 const THEME_KEY = "hp.theme";
@@ -15,7 +16,7 @@ export function loadTheme(): Theme {
   }
 }
 
-/** Top-bar settings popover: theme, ingest scope, update check.
+/** Top-bar settings dialog: theme, DPS window, ingest folders, update check.
  *  Persists theme to localStorage and applies it to <html data-theme>. */
 export default function SettingsMenu({ includeFailed, onIncludeFailed,
   checkUpdates, onCheckUpdates, appVersion }: {
@@ -26,6 +27,7 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
   appVersion?: string;
 }) {
   const [theme, setTheme] = useState<Theme>("dark");
+  const [open, setOpen] = useState(false);
   const [exportDirs, setExportDirs] = useState<string[]>([]);
   const [missing, setMissing] = useState<string[]>([]);
   const [detected, setDetected] = useState<AppSettings["detected"]>([]);
@@ -90,8 +92,8 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
     setDpsWindow(window);
     const ok = await saveSettings(exportDirs, window);
     if (ok) toast.push(window === "quest"
-      ? "DPS now divides by first hit \u2192 kill"
-      : "DPS now divides by first \u2192 last hit");
+      ? "DPS now divides by first hit → kill"
+      : "DPS now divides by first → last hit");
     return ok;
   };
 
@@ -102,103 +104,125 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
   };
 
   return (
-    <details className="settings">
-      <summary title="Settings" aria-label="Settings">⚙</summary>
-      <div className="settings-menu">
-        <div className="settings-row">
-          <span>Theme</span>
-          <div className="seg" role="group" aria-label="Theme">
-            <button type="button" className={theme === "dark" ? "on" : ""}
-              aria-pressed={theme === "dark"}
-              onClick={() => setTheme("dark")}>Dark</button>
-            <button type="button" className={theme === "light" ? "on" : ""}
-              aria-pressed={theme === "light"}
-              onClick={() => setTheme("light")}>Light</button>
+    <>
+      <button type="button" className="settings-open" title="Settings"
+        aria-label="Settings" aria-haspopup="dialog"
+        onClick={() => setOpen(true)}>⚙</button>
+      {open && (
+        <Modal label="Settings" onClose={() => setOpen(false)}>
+          <div className="modal-head">
+            <h2>Settings</h2>
+            <button type="button" className="row-action"
+              onClick={() => setOpen(false)}>Close</button>
           </div>
-        </div>
+          <div className="settings-page">
+            <section aria-label="Display">
+              <h3>Display</h3>
+              <div className="settings-row">
+                <span>Theme</span>
+                <div className="seg" role="group" aria-label="Theme">
+                  <button type="button" className={theme === "dark" ? "on" : ""}
+                    aria-pressed={theme === "dark"}
+                    onClick={() => setTheme("dark")}>Dark</button>
+                  <button type="button" className={theme === "light" ? "on" : ""}
+                    aria-pressed={theme === "light"}
+                    onClick={() => setTheme("light")}>Light</button>
+                </div>
+              </div>
+            </section>
 
-        <div className="settings-row settings-dirs-head">
-          <span>Hunt exports folders</span>
-        </div>
-        {exportDirs.length > 0 && (
-          <ul className="settings-dirs">
-            {exportDirs.map((dir) => (
-              <li key={dir}>
-                <span title={dir}>{dir}</span>
-                <button type="button" aria-label={`Remove ${dir}`}
+            <section aria-label="DPS window">
+              <h3>DPS window</h3>
+              <div className="settings-choices" role="radiogroup" aria-label="DPS window">
+                <button type="button" role="radio"
+                  aria-checked={dpsWindow === "engagement"}
+                  className={dpsWindow === "engagement" ? "on" : ""}
                   disabled={saving}
-                  onClick={() => saveDirs(exportDirs.filter((d) => d !== dir))}>
-                  ✕
+                  onClick={() => saveDpsWindow("engagement")}>
+                  <b>First → last hit</b>
+                  <span>Your active fighting time. Late joiners are divided
+                  by their own time in the fight.</span>
                 </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="settings-add">
-          <input type="text" value={newDir} aria-label="Hunt exports folder"
-            placeholder="C:\...\reframework\data\HuntExports"
-            disabled={saving}
-            onChange={(e) => setNewDir(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") addDir(); }} />
-          <button type="button" onClick={addDir}
-            disabled={saving || !newDir.trim()}>Add</button>
-        </div>
-        <p className="settings-hint">
-          Extra folders to scan, e.g. a Mod Organizer 2 instance:
-          {" "}<code>&lt;instance&gt;\overwrite\reframework\data\HuntExports</code>.
-          {envOverride && <> <b>$HUNT_EXPORTS</b> is set and overrides this list.</>}
-        </p>
-        {missing.length > 0 && (
-          <p className="settings-hint warn">
-            Not found yet: {missing.join(", ")}
-          </p>
-        )}
-        {detected.length > 0 && (
-          <p className="settings-hint" title={detected.map((s) => s.path).join("\n")}>
-            Active sources: {detected.map((s) => s.kind).join(" + ")}.
-          </p>
-        )}
+                <button type="button" role="radio"
+                  aria-checked={dpsWindow === "quest"}
+                  className={dpsWindow === "quest" ? "on" : ""}
+                  disabled={saving}
+                  onClick={() => saveDpsWindow("quest")}>
+                  <b>First hit → kill</b>
+                  <span>Freezes when the monster goes down (quest end if
+                  nothing did), matching the in-game meter.</span>
+                </button>
+              </div>
+            </section>
 
-        <div className="settings-row">
-          <span>DPS window</span>
-          <div className="seg" role="group" aria-label="DPS window">
-            <button type="button" className={dpsWindow === "engagement" ? "on" : ""}
-              aria-pressed={dpsWindow === "engagement"}
-              disabled={saving}
-              onClick={() => saveDpsWindow("engagement")}>First \u2192 last hit</button>
-            <button type="button" className={dpsWindow === "quest" ? "on" : ""}
-              aria-pressed={dpsWindow === "quest"}
-              disabled={saving}
-              onClick={() => saveDpsWindow("quest")}>First hit \u2192 kill</button>
+            <section aria-label="Hunt exports folders">
+              <h3>Hunt exports folders</h3>
+              {exportDirs.length > 0 && (
+                <ul className="settings-dirs">
+                  {exportDirs.map((dir) => (
+                    <li key={dir}>
+                      <span title={dir}>{dir}</span>
+                      <button type="button" aria-label={`Remove ${dir}`}
+                        disabled={saving}
+                        onClick={() => saveDirs(exportDirs.filter((d) => d !== dir))}>
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="settings-add">
+                <input type="text" value={newDir} aria-label="Hunt exports folder"
+                  placeholder="C:\...\reframework\data\HuntExports"
+                  disabled={saving}
+                  onChange={(e) => setNewDir(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") addDir(); }} />
+                <button type="button" onClick={addDir}
+                  disabled={saving || !newDir.trim()}>Add</button>
+              </div>
+              <p className="settings-hint">
+                Extra folders to scan, e.g. a Mod Organizer 2 instance:
+                {" "}<code>&lt;instance&gt;\overwrite\reframework\data\HuntExports</code>.
+                {envOverride && <> <b>$HUNT_EXPORTS</b> is set and overrides this list.</>}
+              </p>
+              {missing.length > 0 && (
+                <p className="settings-hint warn">
+                  Not found yet: {missing.join(", ")}
+                </p>
+              )}
+              {detected.length > 0 && (
+                <p className="settings-hint" title={detected.map((s) => s.path).join("\n")}>
+                  Active sources: {detected.map((s) => s.kind).join(" + ")}.
+                </p>
+              )}
+            </section>
+
+            <section aria-label="Data">
+              <h3>Data</h3>
+              <label className="settings-row settings-check">
+                <input type="checkbox" checked={includeFailed}
+                  onChange={(e) => onIncludeFailed(e.target.checked)} />
+                <span>Include failed hunts</span>
+              </label>
+              <p className="settings-hint">
+                Counts carted-out quests in performance stats. Clear rates always
+                count failures, and hunts that never engaged a target aren&apos;t
+                recorded at all.
+              </p>
+              <label className="settings-row settings-check">
+                <input type="checkbox" checked={checkUpdates}
+                  onChange={(e) => onCheckUpdates(e.target.checked)} />
+                <span>Check for updates</span>
+              </label>
+              <p className="settings-hint">
+                Asks GitHub for the latest release so the app can update itself in
+                place. Off = no network requests at all.
+                {appVersion ? <> · you have <b>v{appVersion}</b></> : null}
+              </p>
+            </section>
           </div>
-        </div>
-        <p className="settings-hint">
-          Engagement divides by your active fighting time. Kill freezes the
-          window when the monster goes down (quest end if nothing did),
-          matching the in-game meter.
-        </p>
-
-        <label className="settings-row settings-check">
-          <input type="checkbox" checked={includeFailed}
-            onChange={(e) => onIncludeFailed(e.target.checked)} />
-          <span>Include failed hunts</span>
-        </label>
-        <p className="settings-hint">
-          Counts carted-out quests in performance stats. Clear rates always
-          count failures, and hunts that never engaged a target aren&apos;t
-          recorded at all.
-        </p>
-        <label className="settings-row settings-check">
-          <input type="checkbox" checked={checkUpdates}
-            onChange={(e) => onCheckUpdates(e.target.checked)} />
-          <span>Check for updates</span>
-        </label>
-        <p className="settings-hint">
-          Asks GitHub for the latest release so the app can update itself in
-          place. Off = no network requests at all.
-          {appVersion ? <> · you have <b>v{appVersion}</b></> : null}
-        </p>
-      </div>
-    </details>
+        </Modal>
+      )}
+    </>
   );
 }
