@@ -22,7 +22,7 @@ local imgui = imgui
 local os = os
 local io = io
 
-local VERSION = "0.12.1"
+local VERSION = "0.12.2"
 local OUT_SUBDIR = "HuntExports"
 local CONFIG_FILE = "hunt_dumper.json"
 local GAME_TYPE = 2
@@ -391,7 +391,12 @@ local function quest_player_indices(pm)
     for i = 0, 7 do
         local v = safe(function() return array_get(q, i) end)
         v = boxed_float(v) or safe(function() return sdk.to_int64(v) end)
-        if type(v) == "number" then out[i] = v end
+        -- True user indices are small whole numbers (0-7). This build reads
+        -- garbage here instead (observed 1067109872, 1620998912 — misread
+        -- floats/pointers), and an unfiltered value poisons the sample key,
+        -- orphaning the whole HP series at dump time. Reject anything else.
+        if type(v) == "number" and v >= 0 and v < 8
+            and math.floor(v) == v then out[i] = v end
     end
     return out
 end
@@ -1349,6 +1354,25 @@ local function finish_session()
     end
     if #missing == 1 and #unused_hp == 1 then
         hp_assigned[missing[1]] = unused_hp[1]
+    end
+    -- General rescue: a series keyed by a stale/garbage slot still remembers
+    -- the name observed while sampling it, so match leftovers by name before
+    -- giving up. Key skew then costs nothing and samples always land.
+    for _, mi in ipairs(missing) do
+        if hp_assigned[mi] == nil then
+            local u = state.users and state.users[mi]
+            for ui = #unused_hp, 1, -1 do
+                local k = unused_hp[ui]
+                local rec = state.php and state.php[k]
+                if u and u.name and rec and rec.name == u.name
+                    and not hp_used[k] then
+                    hp_assigned[mi] = k
+                    hp_used[k] = true
+                    table.remove(unused_hp, ui)
+                    break
+                end
+            end
+        end
     end
 
     -- players: name + damage + awards (weapons come from HunterPie)
