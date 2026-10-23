@@ -5,7 +5,7 @@ import {
   CartesianGrid, Legend, Line, LineChart, ReferenceArea,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { seriesColor, type HuntSummary } from "../../lib/api";
+import { seriesColor, type AppSettings, type HuntSummary } from "../../lib/api";
 import { fmtDate, fmtInt, fmtPct, fmtTime } from "../../lib/format";
 import { computeDps, smoothDps } from "../../lib/metrics";
 import { ApiState, useApi } from "../../lib/useApi";
@@ -98,6 +98,9 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
     () => new Map((opts?.players ?? []).map((p) => [p.name, p.id])),
     [opts]);
 
+  const settingsQ = useApi<AppSettings>("/settings");
+  const questMode = settingsQ.data?.dps_window === "quest";
+
   const huntsQ = useApi<{ hunts: HuntSummary[] }>("/hunts", {
     limit: 200,
     ...(scope.length > 0 && { player_ids: scope.join(",") }),
@@ -146,13 +149,20 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
     return lasts.length > 0 ? Math.max(...lasts) : Infinity;
   }, [curve, hpByPlayer]);
 
+  // Quest mode ends the DPS window at the quest clock instead of the
+  // last HP sample: mergeSurvival caps each series at the passed end.
+  const endT = useMemo(() => {
+    if (!curve) return deathT;
+    return questMode && curve.clear_s != null ? Math.max(curve.clear_s, deathT) : deathT;
+  }, [curve, deathT, questMode]);
+
   const merged = useMemo(
     () => (curve
       ? mergeSurvival(visiblePlayers, hpByPlayer,
           showMonsterHp ? [...curve.hp_curve].sort((a, b) => a.t - b.t) : [],
-          curve.events, deathT)
+          curve.events, endT)
       : []),
-    [curve, visiblePlayers, hpByPlayer, showMonsterHp, deathT]);
+    [curve, visiblePlayers, hpByPlayer, showMonsterHp, endT]);
 
   // A mod-only hunt has a single damage total (one point), not a curve:
   // DPS is companion data. Hide the DPS series/axis instead of drawing a

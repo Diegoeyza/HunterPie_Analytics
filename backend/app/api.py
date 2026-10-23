@@ -100,6 +100,7 @@ class LabelBody(BaseModel):
 class SettingsBody(BaseModel):
     export_dirs: list[str] = Field(default_factory=list,
                                    max_length=settings.MAX_EXPORT_DIRS)
+    dps_window: str | None = None
 
 
 def _clean_export_dirs(raw: list[str]) -> list[str]:
@@ -133,6 +134,7 @@ def _app_settings() -> dict:
         "missing": [d for d in dirs if not Path(d).is_dir()],
         "detected": detected_sources(),
         "env_override": bool(os.environ.get("HUNT_EXPORTS")),
+        "dps_window": settings.dps_window(),
     }
 
 
@@ -144,9 +146,21 @@ def get_app_settings():
 
 @app.put("/api/settings")
 def put_app_settings(body: SettingsBody):
-    """Replace the user-configured export folders (empty list = auto only)."""
+    """Replace the user-configured export folders (empty list = auto only).
+
+    ``dps_window`` (when present) switches the DPS divisor between
+    ``engagement`` (first->last hit) and ``quest`` (first hit->quest end);
+    omitted keeps the stored value."""
+    if body.dps_window is not None and body.dps_window not in settings.DPS_WINDOWS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"dps_window must be one of {sorted(settings.DPS_WINDOWS)}")
+    current = settings.load_settings()
     dirs = _clean_export_dirs(body.export_dirs)
-    settings.save_settings({"export_dirs": dirs})
+    current["export_dirs"] = dirs
+    if body.dps_window is not None:
+        current["dps_window"] = body.dps_window
+    settings.save_settings(current)
     return _app_settings()
 
 

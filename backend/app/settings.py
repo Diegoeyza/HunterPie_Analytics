@@ -18,6 +18,13 @@ log = logging.getLogger(__name__)
 SETTINGS_FILE = "config.json"
 MAX_EXPORT_DIRS = 20
 
+#: DPS divisor window. ``engagement`` (default) divides by active fighting
+#: time (own first hit -> own last hit); ``quest`` divides by first hit ->
+#: quest end (HunterPie quest time), so post-kill downtime dilutes the number.
+DPS_WINDOW_ENGAGEMENT = "engagement"
+DPS_WINDOW_QUEST = "quest"
+DPS_WINDOWS = frozenset({DPS_WINDOW_ENGAGEMENT, DPS_WINDOW_QUEST})
+
 
 def settings_path() -> Path:
     """Writable config path, beside ``$HUNTS_DB`` when that is set.
@@ -32,20 +39,32 @@ def settings_path() -> Path:
     return user_data_dir() / SETTINGS_FILE
 
 
+def _defaults() -> dict:
+    return {"export_dirs": [], "dps_window": DPS_WINDOW_ENGAGEMENT}
+
+
 def load_settings(path: Path | None = None) -> dict:
-    """Read the settings dict, returning an empty one when unavailable."""
+    """Read the settings dict, returning defaults when unavailable.
+
+    Unknown ``dps_window`` values fall back to ``engagement`` (never crash
+    on a hand-edited config)."""
     path = path or settings_path()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"export_dirs": []}
+        return _defaults()
     except (OSError, ValueError) as e:
         log.warning("could not read settings %s: %s", path, e)
-        return {"export_dirs": []}
-    dirs = raw.get("export_dirs") if isinstance(raw, dict) else None
-    if not isinstance(dirs, list):
-        return {"export_dirs": []}
-    return {"export_dirs": [d for d in dirs if isinstance(d, str)]}
+        return _defaults()
+    if not isinstance(raw, dict):
+        return _defaults()
+    dirs = raw.get("export_dirs")
+    window = raw.get("dps_window", DPS_WINDOW_ENGAGEMENT)
+    return {
+        "export_dirs": [d for d in dirs if isinstance(d, str)]
+        if isinstance(dirs, list) else [],
+        "dps_window": window if window in DPS_WINDOWS else DPS_WINDOW_ENGAGEMENT,
+    }
 
 
 def save_settings(data: dict, path: Path | None = None) -> None:
@@ -60,3 +79,8 @@ def save_settings(data: dict, path: Path | None = None) -> None:
 def configured_export_dirs(path: Path | None = None) -> list[Path]:
     """Extra HuntExports folders added by the user (may not exist)."""
     return [Path(d) for d in load_settings(path)["export_dirs"]]
+
+
+def dps_window(path: Path | None = None) -> str:
+    """Active DPS divisor window (``engagement`` or ``quest``)."""
+    return load_settings(path)["dps_window"]

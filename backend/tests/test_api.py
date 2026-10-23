@@ -1302,7 +1302,8 @@ def test_settings_roundtrip_adds_detected_source(tmp_path, monkeypatch):
     client, _ = make_client()
 
     assert client.get("/api/settings").json() == {
-        "export_dirs": [], "missing": [], "detected": [], "env_override": False}
+        "export_dirs": [], "missing": [], "detected": [], "env_override": False,
+        "dps_window": "engagement"}
 
     body = client.put("/api/settings",
                       json={"export_dirs": [str(folder)]}).json()
@@ -1311,6 +1312,23 @@ def test_settings_roundtrip_adds_detected_source(tmp_path, monkeypatch):
     assert {"kind": "reframework", "path": str(folder)} in body["detected"]
     assert client.get("/api/settings").json()["export_dirs"] == [str(folder)]
     assert app_settings.settings_path().exists()
+
+
+def test_settings_dps_window_roundtrip_and_validation(tmp_path, monkeypatch):
+    from app import settings as app_settings
+
+    _isolate_sources(monkeypatch)
+    client, _ = make_client()
+
+    body = client.put("/api/settings", json={"dps_window": "quest"}).json()
+    assert body["dps_window"] == "quest"
+    assert client.get("/api/settings").json()["dps_window"] == "quest"
+    # export_dirs untouched by a window-only PUT
+    assert client.get("/api/settings").json()["export_dirs"] == []
+    # invalid values rejected, stored value kept
+    res = client.put("/api/settings", json={"dps_window": "bogus"})
+    assert res.status_code == 422
+    assert client.get("/api/settings").json()["dps_window"] == "quest"
 
 
 def test_settings_accepts_missing_folder(tmp_path, monkeypatch):

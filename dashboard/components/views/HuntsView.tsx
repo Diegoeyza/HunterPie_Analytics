@@ -6,7 +6,7 @@ import {
   CartesianGrid, Legend, Line, LineChart, ReferenceArea,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { seriesColor, type HuntSummary, type HuntHighlights } from "../../lib/api";
+import { seriesColor, type AppSettings, type HuntSummary, type HuntHighlights } from "../../lib/api";
 import { fmtAward, fmtDateTime, fmtDps, fmtInt, fmtPct, fmtTime } from "../../lib/format";
 import { type Metric, computeDps, smoothDps, computeBurst } from "../../lib/metrics";
 import { ApiState, useApi } from "../../lib/useApi";
@@ -128,6 +128,8 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
   const curve = data && data.hunt_id === hunt.id ? data : null;
   const hlQ = useApi<HuntHighlights>(`/hunts/${hunt.id}/highlights`);
   const highlights = hlQ.data && hlQ.data.hunt_id === hunt.id ? hlQ.data : null;
+  const settingsQ = useApi<AppSettings>("/settings");
+  const questMode = settingsQ.data?.dps_window === "quest";
 
   const members = useMemo(() => {
     if (!curve) return [];
@@ -295,7 +297,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-              <p className="blurb">Red bands: enrage windows. DPS uses engagement time (own first→last hit), same as Damage curves tab.</p>
+              <p className="blurb">Red bands: enrage windows. DPS uses {questMode ? "first hit\u2192quest end" : "engagement time (own first\u2192last hit)"}, same as Damage curves tab.</p>
               {(curve.survival ?? []).length > 0 && (
                 <>
                   <h3 className="chart-title">Survival</h3>

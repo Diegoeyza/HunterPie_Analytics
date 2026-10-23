@@ -122,6 +122,8 @@ export interface HealthSource { kind: "hunterpie" | "reframework"; path: string;
 
 export interface AppSettings {
   export_dirs: string[];
+  /** DPS divisor window: "engagement" (first->last hit) or "quest" (first hit->quest end). */
+  dps_window: string;
   /** Configured folders that don't exist yet (created later by MO2/game). */
   missing: string[];
   detected: HealthSource[];

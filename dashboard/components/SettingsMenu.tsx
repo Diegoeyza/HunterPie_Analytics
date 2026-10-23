@@ -31,6 +31,7 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
   const [detected, setDetected] = useState<AppSettings["detected"]>([]);
   const [envOverride, setEnvOverride] = useState(false);
   const [newDir, setNewDir] = useState("");
+  const [dpsWindow, setDpsWindow] = useState("engagement");
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
@@ -52,30 +53,46 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
         setMissing(s.missing);
         setDetected(s.detected);
         setEnvOverride(s.env_override);
+        setDpsWindow(s.dps_window === "quest" ? "quest" : "engagement");
       })
       .catch(() => { /* settings are optional; imports still auto-detect */ });
   }, []);
 
-  const saveDirs = async (dirs: string[]) => {
+  const saveSettings = async (dirs: string[], window: string) => {
     setSaving(true);
     try {
-      const s = await apiPut<AppSettings>("/settings", { export_dirs: dirs });
+      const s = await apiPut<AppSettings>("/settings", { export_dirs: dirs, dps_window: window });
       setExportDirs(s.export_dirs);
       setMissing(s.missing);
       setDetected(s.detected);
       setEnvOverride(s.env_override);
+      setDpsWindow(s.dps_window === "quest" ? "quest" : "engagement");
       setNewDir("");
-      apiInvalidate("/health");
-      toast.push(s.missing.length > 0
-        ? "Saved. That folder doesn't exist yet — it will be scanned once it does."
-        : "Hunt exports folder saved");
+      apiInvalidate();
       return true;
     } catch (e) {
-      toast.push(e instanceof Error ? e.message : "Could not save the folder", true);
+      toast.push(e instanceof Error ? e.message : "Could not save settings", true);
       return false;
     } finally {
       setSaving(false);
     }
+  };
+
+  const saveDirs = async (dirs: string[]) => {
+    const ok = await saveSettings(dirs, dpsWindow);
+    if (ok) toast.push(missing.length > 0
+      ? "Saved. That folder doesn't exist yet — it will be scanned once it does."
+      : "Hunt exports folder saved");
+    return ok;
+  };
+
+  const saveDpsWindow = async (window: string) => {
+    setDpsWindow(window);
+    const ok = await saveSettings(exportDirs, window);
+    if (ok) toast.push(window === "quest"
+      ? "DPS now divides by first hit \u2192 quest end"
+      : "DPS now divides by first \u2192 last hit");
+    return ok;
   };
 
   const addDir = async () => {
@@ -141,6 +158,24 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
             Active sources: {detected.map((s) => s.kind).join(" + ")}.
           </p>
         )}
+
+        <div className="settings-row">
+          <span>DPS window</span>
+          <div className="seg" role="group" aria-label="DPS window">
+            <button type="button" className={dpsWindow === "engagement" ? "on" : ""}
+              aria-pressed={dpsWindow === "engagement"}
+              disabled={saving}
+              onClick={() => saveDpsWindow("engagement")}>First \u2192 last hit</button>
+            <button type="button" className={dpsWindow === "quest" ? "on" : ""}
+              aria-pressed={dpsWindow === "quest"}
+              disabled={saving}
+              onClick={() => saveDpsWindow("quest")}>First hit \u2192 quest end</button>
+          </div>
+        </div>
+        <p className="settings-hint">
+          Engagement divides by your active fighting time. Quest end divides
+          by first hit \u2192 quest clock, so post-kill downtime dilutes DPS.
+        </p>
 
         <label className="settings-row settings-check">
           <input type="checkbox" checked={includeFailed}
