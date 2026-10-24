@@ -786,6 +786,18 @@ local function party_debug()
     out.php_seen = state.php_seen
     out.php_fail = state.php_fail
     out.php_failby = state.php_failby or {}
+    -- Diag: per-key sample counts + last observed series name. Settles
+    -- whether an empty/missing series was never sampled, sampled under an
+    -- unexpected key, or sampled but skipped at export.
+    do
+        out.php_counts, out.php_series_names = {}, {}
+        for k, rec in pairs(state.php or {}) do
+            if rec and rec.samples then
+                out.php_counts[k] = #rec.samples
+                out.php_series_names[k] = rec.name
+            end
+        end
+    end
     out.php_names = state.php_names
     -- Always recorded (not debug-only): the roster order is the only way to
     -- audit series-to-hunter mapping after the fact. Small: two short maps.
