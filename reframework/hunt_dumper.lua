@@ -1674,6 +1674,34 @@ local function finish_session()
         players[#players + 1] = p
         n_players = n_players + 1
     end
+    -- Orphan HP series: a hunter who left before the results screen has no
+    -- roster name at dump time (mid-quest join then disconnect), but their
+    -- series remembers the name observed while sampling. Export it HP-only
+    -- (no awards: the user index is gone) so the data isn't lost — the
+    -- backend merges fork damage by name, and damage stays fork-owned
+    -- either way, so a zero lump here can never overwrite real damage.
+    do
+        local seen = {}
+        for _, p in ipairs(players) do seen[p.name] = true end
+        local used_keys = {}
+        for _, k in pairs(hp_assigned) do used_keys[k] = true end
+        for k, rec in pairs(state.php or {}) do
+            if rec and #rec.samples > 0 and rec.name
+                and not seen[rec.name] and not used_keys[k] then
+                seen[rec.name] = true
+                players[#players + 1] = {
+                    name = rec.name,
+                    weapon_name = nil,
+                    gear = nil,
+                    damages = { { damage = 0, dealt_at = iso(finished) } },
+                    awards = nil,
+                    health_steps = php_health_steps(k),
+                    is_hunterpie_user = false,
+                }
+                n_players = n_players + 1
+            end
+        end
+    end
     if n_players == 0 then
         config.last_status = "no players captured; dump skipped"
         dlog(config.last_status)
