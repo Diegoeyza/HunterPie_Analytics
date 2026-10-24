@@ -707,6 +707,11 @@ local function poll_party_hp(now)
                 if not record_hp(key, n, r, now) then
                     state.php_fail = (state.php_fail or 0) + 1
                     state.php_last_fail = r.fail or "unknown"
+                    -- Diag: last fail reason per series key (overwritten per
+                    -- poll, bounded). Explains an empty series (a hunter with
+                    -- damage but no HP) if it recurs.
+                    state.php_failby = state.php_failby or {}
+                    state.php_failby[key] = r.fail or "unknown"
                 end
             end
         end
@@ -771,6 +776,7 @@ local function party_debug()
     out.array_found = true
     out.php_seen = state.php_seen
     out.php_fail = state.php_fail
+    out.php_failby = state.php_failby or {}
     out.php_names = state.php_names
     -- Always recorded (not debug-only): the roster order is the only way to
     -- audit series-to-hunter mapping after the fact. Small: two short maps.
