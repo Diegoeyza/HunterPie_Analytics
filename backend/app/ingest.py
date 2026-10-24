@@ -14,7 +14,7 @@ import json
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -663,6 +663,162 @@ def _enrich_from_reframework(session: Session, hunt: Hunt,
         session.commit()
 
 
+#: HP identity reconciliation. The mod keys HP samples by control slot
+#: but names them by compact-list position; when lobby slot order differs
+#: from network user order (observed on an 8-hunter Gog siege) every sample
+#: lands correctly-keyed but wrongly-named, and the dump's name-first
+#: assignment swaps two hunters — a faint Diego dealt showed up as Light.
+#: Repair only on physical impossibility, never on heuristics alone:
+#: a hunter dealing damage straight through their own 0-HP readings with
+#: instant full recovery cannot be the one who fainted. The unique silent
+#: hunter covering that window gets the series. Anything ambiguous only
+#: warns. Re-running converges (corrected data shows no contradiction).
+HP_ZERO_EPS = 0.01
+HP_OWN_GAP_S = 20.0
+HP_DAMAGE_NEAR_S = 20.0
+HP_RECOVER_S = 20.0
+HP_RECOVER_FULL = 0.9
+HP_COMPLEMENT_GAP_S = 25.0
+HP_PRE_DECLINE = 0.85
+HP_PRE_WINDOW_S = 15.0
+
+
+def _hp_zero_runs(series):
+    """Contiguous hp<=eps runs as (start, end) from a ts-ordered series."""
+    runs = []
+    start = None
+    prev = 0.0
+    for t, hp in series:
+        if hp <= HP_ZERO_EPS:
+            if start is None:
+                start = t
+            prev = t
+        else:
+            if start is not None:
+                runs.append((start, prev))
+                start = None
+    if start is not None:
+        runs.append((start, prev))
+    return runs
+
+
+def _covering_gap(ticks, t0, t1, min_len):
+    """Longest snapshot gap covering [t0, t1], or None."""
+    best = None
+    for a, b in zip(ticks, ticks[1:]):
+        if a <= t0 and b >= t1 and b - a >= min_len:
+            if best is None or b - a > best[1] - best[0]:
+                best = (a, b)
+    return best
+
+
+def reconcile_hp_identity(session, hunt):
+    """Reattribute swapped player-HP series when the data proves it.
+
+    Returns warnings (empty when nothing was wrong). Swaps whole series:
+    the order mismatch poisons every sample of the hunt equally, so a
+    window-only fix would leave Frankenstein series behind.
+    """
+    warnings = []
+    hp_rows = session.execute(
+        select(PlayerHealthStep.player_id,
+               PlayerHealthStep.ts_offset_seconds,
+               PlayerHealthStep.hp_fraction)
+        .where(PlayerHealthStep.hunt_id == hunt.id)
+        .order_by(PlayerHealthStep.player_id,
+                   PlayerHealthStep.ts_offset_seconds)
+    ).all()
+    if not hp_rows:
+        return warnings
+    by_hp = {}
+    for pid, ts, hp in hp_rows:
+        by_hp.setdefault(pid, []).append((ts, hp))
+    pids = sorted(by_hp)
+    tick_rows = session.execute(
+        select(DpsSnapshot.player_id, DpsSnapshot.ts_offset_seconds)
+        .where(DpsSnapshot.hunt_id == hunt.id,
+               DpsSnapshot.player_id.in_(pids))
+        .order_by(DpsSnapshot.player_id,
+                   DpsSnapshot.ts_offset_seconds)
+    ).all()
+    by_ticks = {}
+    for pid, ts in tick_rows:
+        by_ticks.setdefault(pid, []).append(ts)
+    if not any(by_ticks.values()):
+        return warnings
+    names = dict(session.execute(
+        select(Player.id, Player.display_name)
+        .where(Player.id.in_(pids))).all())
+
+    swaps = {}
+    for pid, series in by_hp.items():
+        ticks = by_ticks.get(pid, [])
+        for t0, t1 in _hp_zero_runs(series):
+            if _covering_gap(ticks, t0, t1, HP_OWN_GAP_S) is not None:
+                continue  # own silence: consistent with fainting
+            near = [t for t in ticks
+                    if t0 - HP_DAMAGE_NEAR_S <= t <= t1 + HP_DAMAGE_NEAR_S]
+            if not near:
+                continue  # silent throughout: no contradiction
+            rt = next((t for t, hp in series
+                       if t > t1 and hp >= HP_RECOVER_FULL), None)
+            if rt is None or rt - t1 > HP_RECOVER_S:
+                continue  # slow/no recovery: consistent with a real faint
+            pre = [hp for t, hp in series
+                   if t0 - HP_PRE_WINDOW_S <= t < t0]
+            if not pre or pre[-1] >= HP_PRE_DECLINE:
+                # Instant 1.0->0 cliff with no taking-damage ramp: sampling
+                # artifact, not someone's faint. Flag, don't reassign.
+                warnings.append(
+                    "hp-artifact?: %s HP hits 0 near t=%.0fs but kept "
+                    "dealing damage - no pre-faint decline, left as is"
+                    % (names.get(pid, pid), t0))
+                continue
+            cands = []
+            for opid in pids:
+                if opid == pid:
+                    continue
+                oticks = by_ticks.get(opid, [])
+                g = _covering_gap(oticks, t0, t1, HP_COMPLEMENT_GAP_S)
+                if (g is not None and oticks and oticks[0] < g[0]
+                        and oticks[-1] > g[1]):
+                    cands.append(opid)
+            if len(cands) != 1:
+                warnings.append(
+                    "hp-mislabel?: %s HP hits 0 near t=%.0fs while "
+                    "dealing damage (%d silent candidates) - left as is"
+                    % (names.get(pid, pid), t0, len(cands)))
+                continue
+            swaps[pid] = cands[0]
+    # Only disjoint pairs (each hunter in at most one swap); chains or
+    # conflicts warn without touching anything.
+    upairs = set()
+    for a, b in swaps.items():
+        upairs.add((min(a, b), max(a, b)))
+    used = []
+    for a, b in upairs:
+        used.extend([a, b])
+    if swaps and len(set(used)) != 2 * len(upairs):
+        warnings.append("hp-mislabel?: conflicting reassignments - left as is")
+        return warnings
+    for a, b in sorted(upairs):
+        # The zero-run sits on a's series but a kept dealing: the faint is
+        # b's. Swap the two series wholesale and say so.
+        zts = [t0 for t0, t1 in _hp_zero_runs(by_hp[a])]
+        zt = zts[0] if zts else 0.0
+        session.execute(
+            update(PlayerHealthStep)
+            .where(PlayerHealthStep.hunt_id == hunt.id,
+                   PlayerHealthStep.player_id.in_((a, b)))
+            .values(player_id=case(
+                (PlayerHealthStep.player_id == a, b), else_=a)))
+        warnings.append(
+            "hp-identity-fixed: %s HP near t=%.0fs belongs to %s "
+            "(series were swapped); reassigned"
+            % (names.get(a, a), zt, names.get(b, b)))
+    return warnings
+
+
 def upsert_hunt(session: Session, payload: dict,
                 cache: dict | None = None) -> tuple[Hunt, bool, list[str]]:
     """Insert one hunt atomically. Returns (hunt, created, warnings). Idempotent.
@@ -715,6 +871,7 @@ def upsert_hunt(session: Session, payload: dict,
                                     cache)
         elif source == "reframework" and existing.source == "hunterpie":
             _enrich_from_reframework(session, existing, payload)
+        warnings.extend(reconcile_hp_identity(session, existing))
         return existing, False, warnings
 
     try:
@@ -729,6 +886,7 @@ def upsert_hunt(session: Session, payload: dict,
         # be reused after a delete outside the app's FK-cascading session).
         _delete_children(session, hunt.id)
         _insert_children(session, hunt, payload, now, warnings, cache)
+        warnings.extend(reconcile_hp_identity(session, hunt))
         session.commit()
     except Exception:
         session.rollback()
