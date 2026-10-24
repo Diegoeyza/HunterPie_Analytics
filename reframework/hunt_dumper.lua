@@ -611,6 +611,15 @@ local function users_by_index(idx)
             return u.name
         end
     end
+    -- Fallback: roster position. The UserIndex accessors sometimes read nil
+    -- for a whole quest (observed: users with neither idx nor slot); the
+    -- roster list itself is still the same list at poll time and dump time,
+    -- so a positional hit here is consistent for series labeling, and the
+    -- stable series KEY (never positional) is what protects the data.
+    if type(idx) == "number" then
+        local u = state.users and state.users[idx]
+        if u and u.name then return u.name end
+    end
     return nil
 end
 
