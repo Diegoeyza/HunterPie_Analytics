@@ -22,7 +22,7 @@ local imgui = imgui
 local os = os
 local io = io
 
-local VERSION = "0.12.3-diag2"
+local VERSION = "0.12.3"
 local OUT_SUBDIR = "HuntExports"
 local CONFIG_FILE = "hunt_dumper.json"
 local GAME_TYPE = 2
@@ -508,10 +508,12 @@ local function record_hp(key, name, h, now)
     return true
 end
 
--- Slot-indexed name map. `_InstancedPlayerList` is compact (join order), so
--- using its index as a roster slot can swap player names. `_PlayerList` is a
--- plain cPlayerManageControl[] indexed by user slot, so match the SAME object
--- by identity and read the slot from there.
+-- Object-identity map between the two control lists. `_InstancedPlayerList`
+-- is compact (join order) and `_PlayerList` order is NOT user-slot order
+-- (live dump: _PlayerList[2] held user1's control, _PlayerList[4] held
+-- user2's). Positions from either list are join-order hints, never
+-- identity — match the SAME object by identity and treat any position
+-- as a last-resort label only. True identity is stable_member_index.
 local function player_list_slots(pm)
     local out = {}
     local plist = field_value(pm, "_PlayerList")
@@ -583,6 +585,26 @@ local function player_index(inst, pi)
     return nil
 end
 
+-- Stable per-hunter identity. HunterCharacter exposes quest/member
+-- indices that are constant for the whole quest (proven stable across
+-- faints/disconnects on live dumps) AND equal the NetworkManager user
+-- index, unlike every positional order (compact list, _PlayerList slots).
+-- Validated 0-7 integer or nil; nil falls back to the old chain.
+local function stable_member_index(inst, pi)
+    if inst == nil then return nil end
+    local ch = safe(function() return character_of(inst, pi) end)
+    if ch == nil or ch == 0 then return nil end
+    for _, m in ipairs({ "get_StableQuestMemberIndex",
+                         "get_CurrentNetworkMemberIndex" }) do
+        local v = boxed_float(safe(function() return call_method(ch, m) end))
+        if type(v) == "number" and v >= 0 and v < 8
+            and math.floor(v) == v then
+            return v
+        end
+    end
+    return nil
+end
+
 local function users_by_index(idx)
     for _, u in pairs(state.users or {}) do
         if u and (u.idx == idx or u.slot == idx) and u.name then
@@ -592,7 +614,7 @@ local function users_by_index(idx)
     return nil
 end
 
-local function name_of(inst, pi, i, qi, slot)
+local function name_of(inst, pi, i, qi, slot, st)
     local ctx = call_method(inst, "get_ContextHolder")
     local pl = ctx and (call_method(ctx, "get_Pl")
         or call_method(ctx, "get_Player")
@@ -609,6 +631,15 @@ local function name_of(inst, pi, i, qi, slot)
     if idx then
         n = users_by_index(idx)
         if n then return n, "user_index" end
+    end
+    if type(st) ~= "number" then st = stable_member_index(inst, pi) end
+    if type(st) == "number" then
+        -- Ground truth: the character's own stable quest member index.
+        -- Beats roster_qi (quest roster order), user_slot (_PlayerList
+        -- order) and every positional fallback below — those orders
+        -- disagree with each other and silently relabel hunters.
+        n = users_by_index(st)
+        if n then return n, "stable_qm" end
     end
     if type(qi) == "number" then
         -- The quest roster maps this instance to its true user index.
@@ -656,18 +687,20 @@ local function poll_party_hp(now)
                 local pi = r.pi
                 local slot = slots[tostring(inst)]
                 local idx = player_index(inst, pi)
-                local n, src = name_of(inst, pi, i, qidx[i], slot)
+                local st = stable_member_index(inst, pi)
+                local n, src = name_of(inst, pi, i, qidx[i], slot, st)
                 if n then r.name = n; r.name_src = src end
-                -- Strongest identity first: the player object's user index,
-                -- then the quest roster's user index for this instance, then
-                -- the _PlayerList position. The list position is join order,
-                -- NOT the control slot (SOS lobbies), so it ranks last: it
-                -- can only label a series, never identify it.
-                local key = idx or qidx[i] or slot or i
+                -- Strongest identity first: the character's stable quest
+                -- member index (constant all quest, equals the user index),
+                -- then the player object's user index, the quest roster's
+                -- index for this instance, then _PlayerList position. List
+                -- position is join order, NOT identity, so it ranks last:
+                -- it can only label a series, never identify it.
+                local key = st or idx or qidx[i] or slot or i
                 state.php_names = state.php_names or {}
                 local u = state.users and state.users[i]
                 state.php_names[i] = { name = n, src = src,
-                                       slot = slot, idx = idx,
+                                       slot = slot, idx = idx, st = st,
                                        qi = qidx[i], key = key,
                                        roster_self = u and u.is_self or nil,
                                        hp_ok = r.hp_ok, fail = r.fail }
@@ -795,7 +828,7 @@ local function party_debug()
             local ctx = call_method(inst, "get_ContextHolder")
             local pl = ctx and call_method(ctx, "get_Pl")
             info.name = safe_str(pl and call_method(pl, "get_PlayerName"))
-            local n, src = name_of(inst, call_method(inst, "get_PlayerInfo"), i, nil)
+            local n, src = name_of(inst, call_method(inst, "get_PlayerInfo"), i, nil, nil, nil)
             info.resolved_name = n
             info.name_src = src
             local pi = call_method(inst, "get_PlayerInfo")
