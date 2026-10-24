@@ -22,7 +22,7 @@ local imgui = imgui
 local os = os
 local io = io
 
-local VERSION = "0.12.2"
+local VERSION = "0.12.3-diag"
 local OUT_SUBDIR = "HuntExports"
 local CONFIG_FILE = "hunt_dumper.json"
 local GAME_TYPE = 2
@@ -337,6 +337,84 @@ local function array_get(arr, i)
     return v
 end
 
+-- Diag: snapshot the three identity orders (compact ptrs, slot ptrs,
+-- users names) so a mid-quest reorder is visible post-hoc. Throttled to
+-- ~30s plus always on change; bounded. Passive: no sampling impact.
+local function diag_snapshot_orders(pm, now, force)
+    if not state or not state.diag_orders then return end
+    if not force and now - (state.diag_order_last or 0) < 30 then return end
+    state.diag_order_last = now
+    local arr = safe(function() return instanced_array(pm) end)
+    local plist = safe(function() return field_value(pm, "_PlayerList") end)
+    local compact, slots, users = {}, {}, {}
+    if arr then
+        for i = 0, 7 do
+            local inst = safe(function() return array_get(arr, i) end)
+            if inst then compact[#compact + 1] = tostring(inst) end
+        end
+    end
+    if plist then
+        for i = 0, 7 do
+            local inst = safe(function() return array_get(plist, i) end)
+            if inst then slots[#slots + 1] = tostring(inst) end
+        end
+    end
+    for i = 0, 7 do
+        local u = state.users and state.users[i]
+        users[#users + 1] = (u and u.name) or "?"
+    end
+    local key = table.concat(compact, ",") .. "|" .. table.concat(slots, ",")
+    if not force and key == state.diag_order_key then return end
+    if state.diag_order_key ~= nil and key ~= state.diag_order_key then
+        state.diag_order_changes = (state.diag_order_changes or 0) + 1
+    end
+    state.diag_order_key = key
+    if #state.diag_orders < 60 then
+        state.diag_orders[#state.diag_orders + 1] =
+            { t = now, compact = compact, slots = slots, users = users }
+    end
+end
+
+-- Diag: method names containing identity-ish words, one discovery dump per
+-- type. Reveals untried accessors (e.g. a working per-object user index).
+local _diag_type_cache = {}
+local function diag_type_methods(obj)
+    local td = safe(function() return obj:get_type_definition() end)
+    local tn = safe(function() return td and td:get_full_name() end) or "?"
+    if _diag_type_cache[tn] then return _diag_type_cache[tn] end
+    local out = {}
+    for _, m in ipairs(safe(function() return td and td:get_methods() end) or {}) do
+        local n = safe(function() return m:get_name() end)
+        if n and (n:find("Name") or n:find("User") or n:find("Index")
+                  or n:find("Slot") or n:find("Member") or n:find("Owner")) then
+            out[#out + 1] = n
+        end
+    end
+    _diag_type_cache[tn] = { type = tn, methods = out }
+    return _diag_type_cache[tn]
+end
+
+-- Diag: try name-ish accessors on control / player-info / character.
+-- Records only non-empty hits; empty means the accessor is dead here.
+local _DIAG_NAME_METHODS = { "get_PlayerName", "get_Name", "get_PlName",
+    "get_UserName", "get_HunterName", "get_CharacterName", "get_OwnerName" }
+local function diag_probe_names(inst, pi, ch)
+    local out = {}
+    local function trym(obj, tag)
+        if obj == nil then return end
+        for _, m in ipairs(_DIAG_NAME_METHODS) do
+            local v = safe(function() return call_method(obj, m) end)
+            if type(v) == "string" and v ~= "" then
+                out[tag .. "." .. m] = v
+            end
+        end
+    end
+    trym(inst, "inst")
+    trym(pi, "pi")
+    trym(ch, "ch")
+    return out
+end
+
 -- Samples are keyed by USER SLOT, never by name. The same instance can
 -- resolve to different names across polls (context vs roster), and a bad
 -- name used to merge the host's HP into the local player's series. The slot
@@ -606,6 +684,12 @@ local function party_debug()
         out.users[tostring(k)] = { name = u.name, idx = u.idx,
                                    slot = u.slot, is_self = u.is_self }
     end
+    -- Diag (always recorded): order snapshots show compact-vs-slot
+    -- reorder events; hook samples show what the award sync carries.
+    out.diag_order_changes = state and state.diag_order_changes or 0
+    out.diag_orders = state and state.diag_orders or {}
+    out.diag_hook = state and state.diag_hook or {}
+    out.diag_sync_fields = state and state.diag_sync_fields or nil
     if config.debug then
         out.arr_type = type_name(arr)
         out.player_list = {}
@@ -651,6 +735,24 @@ local function party_debug()
             info.name_src = src
             local pi = call_method(inst, "get_PlayerInfo")
             info.pi_type = type_name(pi)
+            info.diag_names = diag_probe_names(inst, pi, nil)
+            if out.diag_types == nil then
+                out.diag_types = {
+                    inst = diag_type_methods(inst),
+                    pi = diag_type_methods(pi),
+                }
+            end
+            do
+                local dbg_ch = safe(function()
+                    return character_of(inst, pi) end)
+                if dbg_ch then
+                    local hit = diag_probe_names(nil, nil, dbg_ch)
+                    if next(hit) ~= nil then info.diag_names_ch = hit end
+                    if out.diag_types.ch == nil then
+                        out.diag_types.ch = diag_type_methods(dbg_ch)
+                    end
+                end
+            end
             if config.debug then
                 info.user_control = safe(function()
                     return inst:get_IsUserControl() end)
@@ -858,6 +960,12 @@ local function begin_session()
         self_wtype = self_wtype,
         self_wid_start = self_wid_start,
         php = {},            -- [playerName] = { samples, last, last_emit }
+        diag_orders = {},    -- throttled {t, compact=ptr list, slots=ptr list, users=name list}
+        diag_order_last = 0,
+        diag_order_key = nil,
+        diag_order_changes = 0,
+        diag_hook = {},      -- bounded on_award_sync arg samples
+        diag_sync_fields = nil,
     }
     for _, u in pairs(state.users or {}) do
         if u and u.is_self and u.name then state.self_name = u.name end
@@ -887,6 +995,11 @@ local function poll()
         end
     end
     safe(poll_party_hp, now)
+    do
+        local PM = safe(sdk.find_type_definition, "app.PlayerManager")
+        local pm = PM and safe(function() return sdk.get_managed_singleton("app.PlayerManager") end)
+        if pm then diag_snapshot_orders(pm, now, false) end
+    end
 end
 
 -- ace.UnionValue stores raw bytes; award id 4 (damage) is a packed float32.
@@ -975,6 +1088,37 @@ local function on_award_sync(args)
     local sync, at = find_award_sync(args)
     if not sync then return end
     local idx = safe(function() return sdk.to_int64(args[at - 1]) end) or 0
+    -- Diag: what does the award hook actually carry? Bounded samples of
+    -- arg shapes plus the sync object's field list (one-time discovery).
+    -- If anything here bears a name or character link, it becomes the
+    -- ground-truth userIndex->identity map the HP path is missing.
+    if state and state.diag_hook and #state.diag_hook < 8 then
+        local nargs = safe(function() return #args end) or 0
+        local entry = { idx = idx, nargs = nargs, argv = {} }
+        for ai = 1, nargs do
+            local a = args[ai]
+            local mo = safe(function() return sdk.to_managed_object(a) end)
+            entry.argv[#entry.argv + 1] = {
+                i = ai,
+                ptr = tostring(a),
+                int = safe(function() return sdk.to_int64(a) end),
+                type = mo and type_name(mo) or nil,
+            }
+        end
+        state.diag_hook[#state.diag_hook + 1] = entry
+    end
+    if state and state.diag_sync_fields == nil then
+        local td = safe(function() return sync:get_type_definition() end)
+        local fields = {}
+        for _, f in ipairs(safe(function() return td and td:get_fields() end) or {}) do
+            local n = safe(function() return f:get_name() end)
+            if n then fields[#fields + 1] = n end
+        end
+        state.diag_sync_fields = {
+            type = safe(function() return td and td:get_full_name() end),
+            fields = fields,
+        }
+    end
     local rec = read_award_sync(sync)
     rec.index = idx
     awards[idx + 1] = rec
