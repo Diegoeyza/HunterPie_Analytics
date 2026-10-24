@@ -291,3 +291,45 @@ def test_cross_source_subset_roster_dedup(session):
     assert (c1, c2) == (True, False)
     assert h1.id == h2.id
     assert len(session.execute(select(Hunt)).scalars().all()) == 1
+
+
+def test_cross_source_partial_mod_damage_merges(session):
+    """Gog-siege shape: the mod tracks only hunters it sees, zero-filling
+    the rest (27% whole-total gap). Past the tight start window, the match
+    compares mutually-observed hunters instead of whole totals."""
+    h1, c1, _ = upsert_hunt(session, base_payload(
+        quest_id_external="pie-gog",
+        players=[{"display_name": "Diego", "weapon_id": 1,
+                  "total_damage": 74216, "peak_dps": 120},
+                 {"display_name": "Fabius", "weapon_id": 1,
+                  "total_damage": 23808, "peak_dps": 40}],
+        snapshots=[], events=[]))
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="rf-gog", source="reframework",
+        awards_meta=_RF_AWARDS_META,
+        started_at=datetime(2026, 2, 1, 12, 0, 42),
+        ended_at=datetime(2026, 2, 1, 12, 11, 50),
+        players=[{"display_name": "Diego", "weapon_id": None,
+                  "total_damage": 76273, "peak_dps": 120},
+                 {"display_name": "Fabius", "weapon_id": None,
+                  "total_damage": 0, "peak_dps": 0}],
+        snapshots=[], events=[]))
+    assert (c1, c2) == (True, False)
+    assert h1.id == h2.id
+    assert len(session.execute(select(Hunt)).scalars().all()) == 1
+
+
+def test_cross_source_same_roster_wildly_different_damage_coexists(session):
+    """Same roster inside the wide window but genuinely different damage is
+    a different hunt (farming repeat), not a partial observation."""
+    h1, c1, _ = upsert_hunt(session, base_payload(quest_id_external="pie-a"))
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="rf-b", source="reframework",
+        awards_meta=_RF_AWARDS_META,
+        started_at=datetime(2026, 2, 1, 12, 0, 42),
+        ended_at=datetime(2026, 2, 1, 12, 11, 50),
+        players=[{"display_name": "Diego", "weapon_id": None,
+                  "total_damage": 13500, "peak_dps": 120}],
+        snapshots=[], events=[]))
+    assert (c1, c2) == (True, True)
+    assert h1.id != h2.id

@@ -197,7 +197,33 @@ def find_hunt_by_payload(session: Session, payload: dict) -> Hunt | None:
                 (cand.ended_at - incoming_end).total_seconds())
             if end_delta > CROSS_SOURCE_END_WINDOW_SECONDS:
                 continue
-        # Wider window needs damage agreement: within 1% of the larger total.
+        # Wider window needs damage agreement. The mod only tracks hunters
+        # it can see: unobserved roster members come in as zeros, so a
+        # partial mod dump legitimately totals far less (observed 27% on an
+        # 8-hunter Gog siege). Compare over mutually-observed hunters
+        # instead: the same quest shows the same splits there (mod/fork
+        # bias is ~1-3%), while different quests with the same roster never
+        # agree hunter by hunter.
+        incoming_dmg = {pl["display_name"]: float(pl.get("total_damage") or 0)
+                        for pl in players}
+        have_dmg = dict(session.execute(
+            select(Player.display_name, HuntPlayer.total_damage)
+            .join(HuntPlayer, HuntPlayer.player_id == Player.id)
+            .where(HuntPlayer.hunt_id == cand.id)).all())
+        common = [n for n in incoming_dmg
+                  if incoming_dmg[n] > 0 and have_dmg.get(n, 0) > 0]
+        if common:
+            sub_in = sum(incoming_dmg[n] for n in common)
+            sub_have = sum(have_dmg[n] for n in common)
+            bigger = max(sub_in, sub_have)
+            if sub_in > 0 and (bigger - min(sub_in, sub_have)) / bigger <= 0.03:
+                if all(abs(incoming_dmg[n] - have_dmg[n])
+                       / max(incoming_dmg[n], have_dmg[n]) <= 0.10
+                       for n in common):
+                    return cand
+            continue
+        # No mutually-observed damage: fall back to the whole-hunt 1%
+        # check so distinct quests can't merge on zeros.
         theirs = cand.quest_damage
         if theirs and our_total > 0:
             bigger = max(theirs, our_total)
