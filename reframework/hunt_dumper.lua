@@ -22,7 +22,7 @@ local imgui = imgui
 local os = os
 local io = io
 
-local VERSION = "0.12.3-diag"
+local VERSION = "0.12.3-diag2"
 local OUT_SUBDIR = "HuntExports"
 local CONFIG_FILE = "hunt_dumper.json"
 local GAME_TYPE = 2
@@ -375,6 +375,70 @@ local function diag_snapshot_orders(pm, now, force)
     end
 end
 
+-- Diag iteration 2: per-control stable identity candidates. HunterCharacter
+-- exposes Stable{Quest,}MemberIndex accessors and the player-info may carry
+-- a stable member field; if any of them is per-hunter stable (including
+-- across faint/reconnect) it becomes the HP series key. Logged per poll
+-- only on change (+60s heartbeat) to prove stability, not just presence.
+local _DIAG_PI_STABLE_FIELDS = { "_StableMemberIndex", "_MemberIndex",
+    "_StableQuestMemberIndex", "_QuestMemberIndex", "_NetworkMemberIndex",
+    "_StableGmAccessIndex", "_GmAccessIndex" }
+local function diag_stable_of(inst, pi)
+    local vals = {}
+    if inst then
+        local ch = safe(function() return character_of(inst, pi) end)
+        if ch then
+            vals.qm = safe(function()
+                return boxed_float(call_method(ch, "get_StableQuestMemberIndex")) end)
+            vals.sm = safe(function()
+                return boxed_float(call_method(ch, "get_StableMemberIndex")) end)
+            vals.nm = safe(function()
+                return boxed_float(call_method(ch, "get_CurrentNetworkMemberIndex")) end)
+            vals.self = safe(function() return inst:get_IsUserControl() end)
+        end
+    end
+    if pi then
+        for _, fn in ipairs(_DIAG_PI_STABLE_FIELDS) do
+            local v = safe(function() return boxed_float(field_value(pi, fn)) end)
+            if v ~= nil then vals["pi." .. fn] = v end
+        end
+    end
+    return vals
+end
+
+local function diag_poll_stable(pm, now)
+    if not state or not state.diag_stable then return end
+    if now - (state.diag_stable_poll or 0) < 5 then return end
+    state.diag_stable_poll = now
+    local arr = safe(function() return instanced_array(pm) end)
+    if not arr then return end
+    local cur = {}
+    for i = 0, 7 do
+        local inst = safe(function() return array_get(arr, i) end)
+        if inst then
+            local pi = safe(function() return call_method(inst, "get_PlayerInfo") end)
+            local v = diag_stable_of(inst, pi)
+            local parts = {}
+            for _, k in ipairs({ "qm", "sm", "nm", "self", "pi._StableMemberIndex",
+                                 "pi._MemberIndex", "pi._StableQuestMemberIndex" }) do
+                if v[k] ~= nil then parts[#parts + 1] = k .. "=" .. tostring(v[k]) end
+            end
+            cur[#cur + 1] = table.concat(parts, ",")
+        else
+            cur[#cur + 1] = "-"
+        end
+    end
+    local key = table.concat(cur, "|")
+    local heartbeat = now - (state.diag_stable_heartbeat or 0) >= 60
+    if key ~= state.diag_stable_last or heartbeat then
+        state.diag_stable_last = key
+        if heartbeat then state.diag_stable_heartbeat = now end
+        if #state.diag_stable < 200 then
+            state.diag_stable[#state.diag_stable + 1] = { t = now, v = cur }
+        end
+    end
+end
+
 -- Diag: method names containing identity-ish words, one discovery dump per
 -- type. Reveals untried accessors (e.g. a working per-object user index).
 local _diag_type_cache = {}
@@ -690,6 +754,7 @@ local function party_debug()
     out.diag_orders = state and state.diag_orders or {}
     out.diag_hook = state and state.diag_hook or {}
     out.diag_sync_fields = state and state.diag_sync_fields or nil
+    out.diag_stable = state and state.diag_stable or {}
     if config.debug then
         out.arr_type = type_name(arr)
         out.player_list = {}
@@ -966,6 +1031,10 @@ local function begin_session()
         diag_order_changes = 0,
         diag_hook = {},      -- bounded on_award_sync arg samples
         diag_sync_fields = nil,
+        diag_stable = {},    -- per-poll stable-index vectors (on change + 60s heartbeat)
+        diag_stable_last = "",
+        diag_stable_heartbeat = 0,
+        diag_stable_poll = 0,
     }
     for _, u in pairs(state.users or {}) do
         if u and u.is_self and u.name then state.self_name = u.name end
@@ -999,6 +1068,7 @@ local function poll()
         local PM = safe(sdk.find_type_definition, "app.PlayerManager")
         local pm = PM and safe(function() return sdk.get_managed_singleton("app.PlayerManager") end)
         if pm then diag_snapshot_orders(pm, now, false) end
+        if pm then diag_poll_stable(pm, now) end
     end
 end
 
