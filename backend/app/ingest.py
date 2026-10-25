@@ -681,6 +681,15 @@ HP_RECOVER_FULL = 0.9
 HP_COMPLEMENT_GAP_S = 25.0
 HP_PRE_DECLINE = 0.85
 HP_PRE_WINDOW_S = 15.0
+# A damage tick within ~3s of the first zero sample is the fainting moment
+# itself (last hit dealt going down / in-flight damage on a 5s HP poll
+# cadence), not proof of fighting while downed. Seen live: a final tick
+# 0.1s before the zero nearly caused a false swap of a correct series.
+HP_ZERO_EDGE_SLOP_S = 3.0
+# The true owner's damage stops AT the faint: a swap candidate whose silence
+# started long before the zero fainted earlier (or never) and cannot own
+# this one. Seen live: a 47s-earlier silence falsely attracted a swap.
+HP_GAP_START_SLOP_S = 10.0
 
 
 def _hp_zero_runs(series):
@@ -754,10 +763,14 @@ def reconcile_hp_identity(session, hunt):
     for pid, series in by_hp.items():
         ticks = by_ticks.get(pid, [])
         for t0, t1 in _hp_zero_runs(series):
-            if _covering_gap(ticks, t0, t1, HP_OWN_GAP_S) is not None:
+            # Own silence must cover past the faint boundary: a final tick
+            # landing within slop of the first zero is the downing moment.
+            if _covering_gap(ticks, t0 + HP_ZERO_EDGE_SLOP_S, t1,
+                             HP_OWN_GAP_S) is not None:
                 continue  # own silence: consistent with fainting
             near = [t for t in ticks
-                    if t0 - HP_DAMAGE_NEAR_S <= t <= t1 + HP_DAMAGE_NEAR_S]
+                    if t0 - HP_DAMAGE_NEAR_S <= t <= t1 + HP_DAMAGE_NEAR_S
+                    and abs(t - t0) > HP_ZERO_EDGE_SLOP_S]
             if not near:
                 continue  # silent throughout: no contradiction
             rt = next((t for t, hp in series
@@ -780,8 +793,13 @@ def reconcile_hp_identity(session, hunt):
                     continue
                 oticks = by_ticks.get(opid, [])
                 g = _covering_gap(oticks, t0, t1, HP_COMPLEMENT_GAP_S)
+                # Interior gap only: started before any damage, ends after.
+                # Plus it must START at this zero (within slop): whoever owns
+                # the faint stops dealing then. An earlier silence is their
+                # own earlier faint, not this one.
                 if (g is not None and oticks and oticks[0] < g[0]
-                        and oticks[-1] > g[1]):
+                        and oticks[-1] > g[1]
+                        and abs(g[0] - t0) <= HP_GAP_START_SLOP_S):
                     cands.append(opid)
             if len(cands) != 1:
                 warnings.append(

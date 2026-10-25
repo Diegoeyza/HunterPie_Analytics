@@ -206,3 +206,48 @@ def test_reconcile_is_idempotent():
     again = reconcile_hp_identity(s, hunt)
     assert again == [], again
     s.close()
+
+
+def test_boundary_tick_does_not_suppress_true_swap():
+    """A final tick landing ~0.1s after the first zero (the downing moment
+    on a 5s HP poll cadence) must not veto a swap when the labeled hunter
+    keeps dealing through the window and the silent hunter's gap starts
+    at the zero."""
+    s = _session()
+    snaps = (_ticks("Light", [(45, 120)]) + _ticks("Diego", [(38, 52), (110, 120)]))
+    # Extra boundary tick right at the zero start, plus through-window
+    # activity afterwards: Light fought while "his" HP read 0.
+    snaps.append({"display_name": "Light", "ts_offset_seconds": 54.1,
+                  "cumulative_damage": 9999.0, "instant_dps": 10.0})
+    health = (_hp("Light", [(47, 1.0), (52, 0.54), (54, 0.0), (59, 0.0),
+                             (60, 1.0), (70, 1.0)])
+              + _hp("Diego", [(47, 1.0), (60, 1.0), (70, 1.0)]))
+    hunt, created, warnings = upsert_hunt(s, _payload(snaps, health))
+    assert created is True
+    assert any("hp-identity-fixed" in w for w in warnings), warnings
+    by_name = _hp_by_name(s, hunt.id)
+    assert min(h for _, h in by_name["Light"]) == 1.0
+    assert min(h for _, h in by_name["Diego"]) == 0.0
+    s.close()
+
+
+def test_stale_silence_cannot_attract_swap():
+    """Live hunt-4 shape: the labeled hunter's only in-window tick lands
+    0.1s after the zero (last hit going down) and the other hunter's
+    silence started 47s earlier (his own earlier faint). Nothing is
+    reassigned: the zeros stay put and no identity fix is claimed."""
+    s = _session()
+    snaps = (_ticks("Light", [(40, 99), (150, 200)])
+             + _ticks("Diego", [(40, 50), (160, 200)]))
+    snaps.append({"display_name": "Light", "ts_offset_seconds": 100.1,
+                  "cumulative_damage": 9999.0, "instant_dps": 10.0})
+    health = (_hp("Light", [(90, 0.7), (95, 0.4), (100, 0.0), (105, 0.0),
+                             (110, 1.0), (120, 1.0)])
+              + _hp("Diego", [(90, 1.0), (120, 1.0), (150, 1.0)]))
+    hunt, created, warnings = upsert_hunt(s, _payload(snaps, health))
+    assert created is True
+    assert not any("hp-identity-fixed" in w for w in warnings), warnings
+    by_name = _hp_by_name(s, hunt.id)
+    assert min(h for _, h in by_name["Light"]) == 0.0  # untouched
+    assert min(h for _, h in by_name["Diego"]) == 1.0
+    s.close()
