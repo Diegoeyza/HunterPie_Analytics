@@ -341,6 +341,7 @@ end
 -- users names) so a mid-quest reorder is visible post-hoc. Throttled to
 -- ~30s plus always on change; bounded. Passive: no sampling impact.
 local function diag_snapshot_orders(pm, now, force)
+    if not config.debug then return end
     if not state or not state.diag_orders then return end
     if not force and now - (state.diag_order_last or 0) < 30 then return end
     state.diag_order_last = now
@@ -407,6 +408,7 @@ local function diag_stable_of(inst, pi)
 end
 
 local function diag_poll_stable(pm, now)
+    if not config.debug then return end
     if not state or not state.diag_stable then return end
     if now - (state.diag_stable_poll or 0) < 5 then return end
     state.diag_stable_poll = now
@@ -808,13 +810,15 @@ local function party_debug()
         out.users[tostring(k)] = { name = u.name, idx = u.idx,
                                    slot = u.slot, is_self = u.is_self }
     end
-    -- Diag (always recorded): order snapshots show compact-vs-slot
-    -- reorder events; hook samples show what the award sync carries.
-    out.diag_order_changes = state and state.diag_order_changes or 0
-    out.diag_orders = state and state.diag_orders or {}
-    out.diag_hook = state and state.diag_hook or {}
-    out.diag_sync_fields = state and state.diag_sync_fields or nil
-    out.diag_stable = state and state.diag_stable or {}
+    -- Forensics are debug-only (they are large and only useful while
+    -- chasing an identity bug). The small audit fields below stay on.
+    if config.debug then
+        out.diag_order_changes = state and state.diag_order_changes or 0
+        out.diag_orders = state and state.diag_orders or {}
+        out.diag_hook = state and state.diag_hook or {}
+        out.diag_sync_fields = state and state.diag_sync_fields or nil
+        out.diag_stable = state and state.diag_stable or {}
+    end
     if config.debug then
         out.arr_type = type_name(arr)
         out.player_list = {}
@@ -1222,7 +1226,8 @@ local function on_award_sync(args)
     -- arg shapes plus the sync object's field list (one-time discovery).
     -- If anything here bears a name or character link, it becomes the
     -- ground-truth userIndex->identity map the HP path is missing.
-    if state and state.diag_hook and #state.diag_hook < 8 then
+    if config.debug and state and state.diag_hook
+        and #state.diag_hook < 8 then
         local nargs = safe(function() return #args end) or 0
         local entry = { idx = idx, nargs = nargs, argv = {} }
         for ai = 1, nargs do
@@ -1237,7 +1242,7 @@ local function on_award_sync(args)
         end
         state.diag_hook[#state.diag_hook + 1] = entry
     end
-    if state and state.diag_sync_fields == nil then
+    if config.debug and state and state.diag_sync_fields == nil then
         local td = safe(function() return sync:get_type_definition() end)
         local fields = {}
         for _, f in ipairs(safe(function() return td and td:get_fields() end) or {}) do

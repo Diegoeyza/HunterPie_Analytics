@@ -19,7 +19,7 @@ a mod-only page keeps the Lua mod clean).
 ## Listing details
 
 - **Name:** HuntDumper — Quest Awards & HP Curve Export
-- **Version:** `0.12.0` (from `reframework/hunt_dumper.lua`)
+- **Version:** `0.12.3` (from `reframework/hunt_dumper.lua`)
 - **Category:** Miscellaneous (or Utilities). REFramework Lua mods usually sit
   under Miscellaneous.
 - **Requirements:** [REFramework for MH Wilds](https://github.com/praydog/REFramework) — add it as a
@@ -36,6 +36,14 @@ a mod-only page keeps the Lua mod clean).
 [b][size=5]A post-hunt analytics dashboard for Monster Hunter Wilds[/size][/b]
 
 HuntDumper records your hunts and a companion dashboard turns them into charts: DPS and clear-time trends, per-party damage curves with the monster's HP overlay, per-hunter survival, weapon breakdowns, and the 30 quest-end awards (hunter highlights). Everything runs on your own PC — no account, no cloud.
+
+[b][size=4]New in 0.12.3[/size][/b]
+[list]
+[*][b]Party HP is now attributed correctly[/b] — each hunter's HP series is keyed by the game's stable quest member index instead of list position. In multiplayer the Survival chart can no longer show one hunter's faint under another hunter's name.
+[*][b]DPS matches the in-game meter[/b] — each hunter's own first hit to the party's last hit, the same window HunterPie's overlay uses. Settings can switch to first-hit to last-hit.
+[*][b]Buffs uptime basis[/b] — the dashboard's Buffs tab can measure uptime from hunt start or from first hit.
+[*]Heavy diagnostics are now off by default (Debug log enables them); dump files are smaller.
+[/list]
 
 [b][size=4]New in 0.12.0[/size][/b]
 [list]
@@ -74,7 +82,7 @@ HuntDumper records your hunts and a companion dashboard turns them into charts: 
 [b][size=4]Install — REFramework side[/size][/b]
 [list=1]
 [*]Install REFramework for MH Wilds first.
-[*]Extract HuntDumper 0.12.0 (Main file) into your game folder so you get [code]...\steamapps\common\MonsterHunterWilds\reframework\autorun\hunt_dumper.lua[/code]. (Vortex: install the archive normally.)
+[*]Extract HuntDumper 0.12.3 (Main file) into your game folder so you get [code]...\steamapps\common\MonsterHunterWilds\reframework\autorun\hunt_dumper.lua[/code]. (Vortex: install the archive normally.)
 [*]Open the in-game REFramework menu -> HuntDumper to confirm it is enabled.
 [/list]
 

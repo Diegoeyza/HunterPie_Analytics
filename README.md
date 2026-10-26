@@ -58,7 +58,9 @@ data, and they merge per hunt (never double-counted):
 
 - **Damage curves** — cumulative damage or DPS (5-second rolling average) for
   every party member on one grid, with the monster's HP overlay and enrage
-  markers. DPS is measured from each player's first hit, not quest start.
+  markers. DPS runs from each hunter's own first hit to the party's last hit
+  (the same window as the in-game meter); Settings can switch it to
+  first-hit→last-hit.
 - **Progress** — DPS per hunt plus a rolling average and clear-time trend.
 - **Growth** — instance-weighted DPS improvement over time, so you can see if
   you're actually getting better, not just lucky with the monster roll.
@@ -97,7 +99,7 @@ The update check is opt-out: turn it off for zero network access.
 | **Compare** | Scoped hunters vs the whole party, hunt by hunt. |
 | **Activity** | Hunts per day, clear rate, total damage. |
 | **Synergy** | Clear time and damage share by teammate pairing. |
-| **Buffs** | Abnormality/buff uptime per player per hunt. HunterPie data. |
+| **Buffs** | Abnormality/buff uptime per player per hunt, measured from hunt start or first hit. HunterPie data. |
 | **Review** | Merge case-variant hunter names or keep them separate. |
 
 ## Screenshots
@@ -382,7 +384,7 @@ shareable links, back-button safe. Stored in `localStorage` too — survives ref
 - **Metric toggle**: Cumulative damage or DPS (5s rolling average)
 - **Monster HP overlay**: Dashed red line, right Y-axis (0–100%)
 - **Enrage markers**: Light red shaded regions on the chart
-- **DPS from first hit**: Calculated from each player's first attack, not quest start
+- **DPS from first hit**: own first hit to the party's last hit (switchable to first→last hit in Settings)
 - **Multi-party**: All party members plotted on the same grid
 
 ## Architecture
