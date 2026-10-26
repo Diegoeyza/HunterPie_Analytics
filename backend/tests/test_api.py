@@ -137,6 +137,44 @@ def test_hunts_flag_buff_data():
     assert [h["source"] for h in mod["hunts"]] == ["reframework"]
 
 
+def test_abnormalities_reports_first_hit():
+    """`/hunts/{id}/abnormalities` carries `first_hit_s` (party first
+    damage tick) so the buff tab can measure uptime from first hit."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    def seed(s):
+        s.add_all([Monster(id=31, name="Xu Wu"),
+                   Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn")])
+        s.flush()
+        upsert_hunt(s, {
+            "monster_id": 31, "_monster_name": "Xu Wu",
+            "started_at": datetime(2026, 9, 6, 3, 0),
+            "ended_at": datetime(2026, 9, 6, 3, 3),
+            "hunterpie_version": "t", "game_version": "g",
+            "players": [{"display_name": "Isi", "weapon_id": 6,
+                         "total_damage": 1000.0, "peak_dps": 50.0,
+                         "is_supporter": False}],
+            "snapshots": [
+                {"display_name": "Isi", "ts_offset_seconds": 42.0,
+                 "cumulative_damage": 500.0, "instant_dps": 40.0},
+                {"display_name": "Isi", "ts_offset_seconds": 60.0,
+                 "cumulative_damage": 1000.0, "instant_dps": 40.0},
+            ],
+            "abnormalities": [{
+                "display_name": "Isi", "abnormality_id": "Songs_Songs.12",
+                "category": "Songs", "started_at_offset": 10.0,
+                "finished_at_offset": 20.0,
+            }],
+        })
+
+    client, _ = make_client(seed)
+    hunt_id = client.get("/api/hunts").json()["hunts"][0]["id"]
+    body = client.get(f"/api/hunts/{hunt_id}/abnormalities").json()
+    assert body["first_hit_s"] == 42.0
+    assert body["players"][0]["abnormalities"][0]["start"] == 10.0
+
+
 def test_sos_join_dps_uses_own_window():
     """Late (SOS) joiner: DPS = own damage / own tracked window, not the
     party-wide first-hit→death window (regression: showed ~2x real DPS)."""

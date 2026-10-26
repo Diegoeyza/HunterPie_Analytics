@@ -750,11 +750,18 @@ def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
             "start": ab.started_at_offset,
             "end": ab.finished_at_offset,
         })
+    # Party first hit: the engagement origin for the buff basis toggle
+    # ("from first hit"). Companion snapshots share the hunt timeline.
+    first_hit = session.execute(
+        select(func.min(DpsSnapshot.ts_offset_seconds))
+        .where(DpsSnapshot.hunt_id == hunt_id)
+    ).scalar()
     return {
         "hunt_id": hunt_id,
         "monster": hunt.monster.name,
         "started_at": hunt.started_at.isoformat(),
         "clear_s": hunt_duration_s(hunt),
+        "first_hit_s": first_hit,
         "players": list(players.values()),
     }
 
