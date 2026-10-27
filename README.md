@@ -61,9 +61,14 @@ data, and they merge per hunt (never double-counted):
   markers. DPS runs from each hunter's own first hit to the party's last hit
   (the same window as the in-game meter); Settings can switch it to
   first-hit→last-hit.
-- **Progress** — DPS per hunt plus a rolling average and clear-time trend.
-- **Growth** — instance-weighted DPS improvement over time, so you can see if
-  you're actually getting better, not just lucky with the monster roll.
+- **Progress** — pick the measure: raw DPS, DPS vs your usual on that monster
+  (100% = your median there), damage share of the party, or clear time — each
+  with its own rolling average. The relative measures stop a harder fight or a
+  stronger party from reading as a slump.
+- **Growth** — instance-weighted DPS improvement per monster & quest-rank group,
+  measured three ways: first → last hunt, first-3 vs last-3 medians (ignores a
+  fluke at either end), or a trend fit through every hunt. A minimum hunt count
+  keeps 2-hunt groups from dominating.
 - **Highlights** — the 30 quest-end awards (hunter highlights) and average
   damage share, per monster / weapon / hunter.
 - **Leaderboards & records** — best players by DPS, one row per cleared hunt
@@ -87,8 +92,8 @@ The update check is opt-out: turn it off for zero network access.
 
 | Tab | What it shows |
 |-----|---------------|
-| **Progress** | DPS per hunt + rolling average, clear-time trend. |
-| **Growth** | Instance-weighted DPS improvement with per-group trends. |
+| **Progress** | DPS, DPS vs your usual, damage share or clear time per hunt — switchable — with a rolling average. |
+| **Growth** | Instance-weighted DPS improvement per monster/star group, with first→last, edge-median and trend-fit modes. |
 | **Weapons** | Average/peak DPS, hunt count and clear rate per weapon type. |
 | **Highlights** | Quest-end awards (hunter highlights) + average damage share. REFramework hunts. |
 | **Damage curves** | Per-hunt cumulative damage / DPS for all party members, monster HP overlay, enrage markers. |

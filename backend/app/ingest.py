@@ -67,6 +67,106 @@ def _shift_payload_offsets(payload: dict, delta: float) -> None:
             x["finished_at_offset"] += delta
 
 
+#: Quest accept → first in-quest sample. The companion's clock starts when the
+#: quest is accepted (it keeps sampling through the loading screen), the mod's
+#: first sample is the real quest start. Observed lead: median ~11s, p90 ~20s.
+LOADING_LEAD_MAX_S = 60.0
+#: The mod's first monster-HP step must land inside this window...
+QUEST_START_SLOP_S = 5.0
+#: ...and show the monster untouched, or the mod missed the opening seconds
+#: (script reloaded / attached mid-hunt) and the companion clock is the truth.
+QUEST_START_FULL_HP = 0.99
+
+
+def _is_loading_lead(seconds: float) -> bool:
+    """Small, one-sided gap between quest accept and the quest actually starting."""
+    return 0 < seconds <= LOADING_LEAD_MAX_S
+
+
+def _mod_saw_quest_start(payload: dict) -> bool:
+    """Did the mod catch the quest from its first second?
+
+    A first monster-HP step at t≈0 with full HP means the mod sampled the
+    monster before anything hit it, so its clock is the quest start. If the
+    monster is already hurt, the mod attached mid-fight and its later clock
+    proves nothing about the companion's lead.
+    """
+    steps = payload.get("hp_steps") or []
+    if not steps:
+        return False
+    first = min(steps, key=lambda s: s["ts_offset_seconds"])
+    return (first["ts_offset_seconds"] <= QUEST_START_SLOP_S
+            and (first.get("hp_fraction") or 0.0) >= QUEST_START_FULL_HP)
+
+
+def _stored_mod_saw_quest_start(session: Session, hunt_id: int) -> bool:
+    """Same check against an existing (mod-created) hunt's stored HP curve."""
+    first = session.execute(
+        select(MonsterHealthStep)
+        .where(MonsterHealthStep.hunt_id == hunt_id)
+        .order_by(MonsterHealthStep.ts_offset_seconds)
+        .limit(1)).scalar_one_or_none()
+    if first is None:
+        return False
+    return (first.ts_offset_seconds <= QUEST_START_SLOP_S
+            and (first.hp_fraction or 0.0) >= QUEST_START_FULL_HP)
+
+
+def _shared_quest_hunts(session: Session, hunt, started_at: datetime) -> list:
+    """Sibling hunts of a multi-monster quest (one dump, one clock).
+
+    A skipped bystander monster (its HP never dropped below the engagement
+    floor) gets no mod payload of its own, so without this its timeline keeps
+    the companion's loading-screen origin while its twin is corrected.
+    """
+    stmt = select(Hunt).where(Hunt.id != hunt.id,
+                              Hunt.started_at == started_at)
+    if hunt.quest_id_external:
+        stmt = stmt.where(Hunt.quest_id_external == hunt.quest_id_external)
+    return list(session.execute(stmt).scalars().all())
+
+
+def _drop_loading_lead(session: Session, hunt, lead: float) -> None:
+    """Re-anchor a companion-created hunt onto the real quest start.
+
+    The companion began on the loading screen, so its timeline runs `lead`
+    seconds early: move every stored offset back and shrink the window.
+    """
+    _shift_existing_offsets(session, hunt.id, -lead)
+    hunt.started_at = hunt.started_at + timedelta(seconds=lead)
+    if hunt.quest_time_seconds:
+        hunt.quest_time_seconds = max(1.0, hunt.quest_time_seconds - lead)
+    if hunt.real_hunt_time_seconds:
+        hunt.real_hunt_time_seconds = max(
+            1.0, hunt.real_hunt_time_seconds - lead)
+
+
+def _clip_pre_quest(session: Session, hunt_id: int) -> None:
+    """Drop what now falls before the quest start (loading-screen samples).
+
+    Windows that end before t=0 never existed in the quest; those straddling
+    the start are clamped so the active buff still shows from second zero.
+    """
+    session.execute(delete(PlayerAbnormality).where(
+        PlayerAbnormality.hunt_id == hunt_id,
+        PlayerAbnormality.finished_at_offset.is_not(None),
+        PlayerAbnormality.finished_at_offset <= 0))
+    session.execute(update(PlayerAbnormality).where(
+        PlayerAbnormality.hunt_id == hunt_id,
+        PlayerAbnormality.started_at_offset < 0).values(started_at_offset=0.0))
+    for model in (DpsSnapshot, PlayerHealthStep, MonsterHealthStep):
+        session.execute(delete(model).where(model.hunt_id == hunt_id,
+                                            model.ts_offset_seconds < 0))
+    session.execute(delete(MonsterEvent).where(
+        MonsterEvent.hunt_id == hunt_id,
+        MonsterEvent.end_offset_seconds.is_not(None),
+        MonsterEvent.end_offset_seconds <= 0))
+    session.execute(update(MonsterEvent).where(
+        MonsterEvent.hunt_id == hunt_id,
+        MonsterEvent.start_offset_seconds < 0).values(start_offset_seconds=0.0))
+    session.flush()
+
+
 def _shift_existing_offsets(session: Session, hunt_id: int, delta: float) -> None:
     """Move an existing hunt's child offsets by `delta` (same alignment)."""
     for model, fields in (
@@ -523,11 +623,11 @@ def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
     weapons and curves; its awards are left in place (keyed by hunt_id)."""
     started = _coerce_ts(payload["started_at"])
     ended = _coerce_ts(payload["ended_at"]) if payload.get("ended_at") else None
-    # Keep the EARLIEST start (the mod usually sees the quest before a
-    # late-launched companion) and push the incoming dump's offsets later so
-    # both sources share one true timeline.
+    # The earlier clock wins, but "earlier" is not always the quest start: the
+    # companion begins sampling on the loading screen (see _is_loading_lead).
     old_started, old_ended = hunt.started_at, hunt.ended_at
     late_by = (started - old_started).total_seconds()
+    dropped_lead = False
     if late_by > 0:
         _shift_payload_offsets(payload, late_by)
         started = old_started
@@ -535,6 +635,19 @@ def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
             ended = old_ended
         payload["quest_time_seconds"] = (
             (ended - started).total_seconds() if ended else None)
+    elif _is_loading_lead(-late_by) and \
+            _stored_mod_saw_quest_start(session, hunt.id):
+        # The companion's clock starts on the loading screen (quest accept),
+        # not in the quest. The mod's first in-quest sample is the real start,
+        # so drop the lead instead of moving the mod's samples later: every
+        # offset (and the window) must be measured from the quest itself.
+        dropped_lead = True
+        _shift_payload_offsets(payload, late_by)
+        started = old_started
+        payload["quest_time_seconds"] = (
+            (ended - started).total_seconds() if ended else None)
+        # Siblings are mod-created too, so their offsets already start at the
+        # mod's clock: nothing to move there.
     elif late_by < 0:
         # The companion attached before the mod: keep its earlier timeline as
         # the origin and move the mod's existing samples later with it.
@@ -581,6 +694,8 @@ def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
             session.add(PlayerHealthStep(
                 hunt_id=hunt.id, player_id=pid, ts_offset_seconds=ts,
                 hp_fraction=hp, red_fraction=red, max_hp=mx))
+        if dropped_lead:
+            _clip_pre_quest(session, hunt.id)
         session.commit()
     except Exception:
         session.rollback()
@@ -604,19 +719,35 @@ def _enrich_from_reframework(session: Session, hunt: Hunt,
     # (true) start so HP and DPS share one timeline.
     mod_start = _coerce_ts(payload["started_at"])
     lead = (hunt.started_at - mod_start).total_seconds()
+    changed = False
     if lead > 0:
         _shift_existing_offsets(session, hunt.id, lead)
         hunt.started_at = mod_start
         if hunt.ended_at is not None:
             hunt.ended_at = hunt.ended_at - timedelta(seconds=lead)
+        changed = True
+    elif _is_loading_lead(-lead) and _mod_saw_quest_start(payload):
+        # The companion's lead over the mod is the loading screen, not a
+        # late attach: the mod's first in-quest sample is the quest start.
+        # Keep the companion's end (results screen) but measure from the
+        # quest, and throw away the loading-screen samples before t=0.
+        siblings = _shared_quest_hunts(session, hunt, hunt.started_at)
+        _drop_loading_lead(session, hunt, -lead)
+        _clip_pre_quest(session, hunt.id)
+        # A skipped bystander sibling has no payload of its own (the mod dump
+        # leaves untargeted monsters out), so correct it with the same clock.
+        for sib in siblings:
+            _drop_loading_lead(session, sib, -lead)
+            _clip_pre_quest(session, sib.id)
+        changed = True
     elif lead < 0:
-        # The companion attached first: its start is the timeline origin, so
-        # the mod's offsets (relative to its later start) move forward.
+        # The companion really did attach before the mod (or the mod reloaded
+        # mid-hunt): its start is the timeline origin, so the mod's offsets
+        # (relative to its later start) move forward.
         _shift_payload_offsets(payload, -lead)
     have = set(session.execute(
         select(HuntPlayerAward.player_id, HuntPlayerAward.award_id)
         .where(HuntPlayerAward.hunt_id == hunt.id)).all())
-    changed = False
     # A newer mod dump for a companion-created hunt updates the version we
     # report (the "reinstall the mod" notice clears after an upgrade).
     mod_version = payload.get("mod_version")

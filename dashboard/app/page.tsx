@@ -17,6 +17,7 @@ import { ToastProvider } from "../components/Toast";
 const TAB_IDS = new Set(TABS.map((t) => t.id));
 const FAILED_KEY = "hp.includeFailed";
 const UPDATE_KEY = "hp.checkUpdates";
+const SOURCE_KEY = "hp.sourceNoteOpen";
 
 /** Read initial global state: URL params win (shareable links), then
  *  localStorage, then defaults. */
@@ -51,6 +52,16 @@ function initialIncludeFailed(): boolean {
   }
 }
 
+/** The data-source line starts folded (it is one more row between the toolbar
+ *  and the tabs); the ⓘ in the toolbar brings it back. */
+function initialSourceOpen(): boolean {
+  try {
+    return localStorage.getItem(SOURCE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 /** Auto-update checks default on (that's the point) but are opt-out. */
 function initialCheckUpdates(): boolean {
   try {
@@ -72,6 +83,7 @@ export default function Home() {
   const [includeFailed, setIncludeFailed] = useState(false);
   const [checkUpdates, setCheckUpdates] = useState(true);
   const [scopeReady, setScopeReady] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(false);
   const healthQ = useApi<Health>("/health");
 
   useEffect(() => {
@@ -81,6 +93,7 @@ export default function Home() {
     setPartySize(initialParty());
     setIncludeFailed(initialIncludeFailed());
     setCheckUpdates(initialCheckUpdates());
+    setSourceOpen(initialSourceOpen());
     // A persisted variant/weapon-name only survives with the same
     // single-hunter scope.
     setVariantId(ids.length === 1 ? loadVariant() : null);
@@ -128,6 +141,13 @@ export default function Home() {
     writeParams({ failed: value ? "1" : null });
   };
 
+  const changeSourceOpen = (value: boolean) => {
+    setSourceOpen(value);
+    try {
+      localStorage.setItem(SOURCE_KEY, value ? "1" : "0");
+    } catch { /* private mode: setting just won't persist */ }
+  };
+
   const changeCheckUpdates = (value: boolean) => {
     setCheckUpdates(value);
     try {
@@ -157,6 +177,12 @@ export default function Home() {
     return { warn: false, text: "Source: REFramework — awards & HP curves. DPS curves need HunterPie." };
   })();
 
+  // A missing capture source is not something to hide behind a remembered
+  // fold: force the line open when it warns.
+  useEffect(() => {
+    if (sourceNote?.warn) setSourceOpen(true);
+  }, [sourceNote?.warn]);
+
   return (
     <ToastProvider>
       <header className="topbar">
@@ -167,6 +193,19 @@ export default function Home() {
             ? `ingestion online · ${health.hunts} hunts`
             : (healthQ.error ?? "connecting…")}
         </span>
+        {sourceNote && (
+          <button
+            type="button"
+            className={`source-pill${sourceNote.warn ? " warn" : ""}`}
+            aria-expanded={sourceOpen}
+            aria-controls={sourceOpen ? "source-note" : undefined}
+            aria-label="Data source"
+            title={sourceNote.text}
+            onClick={() => changeSourceOpen(!sourceOpen)}
+          >
+            ⓘ
+          </button>
+        )}
         <ImportButton onImported={() => { apiInvalidate(); healthQ.refetch(); }} />
         <HuntsManager />
         <UpdatePill enabled={scopeReady && checkUpdates} />
@@ -175,9 +214,18 @@ export default function Home() {
           checkUpdates={checkUpdates} onCheckUpdates={changeCheckUpdates}
           appVersion={health?.app_version} />
       </header>
-      {sourceNote && (
-        <div className={`source-note${sourceNote.warn ? " warn" : ""}`}>
-          {sourceNote.text}
+      {sourceNote && sourceOpen && (
+        <div className={`source-note${sourceNote.warn ? " warn" : ""}`} id="source-note">
+          <span className="source-note-text">{sourceNote.text}</span>
+          <button
+            type="button"
+            className="source-note-close"
+            title="Hide"
+            aria-label="Hide data source note"
+            onClick={() => changeSourceOpen(false)}
+          >
+            ▴
+          </button>
         </div>
       )}
       {scopeReady && (

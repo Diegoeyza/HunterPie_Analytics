@@ -186,6 +186,9 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
     for (const p of data.players) {
       const byKey = new Map<string, UptimeRow>();
       for (const ab of p.abnormalities) {
+        // Windows closed before the uptime origin are not part of the fight:
+        // pre-fight prep, or the loading-screen lead on a pre-fix import.
+        if ((ab.end ?? clearS) <= t0) continue;
         const key = `${ab.id}|${ab.category}`;
         const existing = byKey.get(key);
         const dur = Math.max(0, Math.min(ab.end ?? clearS, clearS) - Math.max(ab.start, t0));
@@ -222,6 +225,7 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
     const byKey = new Map<string, BuffLane>();
     for (const p of data.players) {
       for (const ab of p.abnormalities) {
+        if ((ab.end ?? clearS) <= t0) continue;  // closed before the origin
         const key = `${p.player}|${ab.id}|${ab.category}`;
         let lane = byKey.get(key);
         if (!lane) {

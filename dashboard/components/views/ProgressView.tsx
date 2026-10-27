@@ -1,21 +1,53 @@
 "use client";
 
 import { useState } from "react";
-import {CartesianGrid, ComposedChart, Line, Bar, ResponsiveContainer, XAxis, YAxis, } from "recharts";
+import {CartesianGrid, ComposedChart, Line, Bar, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, } from "recharts";
 import { ApiState, useApi } from "../../lib/useApi";
 import SearchSelect from "../SearchSelect";
 import { HunterSelect, MonsterSelect, StarsSelect, WeaponSelect, splitQuestValue, useQuestOptions } from "../FilterBar";
 import { useFilterOptions } from "../useFilterOptions";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
-import { ChartTip, GRID_STROKE, TICK } from "../ChartKit";
+import { GRID_STROKE, TICK, TIP_STYLE } from "../ChartKit";
 
 interface Point {
   hunt_id: number; started_at: string; monster: string;
   quest_id: number | null; quest_stars: number | null; monster_max_hp: number | null;
   weapon: string; variant: string | null; player: string; dps: number;
+  share: number; index: number;
   clear_s: number | null; cleared: boolean;
 }
-interface ProgressData { points: Point[]; rolling: { hunt_id: number; avg_dps: number }[]; window: number; }
+interface Rolling {
+  hunt_id: number; avg_dps: number;
+  avg_share: number | null; avg_index: number | null; avg_clear: number | null;
+}
+interface ProgressData { points: Point[]; rolling: Rolling[]; window: number; }
+
+/** Ways to read "progress". Raw DPS swings with the monster, the party and the
+ *  clear speed; the two relative measures hold those still. */
+type ProgressMetric = "dps" | "index" | "share" | "clear";
+
+const METRICS: Record<ProgressMetric, {
+  label: string; title: string; axis: string; note: string; unit: "%" | "s" | "";
+}> = {
+  dps: {
+    label: "DPS", title: "DPS per hunt", axis: "DPS", unit: "",
+    note: "Raw damage per second over your active window — sensitive to which monster you fought and how long the fight lasted.",
+  },
+  index: {
+    label: "vs usual", title: "DPS vs your usual on that monster",
+    axis: "% of usual", unit: "%",
+    note: "100% = your median DPS on the same monster across these hunts, so switching to a harder or easier fight stops reading as a slump or a spike.",
+  },
+  share: {
+    label: "Damage share", title: "Damage share per hunt",
+    axis: "% of party", unit: "%",
+    note: "Your part of the party's total damage — roughly flat when the whole party (or the monster's HP) changes, so it tracks your relative contribution.",
+  },
+  clear: {
+    label: "Clear time", title: "Clear time per hunt", axis: "clear time (s)",
+    unit: "s", note: "Seconds to finish the quest — lower is better; mixes in damage, routing and monster uptime.",
+  },
+};
 
 export default function ProgressView({ scope, variantId, weaponName, clearScope, partySize, includeFailed }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; partySize: number | null; includeFailed: boolean }) {
   const opts = useFilterOptions();
@@ -26,6 +58,7 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
   const [stars, setStars] = useState("");
   const [windowSize, setWindowSize] = useState(5);
   const [huntLimit, setHuntLimit] = useState("100");
+  const [metric, setMetric] = useState<ProgressMetric>("dps");
 
   // Survey quest values carry the target (`391@m10`); an explicit
   // monster pick by the user takes precedence over the suffix.
@@ -102,14 +135,29 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
   }
 
   // rolling[i] aligns with points[i] (same order, one row per hunt-player)
-  const rows = data.points.map((p, i) => ({
-    x: `#${p.hunt_id} ${p.monster}${p.quest_stars ? ` ${p.quest_stars}★` : ""}`,
-    dps: Math.round(p.dps * 10) / 10,
-    avg: Math.round((data.rolling[i]?.avg_dps ?? 0) * 10) / 10,
-    clear_s: p.clear_s ? Math.round(p.clear_s) : null,
-    player: p.player,
-    weapon: p.variant ? `${p.weapon} · ${p.variant}` : p.weapon,
-  }));
+  const rows = data.points.map((p, i) => {
+    const roll = data.rolling[i];
+    const value = metric === "index" ? p.index * 100
+      : metric === "share" ? p.share * 100
+        : metric === "clear" ? p.clear_s
+          : p.dps;
+    const avg = metric === "index"
+      ? (roll?.avg_index != null ? roll.avg_index * 100 : null)
+      : metric === "share"
+        ? (roll?.avg_share != null ? roll.avg_share * 100 : null)
+        : metric === "clear"
+          ? roll?.avg_clear ?? null
+          : roll?.avg_dps ?? null;
+    const round = (v: number | null) => (v == null ? null : Math.round(v * 10) / 10);
+    return {
+      x: `#${p.hunt_id} ${p.monster}${p.quest_stars ? ` ${p.quest_stars}★` : ""}`,
+      value: round(value),
+      avg: round(avg),
+      clear_s: p.clear_s ? Math.round(p.clear_s) : null,
+      player: p.player,
+      weapon: p.variant ? `${p.weapon} · ${p.variant}` : p.weapon,
+    };
+  });
 
   // 200+ hunts = 400+ SVG bar nodes; a line (single path) renders ~2x
   // faster and stays readable. Bars return under 60 points.
@@ -118,25 +166,55 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
   return (
     <div className="card">
       {filters}
-      <h2>DPS per hunt + {data.window}-hunt rolling average</h2>
+      <div className="filters">
+        <span className="scope-label">Measure</span>
+        <div className="seg" role="group" aria-label="Progress measure">
+          {(Object.keys(METRICS) as ProgressMetric[]).map((m) => (
+            <button
+              key={m} type="button"
+              className={metric === m ? "on" : ""}
+              aria-pressed={metric === m}
+              onClick={() => setMetric(m)}
+            >
+              {METRICS[m].label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <h2>{METRICS[metric].title} + {data.window}-hunt rolling average</h2>
+      <p className="blurb">{METRICS[metric].note}</p>
       <ResponsiveContainer width="100%" height={340}>
         <ComposedChart data={rows}>
           <CartesianGrid stroke={GRID_STROKE} />
           <XAxis dataKey="x" tick={TICK} interval="preserveStartEnd" />
-          <YAxis yAxisId="dps" tick={TICK}
-            label={{ value: "DPS", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: -90, position: "insideLeft" }} />
-          <YAxis yAxisId="time" orientation="right" tick={TICK}
-            label={{ value: "clear time (s)", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: 90, position: "insideRight" }} />
-          <ChartTip />
+          <YAxis yAxisId="value" tick={TICK}
+            label={{ value: METRICS[metric].axis, fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: -90, position: "insideLeft" }} />
+          {metric !== "clear" && (
+            <YAxis yAxisId="time" orientation="right" tick={TICK}
+              label={{ value: "clear time (s)", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: 90, position: "insideRight" }} />
+          )}
+          <Tooltip contentStyle={TIP_STYLE} formatter={(value, name) => {
+            const v = Number(value);
+            if (name === "clear (s)") return [`${Math.round(v)}s`, name];
+            const unit = METRICS[metric].unit;
+            return [`${Math.round(v * 10) / 10}${unit}`, name];
+          }} />
           {dense ? (
-            <Line yAxisId="dps" type="monotone" dataKey="dps" name="DPS"
+            <Line yAxisId="value" type="monotone" dataKey="value"
+              name={METRICS[metric].label}
               stroke="#e8b64c" dot={false} isAnimationActive={false} />
           ) : (
-            <Bar yAxisId="dps" dataKey="dps" name="DPS" fill="#e8b64c"
-              isAnimationActive={false} />
+            <Bar yAxisId="value" dataKey="value" name={METRICS[metric].label}
+              fill="#e8b64c" isAnimationActive={false} />
           )}
-          <Line yAxisId="dps" type="monotone" dataKey="avg" name="rolling avg" stroke="#5aa9e6" dot={false} isAnimationActive={false} />
-          <Line yAxisId="time" type="monotone" dataKey="clear_s" name="clear (s)" stroke="#58b368" dot={false} isAnimationActive={false} />
+          <Line yAxisId="value" type="monotone" dataKey="avg" name="rolling avg" stroke="#5aa9e6" dot={false} isAnimationActive={false} />
+          {metric === "index" && (
+            <ReferenceLine yAxisId="value" y={100} stroke="var(--muted)" strokeDasharray="4 4"
+              label={{ value: "usual", fill: "var(--chart-tick, #9aa1b2)", fontSize: 10, position: "insideTopRight" }} />
+          )}
+          {metric !== "clear" && (
+            <Line yAxisId="time" type="monotone" dataKey="clear_s" name="clear (s)" stroke="#58b368" dot={false} isAnimationActive={false} />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

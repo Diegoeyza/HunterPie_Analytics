@@ -283,10 +283,27 @@ main {
 .blurb { color: var(--muted); font-size: 13px; margin: 4px 0 16px; }
 .source-note {
   color: var(--muted); font-size: 12px;
-  margin: 6px 14px 0; padding: 5px 10px;
+  margin: 6px 14px 0; padding: 4px 10px;
   background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  display: flex; align-items: center; gap: 8px;
 }
 .source-note.warn { color: var(--accent); border-color: var(--accent); }
+.source-note-text { flex: 1; min-width: 0; }
+.source-note-close {
+  background: none; border: 0; padding: 2px 0 2px 4px; margin: 0;
+  color: inherit; font: inherit; font-size: 10px; line-height: 1;
+  cursor: pointer; opacity: 0.7;
+}
+.source-note-close:hover { opacity: 1; }
+.source-pill {
+  background: none; border: 1px solid var(--border); border-radius: 999px;
+  color: var(--muted); font-size: 12px; line-height: 1; padding: 3px 7px 4px;
+  cursor: pointer;
+}
+.source-pill:hover, .source-pill[aria-expanded="true"] {
+  color: var(--text); border-color: var(--accent);
+}
+.source-pill.warn { color: var(--accent); border-color: var(--accent); }
 
 .card {
   background: var(--panel);
@@ -418,6 +435,25 @@ table.grid tbody tr.selected td { background: var(--row-hover); box-shadow: inse
 .quest-stat { display: flex; flex-direction: column; gap: 1px; font-size: 12px; }
 .quest-stat strong { font-size: 15px; font-variant-numeric: tabular-nums; }
 .chart-title { font-size: 14px; margin: 14px 0 6px; }
+/* Hunt popup: foldable sections (damage chart, survival, highlights) */
+.collapsible { border-top: 1px solid var(--border); margin-top: 14px; }
+.collapsible-head {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: 0; padding: 10px 0 8px; cursor: pointer;
+  color: var(--text); font-family: inherit;
+  font-size: 14px; font-weight: 600; text-align: left;
+}
+.collapsible-head:hover { color: var(--accent); }
+.collapsible-arrow {
+  color: var(--muted); font-size: 11px; line-height: 1;
+  transition: transform 0.15s ease; transform: rotate(0deg);
+}
+.collapsible:not(.open) .collapsible-arrow { transform: rotate(-90deg); }
+.collapsible-sub {
+  color: var(--muted); font-size: 12px; font-weight: 400;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.collapsible-body { padding-bottom: 4px; }
 .member-grid {
   display: grid; gap: 10px;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));

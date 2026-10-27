@@ -231,13 +231,17 @@ def progress_improvement(player_id: int | None = None,
                          players: int | None = None,
                          weapon_name: str | None = None,
                          include_failed: bool = False,
+                         mode: str = "first_last",
+                         min_instances: int = Query(2, ge=2, le=20),
                          db: Session = Depends(get_db)):
     return queries.progress_improvement(db, player_id, top_n, weapon_id,
                                         _ids(player_ids),
                                         monster_id, stars, variant_id,
                                         party=_party(players),
                                         weapon_name=weapon_name,
-                                        include_failed=include_failed)
+                                        include_failed=include_failed,
+                                        mode=mode,
+                                        min_instances=min_instances)
 
 
 

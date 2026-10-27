@@ -18,12 +18,12 @@ VSVersionInfo(
         [
           StringStruct('CompanyName', 'Diegoeyza'),
           StringStruct('FileDescription', 'HunterPie Analytics'),
-          StringStruct('FileVersion', '1.0.10.0'),
+          StringStruct('FileVersion', '1.1.0.0'),
           StringStruct('InternalName', 'HunterPieAnalytics'),
           StringStruct('LegalCopyright', 'Copyright (c) Diegoeyza - Apache-2.0'),
           StringStruct('OriginalFilename', 'HunterPieAnalytics.exe'),
           StringStruct('ProductName', 'HunterPie Analytics'),
-          StringStruct('ProductVersion', '1.0.10.0')
+          StringStruct('ProductVersion', '1.1.0.0')
         ]
       )
     ]),

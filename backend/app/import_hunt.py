@@ -47,7 +47,7 @@ WEAPONS = [
 ]
 
 DEFAULT_HUNTERPIE_VERSION = "2.14.0.466-analytics"
-DEFAULT_GAME_VERSION = "1.042.00.02"
+DEFAULT_GAME_VERSION = "1.042.00.03"
 
 # --- HuntExports source discovery -----------------------------------------
 # Two independent sources may feed the importer (either may be absent):

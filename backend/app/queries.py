@@ -6,6 +6,7 @@ then expose it with one route in api.py. No other files change.
 from __future__ import annotations
 
 import json
+import statistics
 from datetime import UTC
 
 from sqlalchemy import func, select
@@ -399,9 +400,19 @@ def progress(session: Session, monster_id: int | None = None,
     eng = _batch_engagement_s(
         session, hunts_by_id,
         [(h.id, hp.player_id) for h, hp, _p, _w, _m in rows])
+    # Team damage per hunt: damage share is measured against every human
+    # hunter, so a strong or weak party no longer reads as personal progress.
+    team_damage = dict(session.execute(
+        select(HuntPlayer.hunt_id, func.sum(HuntPlayer.total_damage))
+        .where(HuntPlayer.hunt_id.in_(hunts_by_id),
+               HuntPlayer.is_supporter.is_(False))
+        .group_by(HuntPlayer.hunt_id)).all()) if hunts_by_id else {}
     points = []
+    baselines = []  # (player_id, monster_id) per point
     for hunt, hp, player, weapon, monster in rows:
         dur = eng.get((hunt.id, hp.player_id))
+        dps = (hp.total_damage / dur) if dur else 0.0
+        team = team_damage.get(hunt.id) or 0.0
         points.append({
             "hunt_id": hunt.id,
             "started_at": hunt.started_at.isoformat(),
@@ -414,15 +425,42 @@ def progress(session: Session, monster_id: int | None = None,
                 labels, weapon.name if weapon else None,
                 hp.gear_raw, hp.gear_element, hp.gear_affinity),
             "player": player.display_name,
-            "dps": (hp.total_damage / dur) if dur else 0.0,
+            "dps": dps,
+            "share": (hp.total_damage / team) if team > 0 else 0.0,
+            "index": 0.0,  # filled from the monster baseline below
             "clear_s": hunt_duration_s(hunt),
             "cleared": bool(hunt.cleared),
         })
-    dps_vals = [p["dps"] for p in points]
+        baselines.append((hp.player_id, hunt.monster_id))
+    # Relative progress: 100% = the same hunter's median DPS on that monster,
+    # so switching to a harder fight stops looking like a slump. Hunt-level
+    # filters (weapon, party, stars, date range) shape the baseline too.
+    samples: dict[tuple[int, int], list[float]] = {}
+    for p, key in zip(points, baselines, strict=True):
+        if p["dps"] > 0:
+            samples.setdefault(key, []).append(p["dps"])
+    medians = {k: statistics.median(v) for k, v in samples.items()}
+    for p, key in zip(points, baselines, strict=True):
+        median = medians.get(key) or 0.0
+        p["index"] = (p["dps"] / median) if median > 0 else 0.0
+
+    def _window_avg(values: list[float | None]) -> list[float | None]:
+        """Trailing average over `window` rows, skipping missing values."""
+        out: list[float | None] = []
+        for i in range(len(values)):
+            seg = [v for v in values[max(0, i - window + 1):i + 1]
+                   if v is not None]
+            out.append(sum(seg) / len(seg) if seg else None)
+        return out
+
+    avg_dps = _window_avg([p["dps"] for p in points])
+    avg_share = _window_avg([p["share"] for p in points])
+    avg_index = _window_avg([p["index"] for p in points])
+    avg_clear = _window_avg([p["clear_s"] for p in points])
     rolling = [
-        {"hunt_id": p["hunt_id"],
-         "avg_dps": sum(dps_vals[max(0, i - window + 1):i + 1])
-         / len(dps_vals[max(0, i - window + 1):i + 1])}
+        {"hunt_id": p["hunt_id"], "avg_dps": avg_dps[i],
+         "avg_share": avg_share[i], "avg_index": avg_index[i],
+         "avg_clear": avg_clear[i]}
         for i, p in enumerate(points)
     ]
     return {"points": points, "rolling": rolling, "window": window}
@@ -1483,6 +1521,43 @@ def _slope_per_hunt(vals: list[float]) -> float:
     return sum((i - mean_x) * (y - mean_y) for i, y in enumerate(vals)) / denom
 
 
+#: How a group's growth is measured. All three are damage-based; they differ
+#: in how much one lucky or awful hunt can move the answer.
+GROWTH_MODES = ("first_last", "edge_medians", "trend")
+DEFAULT_GROWTH_MODE = "first_last"
+#: Hunts at each end the robust mode medians over (capped at half the group,
+#: so the two windows never share a hunt).
+GROWTH_EDGE_N = 3
+
+
+def _growth_pct(mode: str, vals: list[float]) -> tuple[float, float, float]:
+    """Growth % for one monster/stars group under `mode`.
+
+    ``first_last`` compares the two endpoint hunts (the old behaviour, most
+    sensitive to a single outlier); ``edge_medians`` compares the medians of
+    the first and last three hunts; ``trend`` fits a least-squares line and
+    reports the change across the group's span as a % of its average DPS.
+    Returns ``(pct, early, late)`` — the endpoints (or edge medians) used.
+    """
+    first, last = vals[0], vals[-1]
+    if mode == "edge_medians":
+        # Never let the two ends overlap: a 2-hunt group compares its only two
+        # hunts (otherwise both medians would be the same pair and read 0%).
+        edge = max(1, min(GROWTH_EDGE_N, len(vals) // 2))
+        early = _median(vals[:edge])
+        late = _median(vals[-edge:])
+        return (((late - early) / early * 100.0) if early > 0 else 0.0,
+                early, late)
+    if mode == "trend":
+        mean = sum(vals) / len(vals)
+        if mean <= 0:
+            return 0.0, first, last
+        slope = _slope_per_hunt(vals)
+        return slope * (len(vals) - 1) / mean * 100.0, first, last
+    return (((last - first) / first * 100.0) if first > 0 else 0.0,
+            first, last)
+
+
 def progress_improvement(session: Session, player_id: int | None = None, top_n: int = 5,
                          weapon_id: int | None = None,
                          player_ids: list[int] | None = None,
@@ -1491,8 +1566,14 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
                          variant_id: int | str | None = None,
                          party: int | None = None,
                          weapon_name: str | None = None,
-                         include_failed: bool = False) -> dict:
-    """Analyze player DPS improvement over time, grouped by monster and quest stars (only groups with >1 instance).
+                         include_failed: bool = False,
+                         mode: str = DEFAULT_GROWTH_MODE,
+                         min_instances: int = 2) -> dict:
+    """Analyze player DPS improvement over time, grouped by monster and quest stars.
+
+    ``mode`` picks how a group's growth is measured (see GROWTH_MODES);
+    ``min_instances`` sets how many hunts a group needs to qualify (2 keeps
+    the old behaviour).
 
     Single-hunter mode (``player_id`` set, no ``player_ids``) returns one
     player dict with ``groups``. Otherwise returns ``{"top_hunters": [...]}``
@@ -1501,6 +1582,9 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
     ``variant_id`` narrow the hunts considered.
     """
     top_n = max(1, min(int(top_n or 5), 25))
+    if mode not in GROWTH_MODES:
+        mode = DEFAULT_GROWTH_MODE
+    min_instances = max(2, int(min_instances or 2))
     players = session.execute(select(Player)).scalars().all()
     player_map = {p.id: p.display_name for p in players}
 
@@ -1574,11 +1658,12 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
         weighted_n = 0
 
         for (mid, mname, st), hunts in groups_dict.items():
-            if len(hunts) > 1:
+            if len(hunts) >= min_instances:
                 dps_vals = [h["dps"] for h in hunts]
                 first_dps = dps_vals[0]
                 latest_dps = dps_vals[-1]
-                pct = ((latest_dps - first_dps) / first_dps * 100.0) if first_dps > 0 else 0.0
+                pct, early_dps, late_dps = _growth_pct(mode, dps_vals)
+                mean_dps = sum(dps_vals) / len(dps_vals)
                 first_clear = hunts[0]["clear_s"]
                 latest_clear = hunts[-1]["clear_s"]
                 clear_pct = (((first_clear - latest_clear) / first_clear * 100.0)
@@ -1590,9 +1675,16 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
                     "instances": len(hunts),
                     "first_dps": round(first_dps, 1),
                     "latest_dps": round(latest_dps, 1),
+                    # Endpoints (or edge medians, under edge_medians) that
+                    # produced pct_improvement.
+                    "early_dps": round(early_dps, 1),
+                    "late_dps": round(late_dps, 1),
                     "median_dps": round(_median(dps_vals), 1),
                     "best_dps": round(max(dps_vals), 1),
                     "slope_per_hunt": round(_slope_per_hunt(dps_vals), 2),
+                    "slope_pct_per_hunt": round(
+                        (_slope_per_hunt(dps_vals) / mean_dps * 100.0)
+                        if mean_dps > 0 else 0.0, 2),
                     "pct_improvement": round(pct, 1),
                     "first_clear_s": round(first_clear) if first_clear else None,
                     "latest_clear_s": round(latest_clear) if latest_clear else None,
@@ -1609,6 +1701,8 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
             "player_name": p_name,
             "overall_pct_improvement": round(overall, 1),
             "qualifying_groups_count": len(qualifying_groups),
+            "mode": mode,
+            "min_instances": min_instances,
             "groups": qualifying_groups,
         }
 
@@ -1617,7 +1711,8 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
             return {"player_id": single_id,
                     "player_name": player_map.get(single_id, f"Player {single_id}"),
                     "overall_pct_improvement": 0.0,
-                    "qualifying_groups_count": 0, "groups": []}
+                    "qualifying_groups_count": 0,
+                    "mode": mode, "min_instances": min_instances, "groups": []}
         return analyze_player(single_id, player_data[single_id])
     else:
         results = []
@@ -1626,7 +1721,8 @@ def progress_improvement(session: Session, player_id: int | None = None, top_n: 
             if res["qualifying_groups_count"] > 0:
                 results.append(res)
         results.sort(key=lambda r: r["overall_pct_improvement"], reverse=True)
-        return {"top_hunters": results[:top_n]}
+        return {"top_hunters": results[:top_n],
+                "mode": mode, "min_instances": min_instances}
 
 
 

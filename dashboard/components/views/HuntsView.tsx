@@ -12,6 +12,7 @@ import { type Metric, computeDps, smoothDps, computeBurst } from "../../lib/metr
 import { ApiState, useApi } from "../../lib/useApi";
 import ChartTooltip from "../ChartTooltip";
 import { TICK } from "../ChartKit";
+import Collapsible from "../Collapsible";
 import DataTable from "../DataTable";
 import EmptyState from "../EmptyState";
 import HunterCard from "../HunterCard";
@@ -259,61 +260,62 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                   <HunterCard key={m.player} m={m} mvp={i === 0 && members.length > 1} />
                 ))}
               </div>
-              <h3 className="chart-title">
-                {metric === "damage"
+              <Collapsible
+                title="Damage chart"
+                subtitle={metric === "damage"
                   ? "Cumulative damage"
                   : metric === "burst" ? "Instantaneous DPS" : "DPS"}
-              </h3>
-              <div className="filters">
-                <label>Metric
-                  <select
-                    value={metric}
-                    onChange={(e) => setMetric(e.target.value as Metric)}
-                  >
-                    <option value="damage">Cumulative damage</option>
-                    <option value="dps">DPS (5s rolling avg)</option>
-                    <option value="burst">Instantaneous DPS (5s window)</option>
-                  </select>
-                </label>
-              </div>
-              <div style={{ width: "100%", height: 260 }}>
-                <ResponsiveContainer>
-                  <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-                    <XAxis
-                      dataKey="t" minTickGap={40}
-                      tickFormatter={(v: number) => `${Math.round(v)}s`}
-                      tick={TICK} stroke="var(--chart-tick, #9aa1b2)"
-                    />
-                    <YAxis
-                      tickFormatter={(v: number) => (metric === "damage" && v >= 1000
-                        ? `${Math.round(v / 100) / 10}k` : metric === "damage" ? `${v}` : `${Math.round(v * 10) / 10}`)}
-                      tick={TICK} stroke="var(--chart-tick, #9aa1b2)" width={48}
-                    />
-                    <Tooltip
-                      content={<ChartTooltip metric={metric} events={enrages} colorOf={() => "var(--bad, #e05c5c)"} />}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    {enrages.map((e, i) => (
-                      <ReferenceArea
-                        key={i} x1={e.start} x2={e.end ?? undefined}
-                        fill="var(--bad, #e05c5c)" fillOpacity={0.14} strokeDasharray="3 3"
+              >
+                <div className="filters">
+                  <label>Metric
+                    <select
+                      value={metric}
+                      onChange={(e) => setMetric(e.target.value as Metric)}
+                    >
+                      <option value="damage">Cumulative damage</option>
+                      <option value="dps">DPS (5s rolling avg)</option>
+                      <option value="burst">Instantaneous DPS (5s window)</option>
+                    </select>
+                  </label>
+                </div>
+                <div style={{ width: "100%", height: 260 }}>
+                  <ResponsiveContainer>
+                    <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                      <XAxis
+                        dataKey="t" minTickGap={40}
+                        tickFormatter={(v: number) => `${Math.round(v)}s`}
+                        tick={TICK} stroke="var(--chart-tick, #9aa1b2)"
                       />
-                    ))}
-                    {curve.players.map((p, i) => (
-                      <Line
-                        key={`${p.player}-${i}`} type="monotone" dataKey={`p${i}`} name={p.player}
-                        stroke={seriesColor(i)} strokeWidth={2} dot={false}
-                        isAnimationActive={false} connectNulls
+                      <YAxis
+                        tickFormatter={(v: number) => (metric === "damage" && v >= 1000
+                          ? `${Math.round(v / 100) / 10}k` : metric === "damage" ? `${v}` : `${Math.round(v * 10) / 10}`)}
+                        tick={TICK} stroke="var(--chart-tick, #9aa1b2)" width={48}
                       />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              <p className="blurb">Red bands: enrage windows. DPS uses {questMode ? "own first hit\u2192quest end (party last hit)" : "engagement time (own first\u2192last hit)"}, same as Damage curves tab.</p>
+                      <Tooltip
+                        content={<ChartTooltip metric={metric} events={enrages} colorOf={() => "var(--bad, #e05c5c)"} />}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      {enrages.map((e, i) => (
+                        <ReferenceArea
+                          key={i} x1={e.start} x2={e.end ?? undefined}
+                          fill="var(--bad, #e05c5c)" fillOpacity={0.14} strokeDasharray="3 3"
+                        />
+                      ))}
+                      {curve.players.map((p, i) => (
+                        <Line
+                          key={`${p.player}-${i}`} type="monotone" dataKey={`p${i}`} name={p.player}
+                          stroke={seriesColor(i)} strokeWidth={2} dot={false}
+                          isAnimationActive={false} connectNulls
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className="blurb">Red bands: enrage windows. DPS uses {questMode ? "own first hit→quest end (party last hit)" : "engagement time (own first→last hit)"}, same as Damage curves tab.</p>
+              </Collapsible>
               {(curve.survival ?? []).length > 0 && (
-                <>
-                  <h3 className="chart-title">Survival</h3>
+                <Collapsible title="Survival" subtitle="min HP · time in danger">
                   <div className="table-wrap">
                     <table className="grid">
                       <thead>
@@ -336,11 +338,10 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                       </tbody>
                     </table>
                   </div>
-                </>
+                </Collapsible>
               )}
               {highlights && highlights.awards.length > 0 && (
-                <>
-                  <h3 className="chart-title">Hunter highlights</h3>
+                <Collapsible title="Hunter highlights" subtitle="quest awards">
                   <div className="table-wrap">
                     <table className="grid">
                       <thead>
@@ -378,7 +379,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                       </tbody>
                     </table>
                   </div>
-                </>
+                </Collapsible>
               )}
             </>
           )}

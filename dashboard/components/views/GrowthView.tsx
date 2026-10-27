@@ -21,9 +21,12 @@ interface MonsterGroup {
   instances: number;
   first_dps: number;
   latest_dps: number;
+  early_dps?: number;
+  late_dps?: number;
   median_dps?: number;
   best_dps?: number;
   slope_per_hunt?: number;
+  slope_pct_per_hunt?: number;
   pct_improvement: number;
   first_clear_s?: number | null;
   latest_clear_s?: number | null;
@@ -36,14 +39,37 @@ interface PlayerImprovementData {
   player_name: string;
   overall_pct_improvement: number;
   qualifying_groups_count: number;
+  mode?: GrowthMode;
+  min_instances?: number;
   groups: MonsterGroup[];
 }
 
 interface TopHunterData {
   top_hunters: PlayerImprovementData[];
+  mode?: GrowthMode;
+  min_instances?: number;
 }
 
 type GrowthData = PlayerImprovementData | TopHunterData;
+
+/** Ways to measure growth inside a monster/stars group. All damage-based;
+ *  they differ in how much one lucky or awful hunt can swing the answer. */
+type GrowthMode = "first_last" | "edge_medians" | "trend";
+
+const GROWTH_MODES: Record<GrowthMode, { label: string; note: string }> = {
+  first_last: {
+    label: "First → last",
+    note: "Compares the first and the newest hunt of each group — what the tab always showed, and the most sensitive to one lucky or one bad hunt.",
+  },
+  edge_medians: {
+    label: "First 3 vs last 3",
+    note: "Compares the first and last hunts of each group by median (up to three each, never the same hunt twice), so one outlier at either end is far less decisive than in first → last.",
+  },
+  trend: {
+    label: "Trend fit",
+    note: "Fits a straight line through every hunt in the group and reports the change across its span — uses all the evidence instead of two endpoints.",
+  },
+};
 
 function isPlayerData(d: GrowthData): d is PlayerImprovementData {
   return (d as PlayerImprovementData).groups !== undefined;
@@ -70,11 +96,14 @@ function Sparkline({ vals }: { vals: number[] }) {
 
 function GrowthFilters({
   weapon, setWeapon, monster, setMonster, stars, setStars, topN, setTopN, showTopN,
+  mode, setMode, minHunts, setMinHunts,
 }: {
   weapon: string; setWeapon: (v: string) => void;
   monster: string; setMonster: (v: string) => void;
   stars: string; setStars: (v: string) => void;
   topN: string; setTopN: (v: string) => void; showTopN: boolean;
+  mode: GrowthMode; setMode: (v: GrowthMode) => void;
+  minHunts: string; setMinHunts: (v: string) => void;
 }) {
   const opts = useFilterOptions();
   return (
@@ -83,6 +112,26 @@ function GrowthFilters({
       <MonsterSelect value={monster} opts={opts}
         onChange={(v) => { setMonster(v); setStars(""); }} />
       <StarsSelect value={stars} onChange={setStars} monster={monster} opts={opts} />
+      <div className="seg" role="group" aria-label="Growth measure">
+        {(Object.keys(GROWTH_MODES) as GrowthMode[]).map((m) => (
+          <button
+            key={m} type="button"
+            className={mode === m ? "on" : ""}
+            aria-pressed={mode === m}
+            title={GROWTH_MODES[m].note}
+            onClick={() => setMode(m)}
+          >
+            {GROWTH_MODES[m].label}
+          </button>
+        ))}
+      </div>
+      <label>Min hunts
+        <select value={minHunts} onChange={(e) => setMinHunts(e.target.value)}>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="5">5</option>
+        </select>
+      </label>
       {showTopN && (
         <label>Top
           <select value={topN} onChange={(e) => setTopN(e.target.value)}>
@@ -102,6 +151,8 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
   const [monster, setMonster] = useState("");
   const [stars, setStars] = useState("");
   const [topN, setTopN] = useState("5");
+  const [mode, setMode] = useState<GrowthMode>("first_last");
+  const [minHunts, setMinHunts] = useState("2");
 
   const selectedPlayerId = scope.length === 1 ? scope[0] : null;
   const isTopMode = selectedPlayerId === null;
@@ -117,13 +168,20 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
     ...(partySize != null && { players: partySize }),
     ...(includeFailed && { include_failed: true }),
     ...(isTopMode && { top_n: Number(topN) }),
+    mode,
+    min_instances: Number(minHunts),
   });
+
+  const filterBar = (
+    <GrowthFilters weapon={weapon} setWeapon={setWeapon} monster={monster} setMonster={setMonster}
+      stars={stars} setStars={setStars} topN={topN} setTopN={setTopN} showTopN={isTopMode}
+      mode={mode} setMode={setMode} minHunts={minHunts} setMinHunts={setMinHunts} />
+  );
 
   if (error || loading || !data) {
     return (
       <div className="card">
-        <GrowthFilters weapon={weapon} setWeapon={setWeapon} monster={monster} setMonster={setMonster}
-          stars={stars} setStars={setStars} topN={topN} setTopN={setTopN} showTopN={isTopMode} />
+        {filterBar}
         <ApiState error={error} loading={loading || !data} />
       </div>
     );
@@ -134,8 +192,7 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
   if (wantPlayer !== isPlayerData(data)) {
     return (
       <div className="card">
-        <GrowthFilters weapon={weapon} setWeapon={setWeapon} monster={monster} setMonster={setMonster}
-          stars={stars} setStars={setStars} topN={topN} setTopN={setTopN} showTopN={isTopMode} />
+        {filterBar}
         <p>Loading growth analytics…</p>
       </div>
     );
@@ -143,16 +200,16 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
 
   if (isPlayerData(data)) {
     const pData = data;
-    const filters = (
-      <GrowthFilters weapon={weapon} setWeapon={setWeapon} monster={monster} setMonster={setMonster}
-        stars={stars} setStars={setStars} topN={topN} setTopN={setTopN} showTopN={false} />
-    );
+    // Label the payload that is on screen, not the pending filter: useApi
+    // keeps the old data while the new mode loads.
+    const shownMode = pData.mode ?? mode;
+    const shownMin = pData.min_instances ?? Number(minHunts);
     if (!pData.groups || pData.groups.length === 0) {
       return (
         <div className="card">
-          {filters}
+          {filterBar}
           <ScopeEmpty names={scopeNames(scope, opts?.players)} onClear={clearScope}>
-            <p>No monster/star categories with multiple hunt instances (&gt;1 instance) found for this hunter with these filters.</p>
+            <p>No monster/star groups with at least {minHunts} hunts found for this hunter with these filters.</p>
           </ScopeEmpty>
         </div>
       );
@@ -163,12 +220,14 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
         <div className="card">
-          {filters}
+          {filterBar}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "24px 24px 8px", gap: "16px", flexWrap: "wrap" }}>
             <div>
               <h2 style={{ margin: 0, fontSize: "1.5rem" }}>{pData.player_name}&apos;s Growth &amp; Improvement</h2>
-              <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>
-                Instance-weighted DPS change across {pData.qualifying_groups_count} monster &amp; star categories (&gt;1 hunt each).
+              <p style={{ margin: "6px 0 0", color: "var(--muted)", maxWidth: "70ch" }}>
+                Instance-weighted growth across {pData.qualifying_groups_count} monster &amp; star
+                group{pData.qualifying_groups_count === 1 ? "" : "s"} (≥{shownMin} hunts each).{" "}
+                {GROWTH_MODES[shownMode].note}
               </p>
             </div>
             <div style={{ textAlign: "right" }}>
@@ -176,14 +235,14 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
                 {overallPositive ? "+" : ""}{pData.overall_pct_improvement}%
               </div>
               <div style={{ fontSize: "0.85rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                Weighted DPS change
+                Weighted growth
               </div>
             </div>
           </div>
         </div>
 
         <div className="card">
-          <h3 style={{ marginTop: 0, marginBottom: "16px" }}>Monster &amp; Star Categories (&gt;1 hunt)</h3>
+          <h3 style={{ marginTop: 0, marginBottom: "16px" }}>Monster &amp; Star Groups (≥{shownMin} hunts)</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             {pData.groups.map((g, idx) => {
               const positive = g.pct_improvement >= 0;
@@ -205,7 +264,13 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
                   </div>
 
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.9rem", color: "var(--muted)", marginBottom: "10px", gap: "12px", flexWrap: "wrap" }}>
-                    <div>First: <strong style={{ color: "var(--text)" }}>{g.first_dps}</strong> → Latest: <strong style={{ color: "var(--text)" }}>{g.latest_dps}</strong></div>
+                    <div>
+                      {shownMode === "edge_medians"
+                        ? <>First 3: <strong style={{ color: "var(--text)" }}>{g.early_dps ?? "—"}</strong> → Last 3: <strong style={{ color: "var(--text)" }}>{g.late_dps ?? "—"}</strong></>
+                        : shownMode === "trend"
+                          ? <>Fit: <strong style={{ color: "var(--text)" }}>{g.slope_pct_per_hunt != null ? `${g.slope_pct_per_hunt >= 0 ? "+" : ""}${g.slope_pct_per_hunt}%/hunt` : "—"}</strong> · {g.instances} hunts</>
+                          : <>First: <strong style={{ color: "var(--text)" }}>{g.first_dps}</strong> → Latest: <strong style={{ color: "var(--text)" }}>{g.latest_dps}</strong></>}
+                    </div>
                     <div>Median: <strong style={{ color: "var(--text)" }}>{g.median_dps ?? "—"}</strong> · Best: <strong style={{ color: "var(--text)" }}>{g.best_dps ?? "—"}</strong></div>
                     <div>Slope: <strong style={{ color: "var(--text)" }}>{g.slope_per_hunt != null ? `${g.slope_per_hunt >= 0 ? "+" : ""}${g.slope_per_hunt}/hunt` : "—"}</strong></div>
                     <div>Clear: <strong style={{ color: "var(--text)" }}>{g.first_clear_s != null ? `${g.first_clear_s}s → ${g.latest_clear_s}s` : "—"}</strong>
@@ -234,15 +299,13 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
   }
 
   const topData = data as TopHunterData;
-  const filters = (
-    <GrowthFilters weapon={weapon} setWeapon={setWeapon} monster={monster} setMonster={setMonster}
-      stars={stars} setStars={setStars} topN={topN} setTopN={setTopN} showTopN />
-  );
+  const shownMode = topData.mode ?? mode;
+  const shownMin = topData.min_instances ?? Number(minHunts);
   if (!topData.top_hunters || topData.top_hunters.length === 0) {
     if (scope.length > 0) {
       return (
         <div className="card">
-          {filters}
+          {filterBar}
           <ScopeEmpty names={scopeNames(scope, opts?.players)} onClear={clearScope}>
             <p>No multi-hunt monster/star groups for these hunters with these filters.</p>
           </ScopeEmpty>
@@ -251,7 +314,7 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
     }
     return (
       <div className="card">
-        {filters}
+        {filterBar}
         <EmptyState what="hunter improvement data">
           <p>No multi-instance monster/star hunt records found across players.</p>
         </EmptyState>
@@ -261,10 +324,11 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
 
   return (
     <div className="card">
-      {filters}
-      <h2 style={{ marginTop: 0, marginBottom: "8px" }}>Top Hunters by DPS Improvement</h2>
+      {filterBar}
+      <h2 style={{ marginTop: 0, marginBottom: "8px" }}>Top Hunters by Growth</h2>
       <p style={{ color: "var(--muted)", marginTop: 0, marginBottom: "20px" }}>
-        Instance-weighted DPS change across monster &amp; star categories with &gt;1 hunt.
+        Instance-weighted growth across monster &amp; star groups with ≥{shownMin} hunts.{" "}
+        {GROWTH_MODES[shownMode].note}{" "}
         {scope.length > 1 ? ` Scoped to ${scope.length} hunters — ` : " "}
         {scope.length > 1 ? <button type="button" className="scope-clear" onClick={clearScope}>Clear hunter scope</button> : "Select a hunter for the full breakdown."}
       </p>
@@ -289,7 +353,7 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
                 <span>
                   <span style={{ margin: 0, fontSize: "1.2rem", color: "var(--text)", fontWeight: 600, display: "block" }}>{hunter.player_name}</span>
                   <span style={{ margin: "4px 0 0", color: "var(--muted)", fontSize: "0.9rem", display: "block" }}>
-                    {hunter.qualifying_groups_count} monster/star groups (&gt;1 hunt)
+                    {hunter.qualifying_groups_count} monster/star groups (≥{shownMin} hunts)
                   </span>
                 </span>
               </span>

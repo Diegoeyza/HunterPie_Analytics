@@ -977,7 +977,7 @@ def test_progress_improvement_multi_scope_and_filters():
     assert any(h["player_name"] == "Isi" for h in client.get(
         "/api/progress/improvement", params={"monster_id": 31}).json()["top_hunters"])
     assert client.get("/api/progress/improvement",
-                      params={"monster_id": 9999}).json() == {"top_hunters": []}
+                      params={"monster_id": 9999}).json()["top_hunters"] == []
 
     # Out-of-range top_n is a 422 (validated at the API boundary).
     bad = client.get("/api/progress/improvement", params={"top_n": 0})
