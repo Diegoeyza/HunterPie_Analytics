@@ -530,6 +530,93 @@ def _delete_children(session: Session, hunt_id: int) -> None:
     session.execute(delete(HuntPlayer).where(HuntPlayer.hunt_id == hunt_id))
 
 
+#: HunterPie exports an already-active buff as sub-second "glimpses" when the
+#: quest loads, then the real window once the game applies it — a long
+#: quest-start sequence (first hunt after a patch, intro demo) can delay that
+#: by a minute. Merge the glimpses into the buff's first real window so a buff
+#: carried into the quest is drawn from the start instead of mid-fight.
+CARRY_IN_GLIMPSE_MAX_S = 2.0
+CARRY_IN_GLIMPSE_WINDOW_S = 10.0
+
+
+def _merge_carry_in_buffs(abnormalities: list[dict]) -> list[dict]:
+    """Fold quest-start glimpses into the buff's first real window.
+
+    Only the opening of the hunt is touched: a glimpse is a window shorter
+    than ``CARRY_IN_GLIMPSE_MAX_S`` that starts inside the first
+    ``CARRY_IN_GLIMPSE_WINDOW_S`` seconds and is followed by a longer window of
+    the same (player, buff). Mid-quest re-drinks are left alone.
+    """
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for a in abnormalities:
+        groups.setdefault((a["display_name"], a["abnormality_id"]), []).append(a)
+    out: list[dict] = []
+    for windows in groups.values():
+        windows.sort(key=lambda w: w["started_at_offset"])
+        leading = 0
+        for w in windows:
+            start = w["started_at_offset"]
+            end = w.get("finished_at_offset")
+            if start > CARRY_IN_GLIMPSE_WINDOW_S:
+                break
+            if end is None or end - start > CARRY_IN_GLIMPSE_MAX_S:
+                break
+            leading += 1
+        if 0 < leading < len(windows):
+            # Copy: payload dicts are reused (a re-import must see the dump as
+            # exported, and running the merge twice must not move anything).
+            first = dict(windows[leading])
+            first["started_at_offset"] = max(
+                0.0, min(w["started_at_offset"] for w in windows[:leading]))
+            out.append(first)
+            out.extend(windows[leading + 1:])
+        else:
+            out.extend(windows)
+    return out
+
+
+def _refresh_abnormalities(session: Session, hunt: Hunt, payload: dict) -> None:
+    """Re-apply a companion dump's buffs to a hunt it already created.
+
+    Buffs are companion-owned, so re-reading them is idempotent — and it is
+    how hunts imported before the carry-in merge (or before the quest-clock
+    fix) are healed on the next Import, without touching damage or awards.
+    """
+    windows = _merge_carry_in_buffs(list(payload.get("abnormalities") or []))
+    if not windows:
+        return
+    # The hunt may have been re-anchored to the mod's quest start since the
+    # first import; the payload's offsets are relative to the companion clock,
+    # so they move by (companion start - hunt start).
+    delta = (_coerce_ts(payload["started_at"]) - hunt.started_at).total_seconds()
+    player_ids = dict(session.execute(
+        select(Player.display_name, HuntPlayer.player_id)
+        .join(HuntPlayer, HuntPlayer.player_id == Player.id)
+        .where(HuntPlayer.hunt_id == hunt.id)).all())
+    rows = []
+    for a in windows:
+        pid = player_ids.get(a["display_name"])
+        if pid is None:
+            continue
+        start = a["started_at_offset"] + delta
+        end = a.get("finished_at_offset")
+        end = None if end is None else end + delta
+        if end is not None and end <= 0:
+            continue
+        rows.append((pid, a["abnormality_id"], a["category"],
+                     max(0.0, start), end))
+    if not rows:
+        return
+    session.execute(delete(PlayerAbnormality)
+                    .where(PlayerAbnormality.hunt_id == hunt.id))
+    for pid, ab_id, category, start, end in rows:
+        session.add(PlayerAbnormality(
+            hunt_id=hunt.id, player_id=pid, abnormality_id=ab_id,
+            category=category, started_at_offset=start,
+            finished_at_offset=end))
+    session.flush()
+
+
 def _insert_children(session: Session, hunt: Hunt, payload: dict,
                      now: datetime, warnings: list[str], cache: dict,
                      supporter_names: set[str] | None = None,
@@ -595,7 +682,7 @@ def _insert_children(session: Session, hunt: Hunt, payload: dict,
             hunt_id=hunt.id, monster_id=hunt.monster_id,
             ts_offset_seconds=h["ts_offset_seconds"],
             hp_fraction=h["hp_fraction"]))
-    for a in payload.get("abnormalities", []):
+    for a in _merge_carry_in_buffs(list(payload.get("abnormalities") or [])):
         if a["display_name"] not in player_ids:
             continue
         session.add(PlayerAbnormality(
@@ -1020,6 +1107,12 @@ def upsert_hunt(session: Session, payload: dict,
                                     cache)
         elif source == "reframework" and existing.source == "hunterpie":
             _enrich_from_reframework(session, existing, payload)
+        elif source == "hunterpie":
+            # Same-source re-import: buffs are companion-owned, so re-reading
+            # them is idempotent and heals hunts imported before the carry-in
+            # merge / quest-clock fix. Damage, awards and HP are untouched.
+            _refresh_abnormalities(session, existing, payload)
+            session.commit()
         warnings.extend(reconcile_hp_identity(session, existing))
         return existing, False, warnings
 
