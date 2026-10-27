@@ -497,16 +497,16 @@ make bench
 See [docs/SHARING.md](docs/SHARING.md). The REFramework mod, the HunterPie fork,
 and this app are independent pieces.
 
-End users get ready-to-run artifacts from **GitHub Releases** (built by CI, see
+Every release on **GitHub Releases** carries these files (built by CI, see
 `.github/workflows/release.yml`):
 
-| Artifact | Contents |
-|----------|----------|
-| `HunterPieAnalytics-Setup-<ver>.exe` | One-click per-user installer (desktop app + bundled Lua mod + companion) |
-| `HunterPieAnalytics-<ver>.msix` | Microsoft Store package (dashboard only) |
-| `hunt-dumper-lua.zip` | REFramework mod (`hunt_dumper.lua` + `INSTALL.txt`) |
-| `HuntDumper-<ver>.zip` | REFramework mod, game-folder layout (Vortex/Nexus) |
-| `HunterPie-AnalyticsFork.zip` | Prebuilt analytics-export fork (for HunterPie-only users) |
+| Artifact | Where | Contents |
+|----------|-------|----------|
+| `HunterPieAnalytics-Setup-<ver>.exe` | GitHub Releases | One-click per-user installer (desktop app + bundled companion + Lua mod) |
+| `HuntDumper-<ver>.zip` | GitHub Releases, Nexus | REFramework mod, game-folder layout (Vortex-ready) |
+| `SHA256SUMS.txt` | GitHub Releases | Checksums for the two files above |
+| `HunterPie-AnalyticsFork.zip` | CI artifact (`Build HunterPie fork`) | Prebuilt analytics-export companion, for HunterPie-only users |
+| `HunterPieAnalytics-<ver>.msix` | Microsoft Store (built locally) | Store package, dashboard only |
 
 Local, developer-oriented bundle (no Windows build tools needed):
 
