@@ -99,10 +99,11 @@ def test_awards_persisted():
                      ).scalar_one() == 4
     names = set(s.execute(select(Award.name)).scalars().all())
     assert {"Established Hunter", "Wound Opener"} <= names
-    # Award 0 (channel array) stores its count as the channel sum.
+    # Award 0 (channel array) credits the applier's column, not their row.
+    # Isi is party position 0 and Bob has no channel row, so Isi applied 1.
     ch0 = s.execute(select(HuntPlayerAward.count).where(
         HuntPlayerAward.award_id == 0)).scalar_one()
-    assert ch0 == 10.0
+    assert ch0 == 1.0
 
 
 def test_hunt_highlights_endpoint():

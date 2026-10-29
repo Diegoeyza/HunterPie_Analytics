@@ -508,16 +508,60 @@ def _hunt_columns(payload: dict, started_at: datetime,
     )
 
 
-def _add_award(session: Session, hunt_id: int, player_id: int, a: dict) -> None:
+def _support_applied(players: list[dict]) -> dict[str, float]:
+    """Support All-Star ("Buffs and Heals Applied") per player.
+
+    Award 0 is a uint32[4] *row* per party member, indexed by the party
+    position of the hunter who applied the support: a row is what that member
+    *received* from each one (its diagonal is self-support). The game credits
+    the applier once per hunter affected, i.e. the sum of the applier's
+    *column* — the row sum is "support received", a different and much smaller
+    number. Only the party order (the payload's player order) is needed, so
+    this works on the dump itself and is exact.
+    """
+    rows: list[list[int]] = []
+    scalars: list[float] = []
+    any_channels = False
+    for p in players:
+        ch = None
+        count = 0.0
+        for a in p.get("awards") or []:
+            if a.get("id") is not None and int(a["id"]) == 0:
+                ch = a.get("channels")
+                count = float(a.get("count", 0) or 0)
+                break
+        if ch:
+            any_channels = True
+        rows.append([int(v or 0) for v in (ch or [])][:4])
+        scalars.append(count)
+    # Solo hunts never call the shared-award sync: the mod exports the game's
+    # own scalar instead of a channel row, and there is no party to split.
+    if not any_channels:
+        return {}
+    out: dict[str, float] = {}
+    for i, p in enumerate(players):
+        applied = sum(r[i] if i < len(r) else 0 for r in rows)
+        if not rows[i]:
+            # No channel row for this hunter (self award only): keep the
+            # game's scalar, which is their own self-support.
+            applied = max(applied, scalars[i])
+        out[p["display_name"]] = float(applied)
+    return out
+
+
+def _add_award(session: Session, hunt_id: int, player_id: int, a: dict,
+               support: float | None = None) -> None:
     aid = a.get("id")
     if aid is None:
         return
     ch = a.get("channels")
     count = float(a.get("count", 0) or 0)
-    # Award 0 (Support All-Star) is a uint32[4] channel array; the per-hunt
-    # value is the sum of its channels.
-    if int(aid) == 0 and ch:
-        count = float(sum(x or 0 for x in ch))
+    if int(aid) == 0:
+        # Buffs/heals applied = the player's column in the party matrix.
+        # `support` is absent only for payloads without the party order; fall
+        # back to the row sum the mod used to export.
+        count = (float(support) if support is not None
+                 else (float(sum(x or 0 for x in ch)) if ch else count))
     session.add(HuntPlayerAward(
         hunt_id=hunt_id, player_id=player_id, award_id=int(aid), count=count,
         channels=json.dumps(ch) if ch else None))
@@ -629,6 +673,7 @@ def _insert_children(session: Session, hunt: Hunt, payload: dict,
     HunterPie dump refreshes a mod-created hunt (HunterPie has no name)."""
     supporter_names = supporter_names or set()
     weapon_names = weapon_names or {}
+    support = _support_applied(payload["players"])
     player_ids: dict[str, int] = {}
     for p in payload["players"]:
         pkey = ("player", p["display_name"])
@@ -661,7 +706,8 @@ def _insert_children(session: Session, hunt: Hunt, payload: dict,
             weapon_name=(p.get("weapon_name")
                          or weapon_names.get(p["display_name"]))))
         for a in p.get("awards") or []:
-            _add_award(session, hunt.id, pid, a)
+            _add_award(session, hunt.id, pid, a,
+                       support.get(p["display_name"]))
     for s in payload.get("snapshots", []):
         if s["display_name"] not in player_ids:
             raise ValueError(
@@ -841,6 +887,7 @@ def _enrich_from_reframework(session: Session, hunt: Hunt,
     if mod_version and hunt.mod_version != mod_version:
         hunt.mod_version = mod_version
         changed = True
+    support = _support_applied(payload["players"])
     for p in payload["players"]:
         hp = hp_by_name.get(p["display_name"])
         if hp is None:
@@ -856,7 +903,8 @@ def _enrich_from_reframework(session: Session, hunt: Hunt,
             aid = a.get("id")
             if aid is None or (hp.player_id, int(aid)) in have:
                 continue
-            _add_award(session, hunt.id, hp.player_id, a)
+            _add_award(session, hunt.id, hp.player_id, a,
+                       support.get(p["display_name"]))
             changed = True
     # Player HP samples are quest-wide and mod-only: replace any previous
     # attach so repeated enriches can't duplicate rows.

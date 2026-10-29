@@ -12,6 +12,7 @@ Design:
 """
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from pathlib import Path
@@ -54,7 +55,7 @@ EXTRA_COLUMNS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-LATEST_VERSION = 9
+LATEST_VERSION = 10
 
 
 def _sqlite_url(db_path: str | Path) -> str:
@@ -260,12 +261,48 @@ def _migrate_v9(conn) -> None:
     ])
 
 
+def _migrate_v10(conn) -> None:
+    """Support All-Star: credit the buffs/heals a player *applied*.
+
+    Award 0 was stored as the sum of the player's own uint32[4] row, which is
+    the support they *received* (their row is what each party member gave
+    them). The game credits the applier once per hunter affected, i.e. that
+    player's column in the party matrix. Rebuild the counts from the channels
+    we already store; the insertion order of the award rows is the party order
+    the mod exported (verified against every mod dump on disk)."""
+    rows = conn.execute(text(
+        "SELECT hunt_id, player_id, channels FROM hunt_player_awards "
+        "WHERE award_id = 0 AND channels IS NOT NULL "
+        "ORDER BY hunt_id, rowid"
+    )).all()
+    per_hunt: dict[int, list[tuple[int, list[int]]]] = {}
+    for hunt_id, player_id, channels in rows:
+        try:
+            ch = [int(v or 0) for v in json.loads(channels)][:4]
+        except (TypeError, ValueError):
+            continue
+        per_hunt.setdefault(hunt_id, []).append((player_id, ch))
+
+    params = []
+    for hunt_id, entries in per_hunt.items():
+        for pos, (player_id, _ch) in enumerate(entries):
+            applied = sum(ch[pos] if pos < len(ch) else 0 for _, ch in entries)
+            params.append({"count": float(applied), "hunt_id": hunt_id,
+                           "player_id": player_id})
+    if params:
+        conn.execute(text(
+            "UPDATE hunt_player_awards SET count = :count "
+            "WHERE hunt_id = :hunt_id AND player_id = :player_id "
+            "AND award_id = 0"), params)
+
+
 # v4/v5 (the REFramework weapon-model experiment) were reverted before release;
 # their tables/columns never existed in a shipped DB, so those versions are
 # intentionally absent. migrate() tolerates the gap in the sequence.
 MIGRATIONS: dict[int, object] = {1: _migrate_v1, 2: _migrate_v2, 3: _migrate_v3,
                                  6: _migrate_v6, 7: _migrate_v7,
-                                 8: _migrate_v8, 9: _migrate_v9}
+                                 8: _migrate_v8, 9: _migrate_v9,
+                                 10: _migrate_v10}
 
 
 def migrate(engine=None, db_path: str | Path = DEFAULT_DB_PATH) -> int:
