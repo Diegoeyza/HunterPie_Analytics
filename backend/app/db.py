@@ -21,6 +21,7 @@ from urllib.parse import quote
 from sqlalchemy import create_engine, delete, event, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from .awards import support_applied
 from .models import Base
 from .paths import is_frozen, user_data_dir
 
@@ -285,9 +286,9 @@ def _migrate_v10(conn) -> None:
 
     params = []
     for hunt_id, entries in per_hunt.items():
+        applied = support_applied([ch for _, ch in entries])
         for pos, (player_id, _ch) in enumerate(entries):
-            applied = sum(ch[pos] if pos < len(ch) else 0 for _, ch in entries)
-            params.append({"count": float(applied), "hunt_id": hunt_id,
+            params.append({"count": applied[pos], "hunt_id": hunt_id,
                            "player_id": player_id})
     if params:
         conn.execute(text(

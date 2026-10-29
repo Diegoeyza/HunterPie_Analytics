@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .abnormalities import AbnormalityId
+from .awards import support_applied, support_rows
 from .models import (
     Award,
     DpsSnapshot,
@@ -511,41 +512,25 @@ def _hunt_columns(payload: dict, started_at: datetime,
 def _support_applied(players: list[dict]) -> dict[str, float]:
     """Support All-Star ("Buffs and Heals Applied") per player.
 
-    Award 0 is a uint32[4] *row* per party member, indexed by the party
-    position of the hunter who applied the support: a row is what that member
-    *received* from each one (its diagonal is self-support). The game credits
-    the applier once per hunter affected, i.e. the sum of the applier's
-    *column* — the row sum is "support received", a different and much smaller
-    number. Only the party order (the payload's player order) is needed, so
-    this works on the dump itself and is exact.
+    A player's award-0 row is the support they *received*; the game credits the
+    applier once per hunter affected, i.e. their column (see ``app.awards``).
+    Empty when the dump carries no channel rows (solo hunts export a scalar).
     """
-    rows: list[list[int]] = []
-    scalars: list[float] = []
-    any_channels = False
-    for p in players:
-        ch = None
-        count = 0.0
-        for a in p.get("awards") or []:
-            if a.get("id") is not None and int(a["id"]) == 0:
-                ch = a.get("channels")
-                count = float(a.get("count", 0) or 0)
-                break
-        if ch:
-            any_channels = True
-        rows.append([int(v or 0) for v in (ch or [])][:4])
-        scalars.append(count)
-    # Solo hunts never call the shared-award sync: the mod exports the game's
-    # own scalar instead of a channel row, and there is no party to split.
-    if not any_channels:
+    rows = support_rows(players)
+    if not rows:
         return {}
+    applied = support_applied(rows)
     out: dict[str, float] = {}
     for i, p in enumerate(players):
-        applied = sum(r[i] if i < len(r) else 0 for r in rows)
+        count = applied[i]
         if not rows[i]:
             # No channel row for this hunter (self award only): keep the
             # game's scalar, which is their own self-support.
-            applied = max(applied, scalars[i])
-        out[p["display_name"]] = float(applied)
+            for a in p.get("awards") or []:
+                if a.get("id") is not None and int(a["id"]) == 0:
+                    count = max(count, float(a.get("count", 0) or 0))
+                    break
+        out[p["display_name"]] = count
     return out
 
 

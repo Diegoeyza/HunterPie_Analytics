@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
+from app.awards import support_applied
 from app.db import _on_connect, migrate
 from app.ingest import _support_applied, upsert_hunt
 from app.models import Base, HuntPlayerAward, Monster, Player, Weapon
@@ -86,6 +87,15 @@ def test_column_sum_is_the_applied_support():
         {"display_name": n, "awards": _awards(MATRIX[n])} for n in MATRIX])
     assert applied == {"Malafax": 6.0, "Tyrann": 0.0, "Isi": 411.0,
                        "Smokey": 2.0}
+
+
+def test_party_slot_gap_keeps_every_hunters_support():
+    """Three hunters, one of whom sat in slot 3 (a gap at slot 2): the cells
+    outside the row range still belong to a hunter, so nothing is dropped."""
+    rows = [[20, 4, 0, 1], [10, 8, 0, 1], [10, 4, 0, 2]]
+    applied = support_applied(rows)
+    assert applied == [40.0, 16.0, 4.0]
+    assert sum(applied) == sum(sum(r) for r in rows)  # total preserved
 
 
 def test_ingest_credits_the_applier_not_the_receiver():
