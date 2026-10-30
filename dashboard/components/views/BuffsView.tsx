@@ -15,11 +15,17 @@ interface AbnormalityEntry {
 interface PlayerAbnormalities {
   player: string; abnormalities: AbnormalityEntry[];
 }
+interface EnrageWindow { start: number; end: number | null; }
 interface BuffsData {
   hunt_id: number; monster: string; started_at: string;
   clear_s: number | null; first_hit_s: number | null;
+  enrage: EnrageWindow[];
   players: PlayerAbnormalities[];
 }
+
+/** Derived, not stored: Agitator is active while this hunt's monster is
+ *  enraged. The id must never collide with a companion abnormality id. */
+const AGITATOR_ID = "enrage.agitator";
 
 interface UptimeRow {
   player: string; id: string; name: string; category: string;
@@ -137,6 +143,21 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
       localStorage.setItem(BASIS_KEY, b);
     } catch { /* private mode: basis just won't persist */ }
   };
+  // Toggle: add the derived Agitator row/lane (monster enrage uptime).
+  const AGITATOR_KEY = "hpa.buffsAgitator";
+  const [showAgitator, setShowAgitator] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(AGITATOR_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setAgitatorPersist = (v: boolean) => {
+    setShowAgitator(v);
+    try {
+      localStorage.setItem(AGITATOR_KEY, v ? "1" : "0");
+    } catch { /* private mode: toggle just won't persist */ }
+  };
   // One list for every hunt. Buffs are stored per hunt and never merged across
   // hunts.
   const huntsQ = useApi<{ hunts: HuntSummary[] }>("/hunts", {
@@ -177,6 +198,33 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
   /** Clip origin for the uptime basis, shared by table, lanes, timeline. */
   const t0 = basis === "firstHit" && data?.first_hit_s != null ? data.first_hit_s : 0;
 
+  /** Derived Agitator row/lane: uptime is the monster's enrage windows,
+   *  measured with the same origin/denominator as every recorded buff.
+   *  One quest-wide row (the skill is player-side but the trigger is the
+   *  monster, and buffs are companion-recorded for the local player only). */
+  const agitator = useMemo((): { row: UptimeRow; lane: BuffLane } | null => {
+    if (!data || !showAgitator || data.enrage.length === 0) return null;
+    const clearS = data.clear_s ?? 1;
+    const denom = Math.max(clearS - t0, 0.001);
+    let uptime = 0;
+    let activations = 0;
+    const windows: BuffWindow[] = [];
+    for (const w of data.enrage) {
+      const end = w.end ?? clearS;
+      if (end <= t0) continue;  // enrage closed before the uptime origin
+      uptime += Math.max(0, Math.min(end, clearS) - Math.max(w.start, t0));
+      activations += 1;
+      windows.push({ start: w.start, end: w.end, open: w.end === null });
+    }
+    if (activations === 0) return null;
+    windows.sort((a, b) => a.start - b.start);
+    const base = {
+      player: "—", id: AGITATOR_ID, name: "Agitator", category: "Skills",
+      uptime_s: uptime, pct: (uptime / denom) * 100, activations,
+    };
+    return { row: base, lane: { ...base, windows } };
+  }, [data, showAgitator, t0]);
+
   const rows = useMemo((): UptimeRow[] => {
     if (!data) return [];
     const clearS = data.clear_s ?? 1;
@@ -207,8 +255,9 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
         result.push(row);
       }
     }
+    if (agitator) result.push(agitator.row);
     return result;
-  }, [data, basis]);
+  }, [data, basis, agitator]);
 
   const filtered = useMemo(() => {
     if (!catFilter) return rows;
@@ -245,10 +294,11 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
       lane.pct = (lane.uptime_s / denom) * 100;
       lane.windows.sort((a, b) => a.start - b.start);
     }
+    if (agitator) out.push(agitator.lane);
     out.sort((a, b) => b.pct - a.pct);
     if (!catFilter) return out;
     return out.filter((l) => l.category === catFilter);
-  }, [data, catFilter, basis]);
+  }, [data, catFilter, basis, agitator]);
 
   /** X domain: quest duration, or the furthest observed window end when
    *  clear_s is unknown (ongoing hunt). */
@@ -287,6 +337,17 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
             ))}
           </select>
         </label>
+        <div className="seg" role="group" aria-label="Derived buffs">
+          <button
+            type="button"
+            className={showAgitator ? "on" : ""}
+            aria-pressed={showAgitator}
+            onClick={() => setAgitatorPersist(!showAgitator)}
+            title="Show Agitator uptime, derived from the monster's enrage windows"
+          >
+            Agitator
+          </button>
+        </div>
         <div className="seg" role="group" aria-label="Buffs view">
           <button type="button" className={view === "table" ? "on" : ""}
             aria-pressed={view === "table"}
@@ -320,6 +381,13 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
             #{data.hunt_id} {data.monster}
             {data.clear_s ? ` · cleared in ${fmtTime(data.clear_s)}` : ""}
           </h2>
+          {showAgitator && data.enrage.length === 0 && (
+            <p className="blurb">
+              No enrage windows recorded for this hunt, so Agitator cannot be
+              derived. Enrage is recorded by the <b>HunterPie Analytics
+              companion</b>.
+            </p>
+          )}
           {filtered.length === 0 ? (
             catFilter ? (
               <p className="blurb">No {catFilter} data in this hunt.</p>
@@ -351,12 +419,21 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
               />
               <p className="blurb">
                 Recorded by the HunterPie Analytics companion for the local player.
+                {agitator
+                  ? " Agitator is derived from this hunt's monster enrage windows, not from your build."
+                  : ""}
               </p>
             </>
           ) : (
             <>
               <BuffTimeline lanes={lanes} domain={domain} t0={t0} />
-              <p className="blurb">Shaded = active. Hover a block for exact times. Open-ended blocks ran to quest end.</p>
+              <p className="blurb">
+                Shaded = active. Hover a block for exact times. Open-ended
+                blocks ran to quest end.
+                {agitator
+                  ? " The Agitator lane is derived from the monster's enrage windows."
+                  : ""}
+              </p>
             </>
           )}
         </>

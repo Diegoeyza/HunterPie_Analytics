@@ -175,6 +175,59 @@ def test_abnormalities_reports_first_hit():
     assert body["players"][0]["abnormalities"][0]["start"] == 10.0
 
 
+def test_abnormalities_reports_enrage_windows():
+    """`/hunts/{id}/abnormalities` carries the monster's enrage spans so the
+    Buffs tab can derive Agitator uptime. Overlapping spans merge, and a
+    mod-only hunt (no enrage events) returns an empty list."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    def seed(s):
+        s.add_all([Monster(id=31, name="Xu Wu"),
+                   Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn")])
+        s.flush()
+
+        def payload(start, source="hunterpie", events=None):
+            return {
+                "monster_id": 31, "_monster_name": "Xu Wu",
+                "started_at": start, "ended_at": start + timedelta(minutes=3),
+                "hunterpie_version": "t", "game_version": "g",
+                "source": source,
+                "players": [{"display_name": "Isi", "weapon_id": 6,
+                             "total_damage": 1000.0, "peak_dps": 50.0,
+                             "is_supporter": False}],
+                "events": events or [],
+            }
+
+        # Overlapping spans merge into one window: 10-40.
+        upsert_hunt(s, payload(datetime(2026, 9, 6, 3, 0), events=[
+            {"event_type": "enrage", "start_offset_seconds": 10.0,
+             "end_offset_seconds": 35.0},
+            {"event_type": "enrage", "start_offset_seconds": 30.0,
+             "end_offset_seconds": 40.0},
+        ]))
+        # Open-ended span (still enraged when the quest ended).
+        upsert_hunt(s, payload(datetime(2026, 9, 7, 3, 0), events=[
+            {"event_type": "enrage", "start_offset_seconds": 50.0,
+             "end_offset_seconds": None},
+        ]))
+        upsert_hunt(s, payload(datetime(2026, 9, 8, 3, 0),
+                               source="reframework"))
+
+    client, _ = make_client(seed)
+    hunts = sorted(client.get("/api/hunts").json()["hunts"],
+                   key=lambda h: h["started_at"])
+    merged = client.get(
+        f"/api/hunts/{hunts[0]['id']}/abnormalities").json()
+    assert merged["enrage"] == [{"start": 10.0, "end": 40.0}]
+    open_ended = client.get(
+        f"/api/hunts/{hunts[1]['id']}/abnormalities").json()
+    assert open_ended["enrage"] == [{"start": 50.0, "end": None}]
+    mod_only = client.get(
+        f"/api/hunts/{hunts[2]['id']}/abnormalities").json()
+    assert mod_only["enrage"] == []
+
+
 def test_sos_join_dps_uses_own_window():
     """Late (SOS) joiner: DPS = own damage / own tracked window, not the
     party-wide first-hit→death window (regression: showed ~2x real DPS)."""

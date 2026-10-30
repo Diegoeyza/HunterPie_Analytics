@@ -794,12 +794,35 @@ def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
         select(func.min(DpsSnapshot.ts_offset_seconds))
         .where(DpsSnapshot.hunt_id == hunt_id)
     ).scalar()
+    # Enrage spans of THIS hunt's monster. The buff tab derives Agitator
+    # uptime from them (active while the monster is enraged), so they travel
+    # with the buff payload instead of a second request. Overlaps are merged
+    # so the derived uptime can never double-count a span.
+    enrage_rows = session.execute(
+        select(MonsterEvent.start_offset_seconds,
+               MonsterEvent.end_offset_seconds)
+        .where(MonsterEvent.hunt_id == hunt_id,
+               MonsterEvent.event_type == "enrage")
+        .order_by(MonsterEvent.start_offset_seconds)
+    ).all()
+    enrage: list[dict] = []
+    for start, end in enrage_rows:
+        if enrage and (enrage[-1]["end"] is None
+                       or start <= enrage[-1]["end"]):
+            # Overlapping/open span: extend the previous window instead of
+            # adding a second one (end=None means "still enraged").
+            prev = enrage[-1]
+            if prev["end"] is None or (end is not None and end > prev["end"]):
+                prev["end"] = end
+            continue
+        enrage.append({"start": start, "end": end})
     return {
         "hunt_id": hunt_id,
         "monster": hunt.monster.name,
         "started_at": hunt.started_at.isoformat(),
         "clear_s": hunt_duration_s(hunt),
         "first_hit_s": first_hit,
+        "enrage": enrage,
         "players": list(players.values()),
     }
 
