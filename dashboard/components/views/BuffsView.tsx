@@ -110,7 +110,7 @@ function BuffTimeline({ lanes, domain, t0 }: { lanes: BuffLane[]; domain: number
         <div className="buff-track buff-axis-track">
           {ticks.map((t) => (
             <span key={t} className="buff-tick" style={{ left: `${((t - t0) / span) * 100}%` }}>
-              {t}s
+              {fmtTime(t)}
             </span>
           ))}
         </div>
@@ -318,7 +318,7 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
         <>
           <h2>
             #{data.hunt_id} {data.monster}
-            {data.clear_s ? ` · cleared in ${Math.round(data.clear_s)}s` : ""}
+            {data.clear_s ? ` · cleared in ${fmtTime(data.clear_s)}` : ""}
           </h2>
           {filtered.length === 0 ? (
             catFilter ? (

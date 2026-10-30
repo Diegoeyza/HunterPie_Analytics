@@ -8,6 +8,7 @@ import { HunterSelect, MonsterSelect, StarsSelect, WeaponSelect, splitQuestValue
 import { useFilterOptions } from "../useFilterOptions";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
 import { GRID_STROKE, TICK, TIP_STYLE } from "../ChartKit";
+import { fmtTime } from "../../lib/format";
 
 interface Point {
   hunt_id: number; started_at: string; monster: string;
@@ -44,8 +45,8 @@ const METRICS: Record<ProgressMetric, {
     note: "Your part of the party's total damage — roughly flat when the whole party (or the monster's HP) changes, so it tracks your relative contribution.",
   },
   clear: {
-    label: "Clear time", title: "Clear time per hunt", axis: "clear time (s)",
-    unit: "s", note: "Seconds to finish the quest — lower is better; mixes in damage, routing and monster uptime.",
+    label: "Clear time", title: "Clear time per hunt", axis: "clear time",
+    unit: "s", note: "Finish time per quest (m:ss) — lower is better; mixes in damage, routing and monster uptime.",
   },
 };
 
@@ -188,14 +189,20 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
           <CartesianGrid stroke={GRID_STROKE} />
           <XAxis dataKey="x" tick={TICK} interval="preserveStartEnd" />
           <YAxis yAxisId="value" tick={TICK}
+            tickFormatter={metric === "clear"
+              ? (v: number) => fmtTime(v) : undefined}
             label={{ value: METRICS[metric].axis, fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: -90, position: "insideLeft" }} />
           {metric !== "clear" && (
             <YAxis yAxisId="time" orientation="right" tick={TICK}
-              label={{ value: "clear time (s)", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: 90, position: "insideRight" }} />
+              tickFormatter={(v: number) => fmtTime(v)}
+              label={{ value: "clear time", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: 90, position: "insideRight" }} />
           )}
           <Tooltip contentStyle={TIP_STYLE} formatter={(value, name) => {
             const v = Number(value);
-            if (name === "clear (s)") return [`${Math.round(v)}s`, name];
+            // Durations read as m:ss everywhere; only this chart mixes one
+            // with percentages, so pick by series name.
+            if (String(name) === "clear time" || metric === "clear")
+              return [fmtTime(v), name];
             const unit = METRICS[metric].unit;
             return [`${Math.round(v * 10) / 10}${unit}`, name];
           }} />
@@ -213,7 +220,7 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
               label={{ value: "usual", fill: "var(--chart-tick, #9aa1b2)", fontSize: 10, position: "insideTopRight" }} />
           )}
           {metric !== "clear" && (
-            <Line yAxisId="time" type="monotone" dataKey="clear_s" name="clear (s)" stroke="#58b368" dot={false} isAnimationActive={false} />
+            <Line yAxisId="time" type="monotone" dataKey="clear_s" name="clear time" stroke="#58b368" dot={false} isAnimationActive={false} />
           )}
         </ComposedChart>
       </ResponsiveContainer>

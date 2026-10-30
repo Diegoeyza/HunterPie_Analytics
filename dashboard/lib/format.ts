@@ -1,8 +1,11 @@
 /** Shared number/time formatting. Use these instead of per-view copies. */
 
+/** Hunt durations as minutes:seconds ("9:07"). Rounding happens on the total
+ *  so 539.7 s reads 9:00, never 8:60. */
 export const fmtTime = (s: number | null | undefined): string => {
   if (s === null || s === undefined) return "—";
-  return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+  const total = Math.max(0, Math.round(s));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 };
 
 export const fmtDps = (d: number | null | undefined, digits = 1): string =>

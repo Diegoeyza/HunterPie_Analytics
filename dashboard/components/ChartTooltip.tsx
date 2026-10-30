@@ -1,3 +1,4 @@
+import { fmtTime } from "../lib/format";
 import type { Metric } from "../lib/metrics";
 
 export interface ChartEvent {
@@ -40,7 +41,7 @@ export default function ChartTooltip({ active, payload, label, metric, events, c
   return (
     <div style={{ background: "#1d2029", border: "1px solid #2c313e", padding: "8px 10px", fontSize: 12 }}>
       <div style={{ color: "#9aa1b2", marginBottom: 4 }}>
-        {Number.isFinite(t) ? `${t.toFixed(1)}s` : ""}
+        {Number.isFinite(t) ? fmtTime(t) : ""}
       </div>
       {payload.map((p, i) => (
         <div key={i} style={{ color: p.color ?? "#c8cddd" }}>

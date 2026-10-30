@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { fmtDate } from "../../lib/format";
+import { fmtDate, fmtTime } from "../../lib/format";
 import { ApiState, useApi } from "../../lib/useApi";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
 import { useFilterOptions } from "../useFilterOptions";
@@ -273,7 +273,7 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
                     </div>
                     <div>Median: <strong style={{ color: "var(--text)" }}>{g.median_dps ?? "—"}</strong> · Best: <strong style={{ color: "var(--text)" }}>{g.best_dps ?? "—"}</strong></div>
                     <div>Slope: <strong style={{ color: "var(--text)" }}>{g.slope_per_hunt != null ? `${g.slope_per_hunt >= 0 ? "+" : ""}${g.slope_per_hunt}/hunt` : "—"}</strong></div>
-                    <div>Clear: <strong style={{ color: "var(--text)" }}>{g.first_clear_s != null ? `${g.first_clear_s}s → ${g.latest_clear_s}s` : "—"}</strong>
+                    <div>Clear: <strong style={{ color: "var(--text)" }}>{g.first_clear_s != null ? `${fmtTime(g.first_clear_s)} → ${fmtTime(g.latest_clear_s)}` : "—"}</strong>
                       {g.clear_pct_improvement != null && g.first_clear_s ? (
                         <span style={{ color: clearPositive ? "var(--good)" : "var(--bad)" }}> ({clearPositive ? "+" : ""}{g.clear_pct_improvement}% faster)</span>
                       ) : null}
@@ -282,7 +282,7 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
 
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", overflowX: "auto", paddingBottom: "4px" }}>
                     {g.hunts.map((h, hIdx) => (
-                      <div key={h.hunt_id} title={`Hunt #${h.hunt_id} (${fmtDate(h.started_at)}): ${Math.round(h.dps * 10) / 10} DPS${h.clear_s ? `, ${Math.round(h.clear_s)}s` : ""}`}
+                      <div key={h.hunt_id} title={`Hunt #${h.hunt_id} (${fmtDate(h.started_at)}): ${Math.round(h.dps * 10) / 10} DPS${h.clear_s ? `, ${fmtTime(h.clear_s)}` : ""}`}
                         style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: "60px", background: "var(--panel)", padding: "6px 8px", borderRadius: "6px", border: "1px solid var(--border)" }}>
                         <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>#{h.hunt_id}{hIdx === 0 ? " ·1st" : hIdx === g.hunts.length - 1 ? " ·new" : ""}</span>
                         <span style={{ fontSize: "0.9rem", fontWeight: "600", color: "var(--accent)" }}>{Math.round(h.dps * 10) / 10}</span>

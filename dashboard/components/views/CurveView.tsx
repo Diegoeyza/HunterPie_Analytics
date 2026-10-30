@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { seriesColor, type HuntSummary } from "../../lib/api";
-import { fmtDate, fmtInt } from "../../lib/format";
+import { fmtDate, fmtInt, fmtTime } from "../../lib/format";
 import { ApiState, useApi } from "../../lib/useApi";
 import SearchSelect from "../SearchSelect";
 import EmptyState from "../EmptyState";
@@ -295,7 +295,7 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
             {curve.quest.stars ? ` · ${curve.quest.stars}★` : ""}
             {curve.quest.quest_id ? ` · quest #${curve.quest.quest_id}` : ""}
             {monsterHunt != null && curve.quest.max_hp ? ` · ${fmtInt(curve.quest.max_hp)} HP` : ""}
-            {curve.clear_s ? ` · cleared in ${Math.round(curve.clear_s)}s` : ""}
+            {curve.clear_s ? ` · cleared in ${fmtTime(curve.clear_s)}` : ""}
           </h2>
           {enrageGroups.length > 0 && (
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "4px 0 8px", fontSize: 12 }}>
@@ -315,7 +315,7 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
             <LineChart data={merged}>
               <CartesianGrid stroke={GRID_STROKE} />
               <XAxis dataKey="t" tick={TICK}
-                tickFormatter={(v: number) => `${Math.round(v)}s`}
+                tickFormatter={(v: number) => fmtTime(v)}
                 label={{ value: "time since quest start", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, position: "insideBottom", offset: -2 }} />
               <YAxis tick={TICK}
                 label={{

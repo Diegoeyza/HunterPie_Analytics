@@ -231,7 +231,7 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
             #{curve.hunt_id} {curve.monster}
             {curve.quest.stars ? ` · ${curve.quest.stars}★` : ""}
             {curve.clear_s
-              ? ` · ${curve.cleared === false ? "failed after" : "cleared in"} ${Math.round(curve.clear_s)}s`
+              ? ` · ${curve.cleared === false ? "failed after" : "cleared in"} ${fmtTime(curve.clear_s)}`
               : ""}
           </h2>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "4px 0 8px" }}>
@@ -278,7 +278,7 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
                 <LineChart data={merged}>
                   <CartesianGrid stroke={GRID_STROKE} />
                   <XAxis dataKey="t" tick={TICK} minTickGap={40}
-                    tickFormatter={(v: number) => `${Math.round(v)}s`}
+                    tickFormatter={(v: number) => fmtTime(v)}
                     label={{ value: "time since quest start", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, position: "insideBottom", offset: -2 }} />
                   {hasDps && (
                     <YAxis tick={TICK}

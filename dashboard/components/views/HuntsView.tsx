@@ -284,7 +284,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                       <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
                       <XAxis
                         dataKey="t" minTickGap={40}
-                        tickFormatter={(v: number) => `${Math.round(v)}s`}
+                        tickFormatter={(v: number) => fmtTime(v)}
                         tick={TICK} stroke="var(--chart-tick, #9aa1b2)"
                       />
                       <YAxis
