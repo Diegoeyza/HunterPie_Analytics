@@ -275,6 +275,15 @@ def abnormalities(hunt_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, f"hunt {hunt_id} not found") from None
 
 
+@app.get("/api/hunts/{hunt_id}/monster-status")
+def monster_status(hunt_id: int, db: Session = Depends(get_db)):
+    """Enrage + ailment activation windows for the hunt's monster."""
+    try:
+        return queries.hunt_monster_status(db, hunt_id)
+    except KeyError:
+        raise HTTPException(404, f"hunt {hunt_id} not found") from None
+
+
 @app.get("/api/hunts/{hunt_id}/highlights")
 def hunt_highlights(hunt_id: int, db: Session = Depends(get_db)):
     """Per-hunt hunter highlights (awards + damage share) for every player."""

@@ -275,6 +275,19 @@ nav.tabs button {
 }
 nav.tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
 
+/* Second-level tabs inside a card (Buffs: Hunters / Monster). */
+nav.subtabs {
+  display: flex; gap: 2px; margin: -2px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+nav.subtabs button {
+  background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--muted); font-size: 13px; padding: 6px 12px;
+  cursor: pointer; margin-bottom: -1px;
+}
+nav.subtabs button:hover { color: var(--text); }
+nav.subtabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+
 main {
   padding: 16px 20px 40px;
   max-width: min(1600px, 100% - 32px);

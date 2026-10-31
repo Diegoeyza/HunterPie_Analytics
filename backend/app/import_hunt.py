@@ -5,6 +5,7 @@ Dump schema (audited 2026-09-06 against Diegoeyza/HunterPie@analytics-export):
   players[].{name, weapon (Wilds Weapon enum id), damages[{damage, dealt_at}],
              abnormalities, is_hunterpie_user}
   monsters[].{id, variant, max_health, crown, enrage.activations[],
+               ailments[{id, activations[]}],
                hunt_started_at, hunt_finished_at, hunt_type, health_steps[]}
   quest.{id, type, level, stars, deaths, max_deaths} -> hunts quest_* columns
 
@@ -555,6 +556,31 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
             "end_offset_seconds": (parse_ts(a["finished_at"]) - started).total_seconds()
             if a.get("finished_at") else None,
         })
+    # Monster ailments (HunterPie fork >= ailment build). Several memory slots
+    # map to the same status (two poison ids, two stun ids, ...), so the fork
+    # normally already merged them; dedupe exact windows defensively because
+    # monster_events is unique on (hunt, monster, type, start).
+    seen_status: set[tuple[str, float]] = set()
+    for ailment in m.get("ailments") or []:
+        raw_id = str(ailment.get("id") or "")
+        name = raw_id.upper().removeprefix("AILMENT_").lower()
+        if not name or name in {"enrage", "unknown"}:
+            continue
+        for a in ailment.get("activations") or []:
+            if not a.get("started_at"):
+                continue
+            start_s = (parse_ts(a["started_at"]) - started).total_seconds()
+            event = {
+                "event_type": f"ailment.{name}",
+                "start_offset_seconds": start_s,
+                "end_offset_seconds": (parse_ts(a["finished_at"]) - started).total_seconds()
+                if a.get("finished_at") else None,
+            }
+            key = (event["event_type"], round(start_s, 3))
+            if key in seen_status:
+                continue
+            seen_status.add(key)
+            events.append(event)
 
     hp_steps = [{
         "ts_offset_seconds": (parse_ts(s["time"]) - started).total_seconds(),

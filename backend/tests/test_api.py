@@ -228,6 +228,65 @@ def test_abnormalities_reports_enrage_windows():
     assert mod_only["enrage"] == []
 
 
+def test_monster_status_reports_enrage_and_ailments():
+    """`/hunts/{id}/monster-status` feeds the Monster sub-tab: enrage plus
+    ailment windows, each merged per status. Curve events stay enrage-only so
+    ailments don't shade the damage charts."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    def seed(s):
+        s.add_all([Monster(id=31, name="Xu Wu"),
+                   Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn")])
+        s.flush()
+        start = datetime(2026, 9, 6, 3, 0)
+        upsert_hunt(s, {
+            "monster_id": 31, "_monster_name": "Xu Wu",
+            "started_at": start, "ended_at": start + timedelta(minutes=3),
+            "hunterpie_version": "t", "game_version": "g",
+            "source": "hunterpie",
+            "players": [{"display_name": "Isi", "weapon_id": 6,
+                         "total_damage": 1000.0, "peak_dps": 50.0,
+                         "is_supporter": False}],
+            "snapshots": [{"display_name": "Isi", "ts_offset_seconds": 42.0,
+                           "cumulative_damage": 1000.0, "instant_dps": 50.0}],
+            "events": [
+                # Overlaps merge: 10-40.
+                {"event_type": "enrage", "start_offset_seconds": 10.0,
+                 "end_offset_seconds": 35.0},
+                {"event_type": "enrage", "start_offset_seconds": 30.0,
+                 "end_offset_seconds": 40.0},
+                # Duplicate slots merge: 50-80.
+                {"event_type": "ailment.poison", "start_offset_seconds": 50.0,
+                 "end_offset_seconds": 70.0},
+                {"event_type": "ailment.poison", "start_offset_seconds": 60.0,
+                 "end_offset_seconds": 80.0},
+                {"event_type": "ailment.stun", "start_offset_seconds": 100.0,
+                 "end_offset_seconds": 112.0},
+            ],
+        })
+
+    client, _ = make_client(seed)
+    hunt_id = client.get("/api/hunts").json()["hunts"][0]["id"]
+    body = client.get(f"/api/hunts/{hunt_id}/monster-status").json()
+    assert body["monster"] == "Xu Wu"
+    assert body["first_hit_s"] == 42.0
+    enrage = [s for s in body["statuses"] if s["id"] == "enrage"]
+    assert enrage == [{"id": "enrage", "name": "Enrage", "kind": "Enrage",
+                       "start": 10.0, "end": 40.0}]
+    poison = [s for s in body["statuses"] if s["id"] == "ailment.poison"]
+    assert poison == [{"id": "ailment.poison", "name": "Poison",
+                       "kind": "Ailment", "start": 50.0, "end": 80.0}]
+    stun = [s for s in body["statuses"] if s["id"] == "ailment.stun"]
+    assert stun == [{"id": "ailment.stun", "name": "Stun", "kind": "Ailment",
+                     "start": 100.0, "end": 112.0}]
+
+    curve = client.get(f"/api/hunts/{hunt_id}/curve").json()
+    assert {e["type"] for e in curve["events"]} == {"enrage"}
+    assert len(curve["events"]) == 2
+    assert client.get("/api/hunts/9999/monster-status").status_code == 404
+
+
 def test_sos_join_dps_uses_own_window():
     """Late (SOS) joiner: DPS = own damage / own tracked window, not the
     party-wide first-hit→death window (regression: showed ~2x real DPS)."""
@@ -1489,9 +1548,16 @@ def test_update_check_passes_through_updater(monkeypatch):
 
 
 def test_update_run_is_windows_only(monkeypatch):
-    import os
+    # Patch the endpoint's *view* of os, not the global: on Windows pathlib
+    # decides at import time (hard-wired PosixPath that always raises), so
+    # flipping the global os.name breaks every Path() in this test's teardown.
+    class _OsShim:
+        name = "posix"
 
-    monkeypatch.setattr(os, "name", "posix")
+        def __getattr__(self, attr):
+            return getattr(os, attr)
+
+    monkeypatch.setattr(api, "os", _OsShim())
     client, _ = make_client(None)
     assert client.post("/api/update/run").status_code == 400
 

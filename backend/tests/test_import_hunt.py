@@ -71,6 +71,43 @@ def test_payload_mapping():
     assert len(payload["abnormalities"]) == 0  # sample doc has empty activations
 
 
+def test_ailment_activations_become_events():
+    """Fork `monsters[].ailments[]` becomes `ailment.<name>` spans; duplicate
+    slots and enrage/unknown ids never reach monster_events."""
+    doc = sample_doc()
+    doc["monsters"][0]["ailments"] = [
+        {"id": "AILMENT_POISON", "activations": [
+            {"started_at": "2026-09-06T03:33:20.0749492Z",
+             "finished_at": "2026-09-06T03:33:44.0749492Z"},
+            {"started_at": "2026-09-06T03:33:50.0749492Z",
+             "finished_at": None},
+        ]},
+        # Second memory slot for the same status: the identical window is
+        # dropped (monster_events is unique on type + start).
+        {"id": "AILMENT_POISON", "activations": [
+            {"started_at": "2026-09-06T03:33:20.0749492Z",
+             "finished_at": "2026-09-06T03:33:44.0749492Z"},
+        ]},
+        {"id": "AILMENT_STUN", "activations": [
+            {"started_at": "2026-09-06T03:34:00.0749492Z",
+             "finished_at": "2026-09-06T03:34:10.0749492Z"},
+        ]},
+        {"id": "AILMENT_ENRAGE", "activations": [
+            {"started_at": "2026-09-06T03:33:30.0749492Z",
+             "finished_at": "2026-09-06T03:33:40.0749492Z"},
+        ]},
+        {"id": "AILMENT_UNKNOWN", "activations": []},
+    ]
+    [(payload, _)] = poogie_to_payloads(doc, {31: "Tetranadon"}, "hv", "gv")
+    events = [(e["event_type"], e["start_offset_seconds"],
+               e["end_offset_seconds"]) for e in payload["events"]]
+    assert events.count(("ailment.poison", 14.0, 38.0)) == 1
+    assert ("ailment.poison", 44.0, None) in events
+    assert ("ailment.stun", 54.0, 64.0) in events
+    assert not any(t.startswith("ailment.enrage") for t, *_ in events)
+    assert not any(t.startswith("ailment.unknown") for t, *_ in events)
+
+
 def test_supporter_flag_passed_through():
     """REFramework dumps tag CPU companions is_supporter; the importer must
     carry it through (previously hardcoded False)."""

@@ -104,7 +104,7 @@ The update check is opt-out: turn it off for zero network access.
 | **Compare** | Scoped hunters vs the whole party, hunt by hunt. |
 | **Activity** | Hunts per day, clear rate, total damage. |
 | **Synergy** | Clear time and damage share by teammate pairing. |
-| **Buffs** | Abnormality/buff uptime per player per hunt, measured from hunt start or first hit. HunterPie data. Optional toggle derives **Agitator** uptime from the monster's enrage windows. |
+| **Buffs** | Abnormality/buff uptime per player per hunt, measured from hunt start or first hit. HunterPie data. Optional toggle derives **Agitator** uptime from the monster's enrage windows. A **Monster** sub-tab shows enrage and ailment (poison, stun, mount, blast…) activation windows. |
 | **Review** | Merge case-variant hunter names or keep them separate. |
 
 ## Screenshots

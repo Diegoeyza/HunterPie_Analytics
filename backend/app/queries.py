@@ -12,7 +12,7 @@ from datetime import UTC
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import filters
+from . import filters, monster_status
 from .abnormalities import EXCLUDED_STORED_IDS, AbnormalityId
 from .engagement import (
     batch_engagement_s,
@@ -718,14 +718,16 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
         quest_events = session.execute(
             select(MonsterEvent, Monster.name)
             .join(Monster, Monster.id == MonsterEvent.monster_id)
-            .where(MonsterEvent.hunt_id.in_(sibling_ids))
+            .where(MonsterEvent.hunt_id.in_(sibling_ids),
+                   MonsterEvent.event_type == "enrage")
             .order_by(MonsterEvent.start_offset_seconds)
         ).all()
         events_out = [_event_dict(e.hunt_id, mname, e)
                       for e, mname in quest_events]
     else:
         own_events = session.execute(
-            select(MonsterEvent).where(MonsterEvent.hunt_id == hunt_id)
+            select(MonsterEvent).where(MonsterEvent.hunt_id == hunt_id,
+                                       MonsterEvent.event_type == "enrage")
             .order_by(MonsterEvent.start_offset_seconds)
         ).scalars().all()
         events_out = [_event_dict(hunt_id, own_name, e) for e in own_events]
@@ -805,17 +807,7 @@ def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
                MonsterEvent.event_type == "enrage")
         .order_by(MonsterEvent.start_offset_seconds)
     ).all()
-    enrage: list[dict] = []
-    for start, end in enrage_rows:
-        if enrage and (enrage[-1]["end"] is None
-                       or start <= enrage[-1]["end"]):
-            # Overlapping/open span: extend the previous window instead of
-            # adding a second one (end=None means "still enraged").
-            prev = enrage[-1]
-            if prev["end"] is None or (end is not None and end > prev["end"]):
-                prev["end"] = end
-            continue
-        enrage.append({"start": start, "end": end})
+    enrage = monster_status.merge_windows((start, end) for start, end in enrage_rows)
     return {
         "hunt_id": hunt_id,
         "monster": hunt.monster.name,
@@ -824,6 +816,53 @@ def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
         "first_hit_s": first_hit,
         "enrage": enrage,
         "players": list(players.values()),
+    }
+
+
+def hunt_monster_status(session: Session, hunt_id: int) -> dict:
+    """Enrage + ailment windows for one hunt's monster.
+
+    A multi-monster quest registers one hunt row per monster, so this is
+    always the monster of the selected hunt; siblings are separate hunts.
+    Windows are merged per status so overlapping slots can't double-count.
+    """
+    hunt = session.get(Hunt, hunt_id)
+    if hunt is None:
+        raise KeyError(hunt_id)
+    rows = session.execute(
+        select(MonsterEvent.event_type,
+               MonsterEvent.start_offset_seconds,
+               MonsterEvent.end_offset_seconds)
+        .where(MonsterEvent.hunt_id == hunt_id)
+        .order_by(MonsterEvent.start_offset_seconds)
+    ).all()
+    by_type: dict[str, list[tuple[float, float | None]]] = {}
+    for event_type, start, end in rows:
+        if event_type != "enrage" and not event_type.startswith("ailment."):
+            continue
+        by_type.setdefault(event_type, []).append((start, end))
+    first_hit = session.execute(
+        select(func.min(DpsSnapshot.ts_offset_seconds))
+        .where(DpsSnapshot.hunt_id == hunt_id)
+    ).scalar()
+    statuses = [
+        {
+            "id": event_type,
+            "name": monster_status.display_name(event_type),
+            "kind": monster_status.kind(event_type),
+            "start": window["start"],
+            "end": window["end"],
+        }
+        for event_type, spans in by_type.items()
+        for window in monster_status.merge_windows(spans)
+    ]
+    return {
+        "hunt_id": hunt_id,
+        "monster": hunt.monster.name,
+        "started_at": hunt.started_at.isoformat(),
+        "clear_s": hunt_duration_s(hunt),
+        "first_hit_s": first_hit,
+        "statuses": statuses,
     }
 
 
