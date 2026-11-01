@@ -1,8 +1,8 @@
 """Phase 1 data-layer logic: identity resolution + idempotent hunt upsert.
 
 Rules (from PLAN + review):
-- Exact display_name match wins. Case-insensitive-only matches are FLAGGED
-  for manual review, never silently merged (FR-2.2).
+- Exact display_name match wins. Case variants are separate hunters by
+  design; the app never merges or flags them.
 - Dedup: HunterPie quest/session ID when present, else composite
   dedup_hash(monster_id, sorted player ids-or-names, start_ts rounded to 1s).
 - One DB transaction per hunt: crash mid-hunt must not leave orphans.
@@ -14,8 +14,7 @@ import json
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import case, delete, func, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import case, delete, select, update
 from sqlalchemy.orm import Session
 
 from .abnormalities import AbnormalityId
@@ -30,7 +29,6 @@ from .models import (
     MonsterHealthStep,
     Player,
     PlayerAbnormality,
-    PlayerAlias,
     PlayerHealthStep,
     Weapon,
     WeaponIdentity,
@@ -131,15 +129,18 @@ def _drop_loading_lead(session: Session, hunt, lead: float) -> None:
     """Re-anchor a companion-created hunt onto the real quest start.
 
     The companion began on the loading screen, so its timeline runs `lead`
-    seconds early: move every stored offset back and shrink the window.
+    seconds early: move every stored offset back and move the whole window
+    forward. ``quest_time_seconds`` is the game's quest timer, not the
+    wall-clock span between the two timestamps, so it must not shrink when
+    the start is re-anchored.
     """
     _shift_existing_offsets(session, hunt.id, -lead)
     hunt.started_at = hunt.started_at + timedelta(seconds=lead)
-    if hunt.quest_time_seconds:
-        hunt.quest_time_seconds = max(1.0, hunt.quest_time_seconds - lead)
-    if hunt.real_hunt_time_seconds:
-        hunt.real_hunt_time_seconds = max(
-            1.0, hunt.real_hunt_time_seconds - lead)
+    if hunt.ended_at is not None:
+        hunt.ended_at = hunt.ended_at + timedelta(seconds=lead)
+    elif hunt.quest_time_seconds:
+        hunt.ended_at = hunt.started_at + timedelta(
+            seconds=hunt.quest_time_seconds)
 
 
 def _clip_pre_quest(session: Session, hunt_id: int) -> None:
@@ -333,21 +334,6 @@ def find_hunt_by_payload(session: Session, payload: dict) -> Hunt | None:
     return None
 
 
-def find_rename_candidates(session: Session, display_name: str) -> list[Player]:
-    """Existing players matching case-insensitively but not exactly.
-
-    Compares on lower(display_name) directly (not the canonical column)
-    so legacy rows without a backfilled canonical still match.
-    """
-    return list(
-        session.execute(
-            select(Player).where(func.lower(Player.display_name)
-                                 == display_name.lower(),
-                                 Player.display_name != display_name)
-        ).scalars()
-    )
-
-
 def get_or_create_player(
     session: Session, display_name: str, now: datetime, warnings: list[str]
 ) -> Player:
@@ -358,25 +344,13 @@ def get_or_create_player(
         if exact.canonical is None:
             exact.canonical = _canonical(display_name)
         return exact
-    candidates = find_rename_candidates(session, display_name)
-    if candidates:
-        warnings.append(
-            f"rename-review: '{display_name}' resembles "
-            + ", ".join(f"'{c.display_name}' (id={c.id})" for c in candidates)
-        )
+
+    # Same name = same hunter (exact match above). Different casing is just a
+    # different hunter whose name happens to collide; never flag or merge it.
     player = Player(display_name=display_name,
                     canonical=_canonical(display_name), first_seen_at=now)
     session.add(player)
     session.flush()
-    # Persist the sighting for the review queue (Phase 4 UI); never merge.
-    # Each insert runs in a savepoint so a duplicate alias can't poison
-    # the surrounding hunt transaction.
-    for c in candidates:
-        try:
-            with session.begin_nested():
-                session.add(PlayerAlias(alias=display_name, player_id=c.id))
-        except IntegrityError:
-            pass  # already recorded; keep going
     return player
 
 
@@ -741,6 +715,10 @@ def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
     weapons and curves; its awards are left in place (keyed by hunt_id)."""
     started = _coerce_ts(payload["started_at"])
     ended = _coerce_ts(payload["ended_at"]) if payload.get("ended_at") else None
+    # The companion's game timer is authoritative. Its wall-clock end is
+    # derived from its (possibly loading-screen) start + timer, so it moves
+    # with the start when we re-anchor; it must never define the clear time.
+    duration = payload.get("quest_time_seconds")
     # The earlier clock wins, but "earlier" is not always the quest start: the
     # companion begins sampling on the loading screen (see _is_loading_lead).
     old_started, old_ended = hunt.started_at, hunt.ended_at
@@ -749,10 +727,12 @@ def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
     if late_by > 0:
         _shift_payload_offsets(payload, late_by)
         started = old_started
-        if old_ended is not None:
+        if duration is not None:
+            ended = started + timedelta(seconds=duration)
+        elif old_ended is not None:
             ended = old_ended
-        payload["quest_time_seconds"] = (
-            (ended - started).total_seconds() if ended else None)
+            payload["quest_time_seconds"] = (
+                (ended - started).total_seconds() if ended else None)
     elif _is_loading_lead(-late_by) and \
             _stored_mod_saw_quest_start(session, hunt.id):
         # The companion's clock starts on the loading screen (quest accept),
@@ -762,8 +742,10 @@ def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
         dropped_lead = True
         _shift_payload_offsets(payload, late_by)
         started = old_started
-        payload["quest_time_seconds"] = (
-            (ended - started).total_seconds() if ended else None)
+        if duration is not None:
+            ended = started + timedelta(seconds=duration)
+        elif ended is not None:
+            ended = ended + timedelta(seconds=-late_by)
         # Siblings are mod-created too, so their offsets already start at the
         # mod's clock: nothing to move there.
     elif late_by < 0:
@@ -847,8 +829,8 @@ def _enrich_from_reframework(session: Session, hunt: Hunt,
     elif _is_loading_lead(-lead) and _mod_saw_quest_start(payload):
         # The companion's lead over the mod is the loading screen, not a
         # late attach: the mod's first in-quest sample is the quest start.
-        # Keep the companion's end (results screen) but measure from the
-        # quest, and throw away the loading-screen samples before t=0.
+        # Move the whole companion window with it (the game timer stays
+        # authoritative), and throw away loading-screen samples before t=0.
         siblings = _shared_quest_hunts(session, hunt, hunt.started_at)
         _drop_loading_lead(session, hunt, -lead)
         _clip_pre_quest(session, hunt.id)

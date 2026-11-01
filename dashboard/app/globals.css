@@ -502,6 +502,29 @@ table.grid tbody tr.selected td { background: var(--row-hover); box-shadow: inse
 }
 .row-action:hover { color: var(--text); border-color: var(--accent); }
 
+/* Damage-curve legend: clickable hunter focus (all other lines hide). */
+.chart-legend {
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+  gap: 4px 8px; margin-top: 10px; font-size: 12px;
+  color: var(--chart-tick, #9aa1b2);
+}
+.chart-legend-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: 0; border-radius: 5px;
+  padding: 2px 5px; font: inherit; color: inherit; cursor: pointer;
+}
+.chart-legend-item:hover { color: var(--text); background: var(--panel-2); }
+.chart-legend-item.is-on { color: var(--text); background: var(--panel-2); }
+.chart-legend-item.is-off { opacity: 0.35; }
+.chart-legend-item.is-hp { cursor: default; }
+.chart-legend-item.is-hp:hover { color: inherit; background: none; }
+.chart-legend-swatch {
+  width: 10px; height: 10px; border-radius: 2px; display: inline-block;
+}
+.chart-legend-dash {
+  width: 14px; height: 0; border-top: 2px dashed; display: inline-block;
+}
+
 /* Hunts manager modal (header) */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 50;

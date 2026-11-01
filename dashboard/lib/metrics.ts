@@ -1,7 +1,7 @@
 /** Shared chart metric math (Damage curves tab + Hunts popup chart).
  *  Kept in one place so both views compute identical series. */
 
-export type Metric = "damage" | "dps" | "burst";
+export type Metric = "damage" | "dps" | "burst" | "burst1";
 
 const SMOOTH_WINDOW = 5;
 
@@ -47,10 +47,11 @@ export function smoothDps(dpsSeries: { t: number; dps: number }[]): { t: number;
   });
 }
 
-/** Compute instantaneous DPS over a 5-second window ending at each timestamp. */
-export function computeBurst(points: { t: number; dmg: number }[]): { t: number; dps: number }[] {
+/** Compute instantaneous DPS over a window (default 5s) ending at each
+ *  timestamp. The 1s variant shows burst damage more sharply. */
+export function computeBurst(points: { t: number; dmg: number }[], window = 5): { t: number; dps: number }[] {
   if (points.length === 0) return [];
-  const WINDOW = 5;
+  const WINDOW = window;
   return points.map((q) => {
     const windowStart = q.t - WINDOW;
     let dmgAtStart = 0;

@@ -1,4 +1,4 @@
-"""Ingest robustness: payload validation, external-id dedup, alias review."""
+"""Ingest robustness: payload validation, external-id dedup, name handling."""
 from datetime import datetime
 
 import pytest
@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.ingest import find_hunt_by_payload, upsert_hunt
-from app.models import Base, Hunt, Monster, PlayerAlias, Weapon
+from app.models import Base, Hunt, Monster, Player, Weapon
 
 
 @pytest.fixture
@@ -96,21 +96,22 @@ def test_external_id_dedup_survives_rename(session):
     assert find_hunt_by_payload(session, alt).id == h1.id
 
 
-def test_rename_records_alias_without_merging(session):
+def test_case_variant_stays_separate_without_warning(session):
+    """Exact names are identities; different casing is a different hunter
+    (bad luck), never merged or flagged for review."""
     upsert_hunt(session, base_payload(quest_id_external="q-1"))
     alt = base_payload(quest_id_external="q-2")
     alt["players"] = [{"display_name": "DIEGO", "weapon_id": 1,
                        "total_damage": 100, "peak_dps": 10}]
     alt["snapshots"] = []
     _, _, warnings = upsert_hunt(session, alt)
-    assert any("rename-review" in w for w in warnings)
-    row = session.execute(
-        select(PlayerAlias).where(PlayerAlias.alias == "DIEGO")
-    ).scalar_one_or_none()
-    assert row is not None
-    # exact-name re-import does not duplicate the alias row
+    assert not any("rename-review" in w for w in warnings)
+    names = sorted(p.display_name for p in
+                   session.execute(select(Player)).scalars())
+    assert names == ["DIEGO", "Diego"]
+    # exact-name re-import still resolves to the same hunter
     _, _, _ = upsert_hunt(session, base_payload(quest_id_external="q-3"))
-    assert len(session.execute(select(PlayerAlias)).scalars().all()) == 1
+    assert len(session.execute(select(Player)).scalars().all()) == 2
 
 
 def test_quest_damage_and_split_flag_stored(session):

@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import _on_connect
-from app.ingest import find_rename_candidates, upsert_hunt
+from app.ingest import upsert_hunt
 from app.models import (
     Base,
     DpsSnapshot,
@@ -109,7 +109,7 @@ def test_dedup_hash_fallback_without_external_id(session):
     assert h1.id == h2.id
 
 
-def test_rename_flagged_not_merged(session):
+def test_case_variant_is_separate_not_flagged(session):
     upsert_hunt(session, base_payload(quest_id_external="q-1"))
     _, _, warnings = upsert_hunt(session, base_payload(quest_id_external="q-2"))
     assert warnings == []  # exact same name: no warning
@@ -121,12 +121,10 @@ def test_rename_flagged_not_merged(session):
             events=[],
         )
     )
-    assert any("rename-review" in w for w in warnings)
-    assert len(find_rename_candidates(session, "DIEGO")) == 2  # flag path still works
-    from app.models import Player as _Player
-
-    names = sorted(p.display_name for p in session.execute(select(_Player)).scalars())
-    assert names == ["Diego", "diego"]  # flagged, never merged
+    assert not any("rename-review" in w for w in warnings)
+    names = sorted(p.display_name for p in
+                   session.execute(select(Player)).scalars())
+    assert names == ["Diego", "diego"]  # different casing = separate hunters
 
 
 def test_missing_fields_rejected_and_nothing_persisted(session):

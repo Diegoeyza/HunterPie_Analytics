@@ -265,7 +265,10 @@ def run_import(db_path: str | Path, src, force: bool = False,
             result["imported_ids"].extend(new_ids)
             result["duplicates"] += sum(1 for _, created, _ in outcomes
                                         if not created)
-            if file_warnings:
+            # A full recheck re-parses every file. Duplicate files can emit
+            # notes (multi-monster quests, HP identity reconciliation), but
+            # nothing actionable was created — don't surface them as warnings.
+            if file_warnings and new_ids:
                 result["warnings"].append({"file": path.name,
                                            "warnings": file_warnings})
             # Fully processed (even with zero hunts) -> manifest it.

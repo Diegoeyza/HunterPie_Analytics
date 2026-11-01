@@ -3,12 +3,13 @@
 The fork keeps sampling from quest *accept*, so its timeline runs ~6-25s
 early (observed median 11.5s across 194 paired dumps). Every offset on a
 companion-created hunt was therefore measured from the loading screen, which
-put pre-quest buffs at the left edge of the Buffs timeline and inflated the
-reported clear time. The mod's first in-quest sample is the real start.
+put pre-quest buffs at the left edge of the Buffs timeline. The mod's first
+in-quest sample is the real start, so the window moves forward with the
+offsets. The companion's quest timer is the game timer and must not shrink.
 
-Guard: the companion's earlier clock is only dropped when the mod's own data
-proves it saw the quest from the start (monster at full HP on its first HP
-step). A mod that attached mid-fight leaves the companion clock alone.
+Guard: the companion's earlier clock is only re-anchored when the mod's own
+data proves it saw the quest from the start (monster at full HP on its first
+HP step). A mod that attached mid-fight leaves the companion clock alone.
 """
 from datetime import datetime, timedelta
 
@@ -131,8 +132,8 @@ def test_loading_lead_dropped_when_mod_enriches():
     hunt = s.execute(select(Hunt)).scalar_one()
 
     assert hunt.started_at == T0 + timedelta(seconds=LEAD)
-    assert hunt.ended_at == T0 + timedelta(seconds=300)
-    assert hunt.quest_time_seconds == pytest.approx(300.0 - LEAD)
+    assert hunt.ended_at == T0 + timedelta(seconds=LEAD + 300)
+    assert hunt.quest_time_seconds == pytest.approx(300.0)
     # Loading-screen blip gone, straddling window clamped to the quest start.
     assert _abnormalities(s, hunt.id) == [(0.0, 48.0), (28.0, 78.0)]
     # Companion damage moves with the clock and nothing survives before t=0.
@@ -154,8 +155,8 @@ def test_loading_lead_dropped_when_companion_refreshes_mod_hunt():
     hunt = s.execute(select(Hunt)).scalar_one()
 
     assert hunt.started_at == T0 + timedelta(seconds=LEAD)
-    assert hunt.ended_at == T0 + timedelta(seconds=300)
-    assert hunt.quest_time_seconds == pytest.approx(300.0 - LEAD)
+    assert hunt.ended_at == T0 + timedelta(seconds=LEAD + 300)
+    assert hunt.quest_time_seconds == pytest.approx(300.0)
     assert hunt.source == "hunterpie"
     assert _abnormalities(s, hunt.id) == [(0.0, 48.0), (28.0, 78.0)]
     assert _offsets(s, PlayerHealthStep, hunt.id)[0] == pytest.approx(0.5)
@@ -210,9 +211,31 @@ def test_split_quest_sibling_follows_the_corrected_clock():
     hunts = s.execute(select(Hunt).order_by(Hunt.monster_id)).scalars().all()
 
     assert [h.started_at for h in hunts] == [T0 + timedelta(seconds=LEAD)] * 2
-    assert [h.quest_time_seconds for h in hunts] == [pytest.approx(300 - LEAD)] * 2
+    assert [h.ended_at for h in hunts] == [T0 + timedelta(seconds=LEAD + 300)] * 2
+    assert [h.quest_time_seconds for h in hunts] == [pytest.approx(300.0)] * 2
     for h in hunts:
         assert min(a for a, _ in _abnormalities(s, h.id)) >= 0.0
+
+
+def test_loading_lead_keeps_the_game_timer():
+    """A late-but-pre-damage mod start must not shorten the clear time.
+
+    Mirrors a real hunt: HunterPie reports 539.818s (8:59), REFramework
+    starts 16.628s later and dumps its result screen 39s after the quest.
+    The old code kept HunterPie's end but used the mod's start, yielding
+    523.19s (8:43) — a window shorter than the damage curve.
+    """
+    s = _session()
+    upsert_hunt(s, _companion(span=539.818))
+    upsert_hunt(s, _mod(start=T0 + timedelta(seconds=16.628), span=562.0))
+
+    s.expire_all()
+    hunt = s.execute(select(Hunt)).scalar_one()
+
+    assert hunt.started_at == T0 + timedelta(seconds=16.628)
+    assert hunt.ended_at == T0 + timedelta(seconds=16.628 + 539.818)
+    assert hunt.quest_time_seconds == pytest.approx(539.818)
+    assert max(_offsets(s, DpsSnapshot, hunt.id)) <= hunt.quest_time_seconds
 
 
 def test_reimport_is_idempotent():

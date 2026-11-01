@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiInvalidate, apiPatch, type HuntSummary } from "../lib/api";
-import { fmtDate, fmtDateTime, fmtTime } from "../lib/format";
+import { fmtClearTime, fmtDate, fmtDateTime } from "../lib/format";
 import { ApiState, useApi } from "../lib/useApi";
 import Modal from "./Modal";
 import { useToast } from "./Toast";
@@ -86,7 +86,7 @@ export default function HuntsManager() {
                     {h.quest_stars != null && <span> {h.quest_stars}★</span>}
                     <span className="hunt-sub">
                       {fmtDateTime(h.started_at)} · {h.players}p ·{" "}
-                      {h.clear_s != null ? fmtTime(h.clear_s) : "—"}{" "}
+                      {h.clear_s != null ? fmtClearTime(h.clear_s) : "—"}{" "}
                       · {h.cleared ? "cleared" : "failed"}
                     </span>
                   </span>

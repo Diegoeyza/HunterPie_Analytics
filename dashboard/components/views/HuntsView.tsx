@@ -7,7 +7,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { seriesColor, type AppSettings, type HuntSummary, type HuntHighlights } from "../../lib/api";
-import { fmtAward, fmtDateTime, fmtDps, fmtInt, fmtPct, fmtTime } from "../../lib/format";
+import { fmtAward, fmtClearTime, fmtDateTime, fmtDps, fmtInt, fmtPct, fmtTime } from "../../lib/format";
 import { type Metric, computeDps, smoothDps, computeBurst } from "../../lib/metrics";
 import { ApiState, useApi } from "../../lib/useApi";
 import ChartTooltip from "../ChartTooltip";
@@ -99,7 +99,7 @@ const columns: ColumnDef<HuntSummary>[] = [
   {
     id: "clear_s", accessorFn: (r) => r.clear_s ?? -1, header: "Clear",
     meta: { cls: "num" },
-    cell: ({ row }) => fmtTime(row.original.clear_s),
+    cell: ({ row }) => fmtClearTime(row.original.clear_s),
   },
   {
     id: "players", accessorKey: "players", header: "Hunters",
@@ -179,7 +179,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
       curve.players.map((p, i) => [i, smoothDps(computeDps(p.points, endT))]),
     );
     const burst = new Map(
-      curve.players.map((p, i) => [i, computeBurst(p.points)]),
+      curve.players.map((p, i) => [i, computeBurst(p.points, metric === "burst1" ? 1 : 5)]),
     );
 
     const times = [...new Set([
@@ -203,7 +203,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
           // grid is the union of all hunters' timestamps, so exact-match
           // lookups leave every row with only one hunter defined and the
           // tooltip shows a single hunter. Before first point: no value.
-          const series = metric === "burst"
+          const series = metric === "burst" || metric === "burst1"
             ? burst.get(i) ?? []
             : smoothed.get(i) ?? [];
           let v: number | null = null;
@@ -227,7 +227,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
       ? "—"
       : `#${hunt.quest_id}${hunt.quest_stars ? ` ${hunt.quest_stars}★` : ""}`],
     ["Result", hunt.cleared ? "Cleared" : "Failed"],
-    ["Clear time", fmtTime(hunt.clear_s)],
+    ["Clear time", fmtClearTime(hunt.clear_s)],
     ["Carts", String(hunt.carts)],
     ["Team damage", team > 0 ? fmtInt(team) : "…"],
     ["Max HP", curve?.quest.max_hp ? fmtInt(curve.quest.max_hp) : "…"],
@@ -264,7 +264,8 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                 title="Damage chart"
                 subtitle={metric === "damage"
                   ? "Cumulative damage"
-                  : metric === "burst" ? "Instantaneous DPS" : "DPS"}
+                  : metric === "burst" ? "Instantaneous DPS (5s)"
+                  : metric === "burst1" ? "Instantaneous DPS (1s)" : "DPS"}
               >
                 <div className="filters">
                   <label>Metric
@@ -275,6 +276,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                       <option value="damage">Cumulative damage</option>
                       <option value="dps">DPS (5s rolling avg)</option>
                       <option value="burst">Instantaneous DPS (5s window)</option>
+                      <option value="burst1">Instantaneous DPS (1s window)</option>
                     </select>
                   </label>
                 </div>

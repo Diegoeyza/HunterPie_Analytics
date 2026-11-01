@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  CartesianGrid, Legend, Line, LineChart, ReferenceArea,
+  CartesianGrid, Line, LineChart, ReferenceArea,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { seriesColor, type HuntSummary } from "../../lib/api";
-import { fmtDate, fmtInt, fmtTime } from "../../lib/format";
+import { fmtClearTime, fmtDate, fmtInt, fmtTime } from "../../lib/format";
 import { ApiState, useApi } from "../../lib/useApi";
+import { useChartZoom } from "../../lib/useChartZoom";
 import SearchSelect from "../SearchSelect";
 import EmptyState from "../EmptyState";
 import ChartTooltip from "../ChartTooltip";
@@ -45,8 +46,9 @@ function mergeSeries(players: CurvePlayer[], hpSeries: { key: string; points: { 
   const smoothed = new Map(
     players.map((p) => [p.player, smoothDps(computeDps(p.points, endT))])
   );
+  const burstWindow = metric === "burst1" ? 1 : 5;
   const burst = new Map(
-    players.map((p) => [p.player, computeBurst(p.points)])
+    players.map((p) => [p.player, computeBurst(p.points, burstWindow)])
   );
   const eventTimes = events.flatMap((e) => [e.start, e.end ?? []]).flat();
   const times = Array.from(
@@ -74,7 +76,7 @@ function mergeSeries(players: CurvePlayer[], hpSeries: { key: string; points: { 
         // is the union of all hunters' timestamps, so exact-match lookups
         // leave every row with only one hunter defined and the tooltip
         // shows a single hunter. Before a hunter's first point: no value.
-        const series = metric === "burst"
+        const series = metric === "burst" || metric === "burst1"
           ? burst.get(p.player) ?? []
           : smoothed.get(p.player) ?? [];
         let v: number | null = null;
@@ -99,6 +101,12 @@ function mergeSeries(players: CurvePlayer[], hpSeries: { key: string; points: { 
 
 const HP_COLORS = ["#e05c5c", "#ef8354", "#c94f7c", "#e8b64c"];
 
+function playerLabel(p: CurvePlayer): string {
+  return `${p.player}${p.weapon_name
+    ? ` (${p.weapon_name})`
+    : p.weapon ? ` (${p.weapon}${p.variant ? ` · ${p.variant}` : ""})` : ""}`;
+}
+
 
 
 export default function CurveView({ scope, partySize }: { scope: number[]; partySize: number | null }) {
@@ -107,6 +115,7 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
   const [monsterHunt, setMonsterHunt] = useState<number | null>(null);
   const [showHp, setShowHp] = useState(true);
   const [metric, setMetric] = useState<Metric>("damage");
+  const [focusPlayer, setFocusPlayer] = useState<string | null>(null);
 
   const nameToId = useMemo(
     () => new Map((opts?.players ?? []).map((p) => [p.name, p.id])),
@@ -142,6 +151,8 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
    *  every monster's HP and enrage spans. Display filters down when one
    *  monster is picked. */
   const fetchId = huntId ?? hunts?.[0]?.id ?? null;
+  const zoom = useChartZoom(fetchId);
+  useEffect(() => setFocusPlayer(null), [fetchId]);
   const curveQ = useApi<CurveData>(
     fetchId === null ? "" : `/hunts/${fetchId}/curve`,
     fetchId === null ? null : { quest_hp: 1 });
@@ -281,8 +292,22 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
             <option value="damage">Cumulative damage</option>
             <option value="dps">DPS (5s rolling avg)</option>
             <option value="burst">Instantaneous DPS (5s window)</option>
+            <option value="burst1">Instantaneous DPS (1s window)</option>
           </select>
         </label>
+        <span className="scope-hint">Drag chart to zoom · click a hunter to focus</span>
+        {focusPlayer !== null && (
+          <button type="button" className="row-action" onClick={() => setFocusPlayer(null)}
+            title="Show every hunter again">
+            Show all hunters
+          </button>
+        )}
+        {zoom.zoomed && (
+          <button type="button" className="row-action" onClick={zoom.reset}
+            title="Restore the full quest timeline">
+            Reset zoom
+          </button>
+        )}
       </div>
       {curve && (
         <>
@@ -295,7 +320,7 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
             {curve.quest.stars ? ` · ${curve.quest.stars}★` : ""}
             {curve.quest.quest_id ? ` · quest #${curve.quest.quest_id}` : ""}
             {monsterHunt != null && curve.quest.max_hp ? ` · ${fmtInt(curve.quest.max_hp)} HP` : ""}
-            {curve.clear_s ? ` · cleared in ${fmtTime(curve.clear_s)}` : ""}
+            {curve.clear_s ? ` · cleared in ${fmtClearTime(curve.clear_s)}` : ""}
           </h2>
           {enrageGroups.length > 0 && (
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "4px 0 8px", fontSize: 12 }}>
@@ -311,15 +336,17 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
               ))}
             </div>
           )}
-          <ResponsiveContainer width="100%" height={360}>
-            <LineChart data={merged}>
+          <ResponsiveContainer width="100%" height={360}
+            style={{ userSelect: "none", cursor: "crosshair" }}>
+            <LineChart data={merged} {...zoom.handlers}>
               <CartesianGrid stroke={GRID_STROKE} />
-              <XAxis dataKey="t" tick={TICK}
+              <XAxis dataKey="t" type="number" tick={TICK}
+                domain={zoom.domain} allowDataOverflow
                 tickFormatter={(v: number) => fmtTime(v)}
                 label={{ value: "time since quest start", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, position: "insideBottom", offset: -2 }} />
               <YAxis tick={TICK}
                 label={{
-                  value: metric === "damage" ? "cumulative damage" : metric === "burst" ? "DPS (5s window)" : "DPS (5s rolling avg)",
+                  value: metric === "damage" ? "cumulative damage" : metric === "burst" ? "DPS (5s window)" : metric === "burst1" ? "DPS (1s window)" : "DPS (5s rolling avg)",
                   fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: -90, position: "insideLeft",
                 }} />
               <YAxis yAxisId="hp" orientation="right" domain={[0, 1]}
@@ -328,7 +355,6 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
                 label={{ value: "monster HP", fill: "var(--bad, #e05c5c)", fontSize: 11, angle: 90, position: "insideRight" }}
                 hide={!showHp} />
               <Tooltip content={<ChartTooltip metric={metric} events={visibleEvents} colorOf={eventColor} />} />
-              <Legend />
               {visibleEvents.map((e, i) => {
                 const c = eventColor(e);
                 return (
@@ -338,16 +364,24 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
                     stroke={c} strokeOpacity={0.4} strokeDasharray="3 3" />
                 );
               })}
-              {curve.players.map((p, i) => {
-                const dimmed = scope.length > 0 &&
-                  !scope.includes(nameToId.get(p.player) ?? -1);
-                return (
-                  <Line key={p.player} type="monotone" dataKey={p.player}
-                    name={`${p.player}${p.weapon_name ? ` (${p.weapon_name})` : p.weapon ? ` (${p.weapon}${p.variant ? ` · ${p.variant}` : ""})` : ""}`}
-                    stroke={seriesColor(i)} dot={false} strokeWidth={dimmed ? 1 : 2}
-                    strokeOpacity={dimmed ? 0.25 : 1} connectNulls />
-                );
-              })}
+              {zoom.selection && (
+                <ReferenceArea
+                  x1={zoom.selection[0]} x2={zoom.selection[1]}
+                  fill="var(--accent)" fillOpacity={0.12}
+                  stroke="var(--accent)" strokeOpacity={0.35} />
+              )}
+              {curve.players.map((p, i) => ({ p, i }))
+                .filter(({ p }) => focusPlayer === null || p.player === focusPlayer)
+                .map(({ p, i }) => {
+                  const dimmed = focusPlayer === null && scope.length > 0 &&
+                    !scope.includes(nameToId.get(p.player) ?? -1);
+                  return (
+                    <Line key={p.player} type="monotone" dataKey={p.player}
+                      name={playerLabel(p)}
+                      stroke={seriesColor(i)} dot={false} strokeWidth={dimmed ? 1 : 2}
+                      strokeOpacity={dimmed ? 0.25 : 1} connectNulls />
+                  );
+                })}
               {showHp && visibleHp.map((s) => (
                 <Line key={s.key} type="monotone" dataKey={s.key}
                   yAxisId="hp" name={s.label} stroke={s.color}
@@ -355,6 +389,29 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
               ))}
             </LineChart>
           </ResponsiveContainer>
+          <div className="chart-legend" aria-label="Chart focus">
+            {curve.players.map((p, i) => {
+              const focused = focusPlayer === p.player;
+              const off = focusPlayer !== null && !focused;
+              return (
+                <button key={`legend-${p.player}-${i}`} type="button"
+                  className={`chart-legend-item${off ? " is-off" : ""}${focused ? " is-on" : ""}`}
+                  aria-pressed={focused}
+                  title={focused ? "Show all hunters" : `Focus ${p.player}`}
+                  onClick={() => setFocusPlayer(focused ? null : p.player)}>
+                  <span className="chart-legend-swatch"
+                    style={{ background: seriesColor(i) }} />
+                  {playerLabel(p)}
+                </button>
+              );
+            })}
+            {showHp && visibleHp.map((s) => (
+              <span key={`legend-${s.key}`} className="chart-legend-item is-hp">
+                <span className="chart-legend-dash" style={{ borderColor: s.color }} />
+                {s.label}
+              </span>
+            ))}
+          </div>
         </>
       )}
     </div>

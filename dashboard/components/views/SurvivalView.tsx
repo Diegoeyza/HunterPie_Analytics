@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { seriesColor, type HuntSummary } from "../../lib/api";
-import { fmtDate, fmtInt, fmtPct, fmtTime } from "../../lib/format";
+import { fmtClearTime, fmtDate, fmtInt, fmtPct, fmtTime } from "../../lib/format";
 import { computeDps, smoothDps } from "../../lib/metrics";
 import { ApiState, useApi } from "../../lib/useApi";
 import SearchSelect from "../SearchSelect";
@@ -231,7 +231,7 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
             #{curve.hunt_id} {curve.monster}
             {curve.quest.stars ? ` · ${curve.quest.stars}★` : ""}
             {curve.clear_s
-              ? ` · ${curve.cleared === false ? "failed after" : "cleared in"} ${fmtTime(curve.clear_s)}`
+              ? ` · ${curve.cleared === false ? "failed after" : "cleared in"} ${fmtClearTime(curve.clear_s)}`
               : ""}
           </h2>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "4px 0 8px" }}>

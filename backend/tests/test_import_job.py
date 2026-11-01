@@ -73,6 +73,24 @@ def test_manifest_records_warnings():
         s.close()
 
 
+def test_force_recheck_does_not_repeat_duplicate_warnings():
+    """A full recheck re-parses every file; duplicate files can emit notes,
+    but they are not actionable and must not light up the warnings toast."""
+    tmp, db, src = _setup(nfiles=1)
+    path = next(src.glob("*.json"))
+    doc = json.loads(path.read_text())
+    doc["monsters"].append({**doc["monsters"][0], "id": 32})
+    path.write_text(json.dumps(doc))
+
+    first = import_job.run_import(db, src, force=True)
+    assert first["imported"] == 2
+    assert first["warnings"]
+
+    second = import_job.run_import(db, src, force=True)
+    assert second["imported"] == 0
+    assert second["warnings"] == []
+
+
 def test_single_flight_guard():
     job = import_job.ImportJob("fake-running", False, 1)
     import_job._JOBS["fake-running"] = job

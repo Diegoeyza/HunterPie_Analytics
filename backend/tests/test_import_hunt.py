@@ -257,6 +257,23 @@ def test_failed_quest_registers_despite_no_engagement():
     assert created and hunt.cleared is False
 
 
+def test_failed_quest_explicit_cleared_without_carts():
+    """Time-up failures carry cleared=False with deaths < max_deaths. The
+    explicit outcome must win so the attempt still registers as failed."""
+    from app.import_hunt import import_doc
+    doc = sample_doc()
+    doc["quest"] = {**doc["quest"], "cleared": False, "deaths": 0, "max_deaths": 3}
+    base = doc["monsters"][0]
+    step = lambda frac: {"percentage": frac, "time": "2026-09-06T03:34:00.0000000Z"}
+    doc["monsters"] = [{**base, "health_steps": [step(0.99), step(0.80)]}]
+    [(payload, warnings)] = poogie_to_payloads(doc, {}, "hv", "gv")
+    assert payload["cleared"] is False
+    assert any("failed" in w for w in warnings)
+    s = make_session()
+    [(hunt, created, _)] = import_doc(s, doc, {}, "hv", "gv")
+    assert created and hunt.cleared is False
+
+
 def test_zero_stars_means_unknown():
     """The fork reports stars=0 when it doesn't know; no 0-star quests
     exist, so coerce to None instead of polluting filters."""
@@ -296,6 +313,9 @@ def test_quest_result_fail_is_not_cleared():
     assert _quest_failed({"quest": {"cleared": False}}) is True
     # explicit success wins over a stale deaths counter
     assert _quest_failed({"quest": {"result": "success", "deaths": 3,
+                                    "max_deaths": 3}}) is False
+    # explicit cleared=True also wins over a stale deaths counter
+    assert _quest_failed({"quest": {"cleared": True, "deaths": 3,
                                     "max_deaths": 3}}) is False
     # legacy dumps: carts only
     assert _quest_failed({"quest": {"deaths": 3, "max_deaths": 3}}) is True

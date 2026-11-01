@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { fmtDps, fmtTime } from "../../lib/format";
+import { fmtClearTime, fmtDps } from "../../lib/format";
 import { ApiState, useApi } from "../../lib/useApi";
 import DataTable from "../DataTable";
 import { MonsterSelect, StarsSelect, WeaponSelect } from "../FilterBar";
@@ -54,7 +54,7 @@ const columns: ColumnDef<HighScore>[] = [
     accessorFn: (r) => r.clear_s ?? -1,
     header: "Clear",
     meta: { cls: "num" },
-    cell: ({ row }) => fmtTime(row.original.clear_s),
+    cell: ({ row }) => fmtClearTime(row.original.clear_s),
   },
   { id: "date", accessorKey: "date", header: "Date" },
   { id: "player", accessorKey: "player", header: "Player" },

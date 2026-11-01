@@ -7,7 +7,7 @@ Dump schema (audited 2026-09-06 against Diegoeyza/HunterPie@analytics-export):
   monsters[].{id, variant, max_health, crown, enrage.activations[],
                ailments[{id, activations[]}],
                hunt_started_at, hunt_finished_at, hunt_type, health_steps[]}
-  quest.{id, type, level, stars, deaths, max_deaths} -> hunts quest_* columns
+  quest.{id, type, level, stars, deaths, max_deaths, cleared} -> hunts quest_* columns
 
 Known gaps (logged as warnings, not silently dropped):
 - multi-monster quests register one hunt per monster (quest x monster),
@@ -361,6 +361,8 @@ def _quest_failed(doc: dict) -> bool:
         return False
     if quest.get("cleared") is False:
         return True
+    if quest.get("cleared") is True:
+        return False
     max_deaths = quest.get("max_deaths") or 0
     return bool(max_deaths and (quest.get("deaths") or 0) >= max_deaths)
 
@@ -437,8 +439,7 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
     out = []
     failed = _quest_failed(doc)
     if failed:
-        warnings.append("quest failed (carts): registering all "
-                        f"{len(monsters)} monsters")
+        warnings.append(f"quest failed: registering all {len(monsters)} monsters")
     else:
         tracked = [(m, _min_hp_frac(m)) for m in monsters]
         tracked = [(m, low) for m, low in tracked if low is not None]

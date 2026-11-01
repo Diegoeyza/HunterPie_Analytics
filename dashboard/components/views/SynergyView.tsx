@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { fmtPct, fmtTime } from "../../lib/format";
+import { fmtClearTime, fmtPct } from "../../lib/format";
 import { ApiState, useApi } from "../../lib/useApi";
 import DataTable from "../DataTable";
 import { MonsterSelect, StarsSelect } from "../FilterBar";
@@ -25,7 +25,7 @@ const columns: ColumnDef<Pairing>[] = [
   {
     id: "avg_clear_s", accessorFn: (r) => r.avg_clear_s ?? -1, header: "Avg clear",
     meta: { cls: "num" },
-    cell: ({ row }) => fmtTime(row.original.avg_clear_s),
+    cell: ({ row }) => fmtClearTime(row.original.avg_clear_s),
   },
   {
     id: "avg_share",

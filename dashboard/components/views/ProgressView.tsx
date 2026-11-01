@@ -8,7 +8,7 @@ import { HunterSelect, MonsterSelect, StarsSelect, WeaponSelect, splitQuestValue
 import { useFilterOptions } from "../useFilterOptions";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
 import { GRID_STROKE, TICK, TIP_STYLE } from "../ChartKit";
-import { fmtTime } from "../../lib/format";
+import { fmtClearTime, fmtTime } from "../../lib/format";
 
 interface Point {
   hunt_id: number; started_at: string; monster: string;
@@ -154,7 +154,7 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
       x: `#${p.hunt_id} ${p.monster}${p.quest_stars ? ` ${p.quest_stars}★` : ""}`,
       value: round(value),
       avg: round(avg),
-      clear_s: p.clear_s ? Math.round(p.clear_s) : null,
+      clear_s: p.clear_s,
       player: p.player,
       weapon: p.variant ? `${p.weapon} · ${p.variant}` : p.weapon,
     };
@@ -190,11 +190,11 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
           <XAxis dataKey="x" tick={TICK} interval="preserveStartEnd" />
           <YAxis yAxisId="value" tick={TICK}
             tickFormatter={metric === "clear"
-              ? (v: number) => fmtTime(v) : undefined}
+              ? (v: number) => fmtClearTime(v) : undefined}
             label={{ value: METRICS[metric].axis, fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: -90, position: "insideLeft" }} />
           {metric !== "clear" && (
             <YAxis yAxisId="time" orientation="right" tick={TICK}
-              tickFormatter={(v: number) => fmtTime(v)}
+              tickFormatter={(v: number) => fmtClearTime(v)}
               label={{ value: "clear time", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: 90, position: "insideRight" }} />
           )}
           <Tooltip contentStyle={TIP_STYLE} formatter={(value, name) => {
@@ -202,7 +202,7 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
             // Durations read as m:ss everywhere; only this chart mixes one
             // with percentages, so pick by series name.
             if (String(name) === "clear time" || metric === "clear")
-              return [fmtTime(v), name];
+              return [fmtClearTime(v), name];
             const unit = METRICS[metric].unit;
             return [`${Math.round(v * 10) / 10}${unit}`, name];
           }} />

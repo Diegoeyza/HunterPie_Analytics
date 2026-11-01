@@ -28,9 +28,11 @@ export default function ImportButton({ onImported }: { onImported: () => void })
       toast.push(`Import failed: ${st.error ?? "unknown error"}`, true);
     } else if (st.errors.length > 0) {
       toast.push(`${st.errors.length} file(s) failed (first: ${st.errors[0].file}) — ${st.imported} new`, true);
+    } else if (st.imported === 0) {
+      toast.push(`Up to date — ${st.scanned} files (${st.skipped_manifest} skipped), nothing new`);
     } else if (st.warnings.length > 0) {
-      const n = st.warnings.reduce((a, w) => a + w.warnings.length, 0);
-      toast.push(`Imported ${st.imported} new hunt(s) · ${n} warning(s) — see Review tab`);
+      const notes = st.warnings.reduce((a, w) => a + w.warnings.length, 0);
+      toast.push(`Imported ${st.imported} new hunt(s) · ${notes} import note(s)`);
     } else if (st.imported > 0) {
       toast.push(`Imported ${st.imported} new hunt${st.imported === 1 ? "" : "s"}`);
     } else {

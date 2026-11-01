@@ -8,6 +8,15 @@ export const fmtTime = (s: number | null | undefined): string => {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 };
 
+/** Clear times must match the in-game timer, which truncates: 539.818 s is
+ *  "8:59", not "9:00". Keep this separate from fmtTime so buff uptimes and
+ *  chart axes can retain their existing rounding. */
+export const fmtClearTime = (s: number | null | undefined): string => {
+  if (s === null || s === undefined) return "—";
+  const total = Math.max(0, Math.floor(s));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+};
+
 export const fmtDps = (d: number | null | undefined, digits = 1): string =>
   d === null || d === undefined ? "—" : d.toFixed(digits);
 

@@ -1286,14 +1286,14 @@ def test_party_size_filter():
     assert [s["hunt_id"] for s in scores] == [2]
 
 
-def test_alias_review_flow():
-    """Rename flagged on import; merge reassigns hunts; dismiss keeps."""
+def test_case_variants_stay_separate():
+    """No rename review: different casing is a different hunter."""
     from datetime import datetime
 
     from sqlalchemy import select
 
     from app.ingest import upsert_hunt
-    from app.models import HuntPlayer, Monster, Player, Weapon
+    from app.models import Monster, Player, Weapon
 
     client, s = make_client()
     s.add_all([Monster(id=31, name="Xu Wu"),
@@ -1315,33 +1315,11 @@ def test_alias_review_flow():
 
     upsert_hunt(s, payload("a1", "Isi"))
     _, _, warnings = upsert_hunt(s, payload("a2", "ISI"))
-    assert any("rename-review" in w for w in warnings)
-
-    aliases = client.get("/api/players/aliases").json()["aliases"]
-    assert len(aliases) == 1 and aliases[0]["alias"] == "ISI"
-
-    merged = client.post(
-        f"/api/players/aliases/{aliases[0]['id']}/merge").json()
-    assert merged["merged"] == "ISI" and merged["into"] == "Isi"
-    assert merged["hunts"] == 1
+    assert not any("rename-review" in w for w in warnings)
     assert client.get("/api/players/aliases").json()["aliases"] == []
     names = sorted(p.display_name for p in
                    s.execute(select(Player)).scalars())
-    assert names == ["Isi"]
-    # both hunts now belong to Isi
-    isi_id = s.execute(select(Player.id).where(
-        Player.display_name == "Isi")).scalar_one()
-    assert len(s.execute(select(HuntPlayer).where(
-        HuntPlayer.player_id == isi_id)).scalars().all()) == 2
-
-    # dismiss path: new flag, then keep-separate
-    upsert_hunt(s, payload("a3", "isi"))
-    aliases = client.get("/api/players/aliases").json()["aliases"]
-    assert len(aliases) == 1
-    assert client.delete(
-        f"/api/players/aliases/{aliases[0]['id']}").status_code == 200
-    assert client.get("/api/players/aliases").json()["aliases"] == []
-    assert client.post("/api/players/aliases/9999/merge").status_code == 404
+    assert names == ["ISI", "Isi"]
 
 
 def test_health_reports_versions():

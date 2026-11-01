@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { HuntSummary } from "../../lib/api";
-import { fmtDate, fmtTime } from "../../lib/format";
+import { fmtClearTime, fmtDate, fmtTime } from "../../lib/format";
 import { ApiState, useApi } from "../../lib/useApi";
 import DataTable from "../DataTable";
 import SearchSelect from "../SearchSelect";
@@ -500,7 +500,7 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
           <>
             <h2>
               #{data.hunt_id} {data.monster}
-              {data.clear_s ? ` · cleared in ${fmtTime(data.clear_s)}` : ""}
+              {data.clear_s ? ` · cleared in ${fmtClearTime(data.clear_s)}` : ""}
             </h2>
             {showAgitator && data.enrage.length === 0 && (
               <p className="blurb">
@@ -563,7 +563,7 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
         <>
           <h2>
             #{statusData.hunt_id} {statusData.monster}
-            {statusData.clear_s ? ` · cleared in ${fmtTime(statusData.clear_s)}` : ""}
+            {statusData.clear_s ? ` · cleared in ${fmtClearTime(statusData.clear_s)}` : ""}
           </h2>
           {monsterLanes.length === 0 ? (
             isModHunt ? (
