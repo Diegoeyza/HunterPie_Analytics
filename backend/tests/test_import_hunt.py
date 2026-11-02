@@ -230,6 +230,57 @@ def test_bystander_threshold_is_40_percent():
     assert [p["monster_id"] for p, _ in payloads] == [9]
 
 
+def test_quest_target_always_included_even_without_engagement():
+    """A successful speedrun target may never enrage or apply an ailment.
+    Target identity must keep it even at high HP."""
+    doc = sample_doc()
+    base = doc["monsters"][0]
+    step = lambda frac: {"percentage": frac, "time": "2026-09-06T03:34:00.0000000Z"}
+    doc["monsters"] = [{**base, "id": 31, "is_target": True,
+                        "enrage": {"activations": []}, "ailments": [],
+                        "health_steps": [step(0.99)]}]
+    payloads = poogie_to_payloads(doc, {}, "hv", "gv")
+    assert [p["monster_id"] for p, _ in payloads] == [31]
+
+
+def test_target_info_keeps_only_targets_and_heavy_non_targets():
+    """Once the dump has target identity, enrage alone must not smuggle in a
+    turf-war bystander. Non-targets need >60% HP loss (HP below 40%)."""
+    doc = sample_doc()
+    base = doc["monsters"][0]
+    step = lambda frac: {"percentage": frac, "time": "2026-09-06T03:34:00.0000000Z"}
+    target = {**base, "id": 31, "is_target": True,
+              "health_steps": [step(0.99)]}
+    enraged_bystander = {**base, "id": 2, "is_target": False,
+                         "health_steps": [step(0.995)]}
+    heavy = {**base, "id": 9, "is_target": False,
+             "health_steps": [step(0.99), step(0.39)]}
+    light = {**base, "id": 14, "is_target": False,
+             "health_steps": [step(0.99), step(0.50)]}
+    doc["monsters"] = [target, enraged_bystander, heavy, light]
+    payloads = poogie_to_payloads(doc, {}, "hv", "gv")
+    assert [p["monster_id"] for p, _ in payloads] == [31, 9]
+    assert any("not a quest target" in w for _, ws in payloads for w in ws)
+
+
+def test_failed_hunt_with_target_info_uses_the_same_engagement_rule():
+    doc = sample_doc()
+    doc["quest"] = {**doc["quest"], "cleared": False,
+                    "deaths": 0, "max_deaths": 3}
+    base = doc["monsters"][0]
+    step = lambda frac: {"percentage": frac, "time": "2026-09-06T03:34:00.0000000Z"}
+    target = {**base, "id": 31, "is_target": True,
+              "health_steps": [step(0.99)]}
+    heavy = {**base, "id": 9, "is_target": False,
+             "health_steps": [step(0.99), step(0.39)]}
+    light = {**base, "id": 14, "is_target": False,
+             "health_steps": [step(0.99), step(0.50)]}
+    doc["monsters"] = [target, heavy, light]
+    payloads = poogie_to_payloads(doc, {}, "hv", "gv")
+    assert [p["monster_id"] for p, _ in payloads] == [31, 9]
+    assert all(p["cleared"] is False for p, _ in payloads)
+
+
 def test_quest_with_no_engagement_registers_nothing():
     """No monster HP below 40% (walked past everything): the quest is
     skipped entirely."""

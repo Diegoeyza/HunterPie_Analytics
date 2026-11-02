@@ -4,7 +4,7 @@ Dump schema (audited 2026-09-06 against Diegoeyza/HunterPie@analytics-export):
   game_type/started_at/finished_at/uploaded_at/quest/players/monsters/hash
   players[].{name, weapon (Wilds Weapon enum id), damages[{damage, dealt_at}],
              abnormalities, is_hunterpie_user}
-  monsters[].{id, variant, max_health, crown, enrage.activations[],
+  monsters[].{id, variant, max_health, crown, is_target, enrage.activations[],
                ailments[{id, activations[]}],
                hunt_started_at, hunt_finished_at, hunt_type, health_steps[]}
   quest.{id, type, level, stars, deaths, max_deaths, cleared} -> hunts quest_* columns
@@ -331,11 +331,13 @@ def ensure_monster(session, monster_id: int, names: dict[int, str]) -> int:
 
 
 ENGAGEMENT_FLOOR = 0.40
-"""A monster counts as fought when its HP falls below this fraction.
+"""Non-target monster HP floor for "actually fought" (lost >60%).
 
-HP tracking can't tell player damage from monster-vs-monster damage, so a
-bystander that loses a quarter of its HP to a turf war (or your splash
-damage) is treated as a target. Tighten only with per-hit attribution.
+Quest-target identity is authoritative when the dump carries ``is_target``:
+targets always count, and non-targets must fall below this fraction. HP alone
+can't tell player damage from monster-vs-monster damage, so the stricter 60%
+loss threshold keeps most turf-war bystanders out while still recording a
+monster the party really fought.
 """
 
 
@@ -365,6 +367,17 @@ def _quest_failed(doc: dict) -> bool:
         return False
     max_deaths = quest.get("max_deaths") or 0
     return bool(max_deaths and (quest.get("deaths") or 0) >= max_deaths)
+
+
+def _is_quest_target(m: dict) -> bool:
+    """True when the companion marked this monster as a quest objective."""
+    return m.get("is_target") is True
+
+
+def _lost_more_than_60(m: dict) -> bool:
+    """True when a non-target lost more than 60% HP (HP below 40%)."""
+    low = _min_hp_frac(m)
+    return low is not None and low < ENGAGEMENT_FLOOR
 
 
 def _is_environment_bystander(m: dict) -> bool:
@@ -438,7 +451,18 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
 
     out = []
     failed = _quest_failed(doc)
-    if failed:
+    has_targets = any(_is_quest_target(m) for m in monsters)
+    if has_targets:
+        kept = []
+        for m in monsters:
+            if _is_quest_target(m) or _lost_more_than_60(m):
+                kept.append(m)
+            else:
+                warnings.append(
+                    f"skipping monster id={m['id']} (not a quest target and "
+                    f"HP never fell below {ENGAGEMENT_FLOOR:.0%})")
+        monsters = kept
+    elif failed:
         warnings.append(f"quest failed: registering all {len(monsters)} monsters")
     else:
         tracked = [(m, _min_hp_frac(m)) for m in monsters]
@@ -449,7 +473,8 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
                             "quest skipped")
             return []
     for m in monsters:
-        if not failed and len(monsters) > 1 and _is_environment_bystander(m):
+        if not failed and not has_targets and len(monsters) > 1 \
+                and _is_environment_bystander(m):
             warnings.append(f"skipping environment monster id={m['id']} "
                             f"(HP never below {ENGAGEMENT_FLOOR:.0%}, "
                             f"not a quest target)")
