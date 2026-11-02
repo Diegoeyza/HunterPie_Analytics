@@ -115,7 +115,7 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
   const [monsterHunt, setMonsterHunt] = useState<number | null>(null);
   const [showHp, setShowHp] = useState(true);
   const [metric, setMetric] = useState<Metric>("damage");
-  const [focusPlayer, setFocusPlayer] = useState<string | null>(null);
+  const [hiddenPlayers, setHiddenPlayers] = useState<Set<string>>(() => new Set());
 
   const nameToId = useMemo(
     () => new Map((opts?.players ?? []).map((p) => [p.name, p.id])),
@@ -152,7 +152,7 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
    *  monster is picked. */
   const fetchId = huntId ?? hunts?.[0]?.id ?? null;
   const zoom = useChartZoom(fetchId);
-  useEffect(() => setFocusPlayer(null), [fetchId]);
+  useEffect(() => setHiddenPlayers(new Set()), [fetchId]);
   const curveQ = useApi<CurveData>(
     fetchId === null ? "" : `/hunts/${fetchId}/curve`,
     fetchId === null ? null : { quest_hp: 1 });
@@ -295,9 +295,9 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
             <option value="burst1">Instantaneous DPS (1s window)</option>
           </select>
         </label>
-        <span className="scope-hint">Drag chart to zoom · click a hunter to focus</span>
-        {focusPlayer !== null && (
-          <button type="button" className="row-action" onClick={() => setFocusPlayer(null)}
+        <span className="scope-hint">Drag chart to zoom · click a hunter to hide or show it</span>
+        {hiddenPlayers.size > 0 && (
+          <button type="button" className="row-action" onClick={() => setHiddenPlayers(new Set())}
             title="Show every hunter again">
             Show all hunters
           </button>
@@ -371,9 +371,9 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
                   stroke="var(--accent)" strokeOpacity={0.35} />
               )}
               {curve.players.map((p, i) => ({ p, i }))
-                .filter(({ p }) => focusPlayer === null || p.player === focusPlayer)
+                .filter(({ p }) => !hiddenPlayers.has(p.player))
                 .map(({ p, i }) => {
-                  const dimmed = focusPlayer === null && scope.length > 0 &&
+                  const dimmed = scope.length > 0 &&
                     !scope.includes(nameToId.get(p.player) ?? -1);
                   return (
                     <Line key={p.player} type="monotone" dataKey={p.player}
@@ -389,16 +389,20 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
               ))}
             </LineChart>
           </ResponsiveContainer>
-          <div className="chart-legend" aria-label="Chart focus">
+          <div className="chart-legend" aria-label="Chart visibility">
             {curve.players.map((p, i) => {
-              const focused = focusPlayer === p.player;
-              const off = focusPlayer !== null && !focused;
+              const hidden = hiddenPlayers.has(p.player);
               return (
                 <button key={`legend-${p.player}-${i}`} type="button"
-                  className={`chart-legend-item${off ? " is-off" : ""}${focused ? " is-on" : ""}`}
-                  aria-pressed={focused}
-                  title={focused ? "Show all hunters" : `Focus ${p.player}`}
-                  onClick={() => setFocusPlayer(focused ? null : p.player)}>
+                  className={`chart-legend-item${hidden ? " is-off" : ""}`}
+                  aria-pressed={!hidden}
+                  title={hidden ? `Show ${p.player}` : `Hide ${p.player}`}
+                  onClick={() => setHiddenPlayers((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(p.player)) next.delete(p.player);
+                    else next.add(p.player);
+                    return next;
+                  })}>
                   <span className="chart-legend-swatch"
                     style={{ background: seriesColor(i) }} />
                   {playerLabel(p)}

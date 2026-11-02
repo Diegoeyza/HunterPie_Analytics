@@ -514,7 +514,6 @@ table.grid tbody tr.selected td { background: var(--row-hover); box-shadow: inse
   padding: 2px 5px; font: inherit; color: inherit; cursor: pointer;
 }
 .chart-legend-item:hover { color: var(--text); background: var(--panel-2); }
-.chart-legend-item.is-on { color: var(--text); background: var(--panel-2); }
 .chart-legend-item.is-off { opacity: 0.35; }
 .chart-legend-item.is-hp { cursor: default; }
 .chart-legend-item.is-hp:hover { color: inherit; background: none; }
