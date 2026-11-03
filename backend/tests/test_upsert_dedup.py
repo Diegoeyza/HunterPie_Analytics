@@ -154,6 +154,43 @@ def test_cross_source_same_hunt_dedups(session):
     assert len(session.execute(select(Hunt)).scalars().all()) == 1
 
 
+def test_cross_source_partial_mid_hunt_joins(session):
+    """A mid-hunt join can leave the mod with only a slice of the quest.
+    Its window is contained in the companion's, so the end-time guard must
+    not create a second hunt when the per-hunter damage agrees."""
+    h1, c1, _ = upsert_hunt(session, base_payload(
+        quest_id_external="pie-full",
+        started_at=datetime(2026, 2, 1, 12, 0, 8),
+        ended_at=datetime(2026, 2, 1, 12, 7, 53)))
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="rf-partial",
+        source="reframework",
+        started_at=datetime(2026, 2, 1, 12, 0, 41),
+        ended_at=datetime(2026, 2, 1, 12, 2, 35)))
+    assert (c1, c2) == (True, False)
+    assert h1.id == h2.id
+    assert len(session.execute(select(Hunt)).scalars().all()) == 1
+
+
+def test_cross_source_partial_with_different_damage_stays_separate(session):
+    """Containment alone is not enough: a partial capture with different
+    hunter damage is treated as a different hunt."""
+    h1, c1, _ = upsert_hunt(session, base_payload(
+        quest_id_external="pie-full",
+        started_at=datetime(2026, 2, 1, 12, 0, 8),
+        ended_at=datetime(2026, 2, 1, 12, 7, 53)))
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="rf-other",
+        source="reframework",
+        players=[{"display_name": "Diego", "weapon_id": 1,
+                  "total_damage": 5000, "peak_dps": 90}],
+        started_at=datetime(2026, 2, 1, 12, 0, 41),
+        ended_at=datetime(2026, 2, 1, 12, 2, 35)))
+    assert (c1, c2) == (True, True)
+    assert h1.id != h2.id
+    assert len(session.execute(select(Hunt)).scalars().all()) == 2
+
+
 def test_cross_source_far_apart_coexist(session):
     """Outside the window they are separate hunts (farming repeats)."""
     h1, c1, _ = upsert_hunt(session, base_payload(

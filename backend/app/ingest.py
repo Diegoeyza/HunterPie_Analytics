@@ -298,7 +298,19 @@ def find_hunt_by_payload(session: Session, payload: dict) -> Hunt | None:
             end_delta = abs(
                 (cand.ended_at - incoming_end).total_seconds())
             if end_delta > CROSS_SOURCE_END_WINDOW_SECONDS:
-                continue
+                # A mid-hunt join or a mid-hunt mod reload can leave one
+                # source with only a slice of the quest. If its whole window
+                # is contained in the other, the usual end-time guard is too
+                # strict; fall through to the per-hunter damage check, which
+                # distinguishes the same quest from a farming repeat.
+                contained = (
+                    (started >= cand.started_at
+                     and incoming_end <= cand.ended_at)
+                    or (cand.started_at >= started
+                        and cand.ended_at <= incoming_end)
+                )
+                if not contained:
+                    continue
         # Wider window needs damage agreement. The mod only tracks hunters
         # it can see: unobserved roster members come in as zeros, so a
         # partial mod dump legitimately totals far less (observed 27% on an
