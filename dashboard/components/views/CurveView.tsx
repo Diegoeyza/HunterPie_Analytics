@@ -46,10 +46,6 @@ function mergeSeries(players: CurvePlayer[], hpSeries: { key: string; points: { 
   const smoothed = new Map(
     players.map((p) => [p.player, smoothDps(computeDps(p.points, endT))])
   );
-  const burstWindow = metric === "burst1" ? 1 : 5;
-  const burst = new Map(
-    players.map((p) => [p.player, computeBurst(p.points, burstWindow)])
-  );
   const eventTimes = events.flatMap((e) => [e.start, e.end ?? []]).flat();
   const times = Array.from(
     new Set([
@@ -58,6 +54,13 @@ function mergeSeries(players: CurvePlayer[], hpSeries: { key: string; points: { 
       ...eventTimes,
     ])
   ).sort((a, b) => a - b);
+  // Evaluate burst windows on the shared grid: party snapshots are ~5s
+  // apart while the local hunter's are much denser, so a per-player sample
+  // grid would otherwise make the 1s/5s windows cadence-dependent.
+  const burstWindow = metric === "burst1" ? 1 : 5;
+  const burst = new Map(
+    players.map((p) => [p.player, computeBurst(p.points, burstWindow, times)])
+  );
   const hpSorted = hpSeries.map((s) => ({
     key: s.key, points: [...s.points].sort((a, b) => a.t - b.t),
   }));

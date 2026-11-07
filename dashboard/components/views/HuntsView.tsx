@@ -178,15 +178,20 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
     const smoothed = new Map(
       curve.players.map((p, i) => [i, smoothDps(computeDps(p.points, endT))]),
     );
-    const burst = new Map(
-      curve.players.map((p, i) => [i, computeBurst(p.points, metric === "burst1" ? 1 : 5)]),
-    );
 
     const times = [...new Set([
       0,
       ...curve.players.flatMap((p) => p.points.map((pt) => pt.t)),
       ...enrages.flatMap((e) => [e.start, e.end ?? curve.clear_s ?? 0]),
     ])].sort((a, b) => a - b);
+    // Burst windows are evaluated on the shared grid so a 5s-sampled party
+    // member is not treated as if every sample were a 1s frame.
+    const burst = new Map(
+      curve.players.map((p, i) => [
+        i,
+        computeBurst(p.points, metric === "burst1" ? 1 : 5, times),
+      ]),
+    );
 
     return times.map((t) => {
       const row: Record<string, number> = { t };
