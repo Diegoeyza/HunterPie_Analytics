@@ -1,13 +1,18 @@
 name: Linux bundle
 run-name: Linux bundle ${{ inputs.tag || github.ref_name }}
 
-# Builds the Linux (Proton / Steam Deck) tarball and attaches it to the release
-# that `release.yml` just published. Kept separate from the Windows job: it must
-# run on ubuntu-22.04 (glibc 2.35) because the frozen Python can only run on
-# glibc >= the build machine's.
+# Builds the Linux (Proton / Steam Deck) tarball when the Windows release
+# workflow finishes, and attaches it to the published release. Kept separate
+# from the Windows job: it must run on ubuntu-22.04 (glibc 2.35) because the
+# frozen Python can only run on glibc >= the build machine's.
+#
+# `release: published` cannot be the trigger: the release is created with
+# GITHUB_TOKEN, and GitHub suppresses follow-up workflow runs for those events.
+# workflow_run sees the Release workflow complete and is not suppressed.
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
@@ -52,22 +57,26 @@ jobs:
           if-no-files-found: error
 
       - name: Attach to release
-        if: github.event_name == 'release' || inputs.tag != ''
+        if: >-
+          (github.event_name == 'workflow_run' &&
+           github.event.workflow_run.conclusion == 'success') ||
+          inputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          tag="${{ inputs.tag || github.event.workflow_run.head_branch }}"
           if [ -z "$tag" ]; then
             tag="$(gh release view --json tagName --jq .tagName)"
           fi
           echo "Attaching to $tag"
 
-          # A `release: published` event can fire before the Windows job has
-          # finished uploading, so wait for its payloads before checksumming.
+          # The Release workflow has completed by the time this runs, but keep a
+          # short wait in case GitHub is still finalising the assets.
           for i in $(seq 1 40); do
             names="$(gh release view "$tag" --json assets --jq '.assets[].name' || true)"
             if echo "$names" | grep -q '^HunterPieAnalytics-Setup-' \
-               && echo "$names" | grep -q '^HuntDumper-'; then
+               && echo "$names" | grep -q '^HuntDumper-' \
+               && echo "$names" | grep -q '^HunterPieAnalytics-Companion-'; then
               break
             fi
             echo "waiting for the Windows assets… ($i/40)"
