@@ -22,7 +22,7 @@ local imgui = imgui
 local os = os
 local io = io
 
-local VERSION = "0.12.3"
+local VERSION = "0.12.4"
 local OUT_SUBDIR = "HuntExports"
 local CONFIG_FILE = "hunt_dumper.json"
 local GAME_TYPE = 2
@@ -1028,6 +1028,61 @@ local function quest_meta()
     return m
 end
 
+-- Self display name straight from NetworkManager: independent of the quest
+-- user-info list, so it still works when that list is invalid or tearing down.
+local function self_user_name(nm)
+    if not nm then return nil end
+    local n = safe_str(safe(function() return call_method(nm, "SelfUserName") end))
+    if n and n ~= "" then return n end
+    return safe_str(safe(function() return field_value(nm, "_UserName") end))
+end
+
+local _NAME_FIELDS = { "<PlName>k__BackingField", "_PlName", "PlName",
+                       "<Name>k__BackingField", "_Name", "Name" }
+
+local function name_from_fields(obj, fields)
+    for _, f in ipairs(fields) do
+        local n = safe_str(safe(function() return field_value(obj, f) end))
+        if n and n ~= "" then return n end
+    end
+    return nil
+end
+
+-- Name of one Net_UserInfo. get_PlName is a managed property getter and can
+-- fault (REFramework logs an access violation) on an entry that is no longer
+-- valid — the quest user list still holds empty entries while it tears down
+-- at the results screen. Read the param struct's fields first: plain field
+-- reads cannot fault, and a bad entry must never cost the whole dump.
+local function user_name(u, self_name)
+    local n = name_from_fields(u, _NAME_FIELDS)
+    if n then return n end
+    local param = safe(function() return field_value(u, "param") end)
+    if param then
+        n = name_from_fields(param, _NAME_FIELDS)
+        if n then return n end
+        -- Field names drift between builds: accept any non-buddy string
+        -- field that looks like a name.
+        local td = safe(function() return param:get_type_definition() end)
+        for _, f in ipairs(safe(function() return td and td:get_fields() end) or {}) do
+            local fn = safe(function() return f:get_name() end)
+            if fn and fn:find("Name") and not fn:find("Otomo") then
+                n = safe_str(safe(function() return f:get_data(param) end))
+                if n and n ~= "" then return n end
+            end
+        end
+        n = safe_str(safe(function() return call_method(param, "get_PlName") end))
+        if n and n ~= "" then return n end
+    end
+    for _, m in ipairs({ "get_PlName", "getDispPlName" }) do
+        n = safe_str(safe(function() return call_method(u, m) end))
+        if n and n ~= "" then return n end
+    end
+    if self_name and safe(function() return u:get_IsSelf() end) then
+        return self_name
+    end
+    return nil
+end
+
 local function quest_users()
     local NM = safe(sdk.find_type_definition, "app.NetworkManager")
     local nm = NM and safe(function() return sdk.get_managed_singleton("app.NetworkManager") end)
@@ -1037,19 +1092,81 @@ local function quest_users()
     if not uim then return {} end
     local uil = safe(function() return uim:getUserInfoList(SESSION_QUEST) end)
     local arr = uil and safe(function() return uil._ListInfo end)
+    local self_name = self_user_name(nm)
     local out = {}
     for i, u in ipairs(collect(arr, 8)) do
         if u then
-            local uid = boxed_float(safe(function() return u:get_UserIndex() end))
-            out[i - 1] = {
-                name = safe_str(safe(function() return u:get_PlName() end)),
-                is_self = safe(function() return u:get_IsSelf() end),
-                idx = uid,
-                -- _PlayerList is indexed by this user/control slot; the list
-                -- itself is compact join order, so a slot can be 6 while its
-                -- list position is 1 (SOS quests).
-                slot = uid,
-            }
+            -- Empty slots are the entries whose name getter faults.
+            local valid = safe(function() return u:get_IsValid() end)
+            if valid ~= false then
+                -- Wilds exposes get_MemberIndex; get_UserIndex is the older
+                -- build's name. Both are the user/control slot.
+                local uid = boxed_float(safe(function() return u:get_UserIndex() end))
+                    or boxed_float(safe(function() return u:get_MemberIndex() end))
+                out[i - 1] = {
+                    name = user_name(u, self_name),
+                    is_self = safe(function() return u:get_IsSelf() end),
+                    idx = uid,
+                    -- _PlayerList is indexed by this user/control slot; the
+                    -- list itself is compact join order, so a slot can be 6
+                    -- while its list position is 1 (SOS quests).
+                    slot = uid,
+                }
+            end
+        end
+    end
+    return out
+end
+
+-- Names observed while polling the party HP series: a second, independent
+-- source that can re-label a roster whose user-info getter failed.
+local function fill_user_names_from_series()
+    if state == nil then return end
+    local by_index = {}
+    local function put(k, name)
+        if type(k) == "number" and name and by_index[k] == nil then
+            by_index[k] = name
+        end
+    end
+    for _, pn in pairs(state.php_names or {}) do
+        if pn and pn.name then
+            put(pn.idx, pn.name)
+            put(pn.slot, pn.name)
+            put(pn.st, pn.name)
+            put(pn.qi, pn.name)
+        end
+    end
+    for key, rec in pairs(state.php or {}) do
+        if rec and rec.name then put(key, rec.name) end
+    end
+    for _, u in pairs(state.users or {}) do
+        if u and not u.name then
+            u.name = by_index[u.idx] or by_index[u.slot]
+        end
+    end
+    for _, u in pairs(state.users or {}) do
+        if u and u.is_self and u.name then state.self_name = u.name end
+    end
+end
+
+-- The results-screen user list can be empty or unnamed (the game tears it
+-- down while the dump runs). Merge instead of replacing: a failed refresh
+-- must never erase the names captured at quest start, or the whole hunt is
+-- skipped as "no players captured".
+local function merge_users(prev, fresh)
+    local out = {}
+    for k, u in pairs(fresh or {}) do out[k] = u end
+    for k, old in pairs(prev or {}) do
+        local u = out[k]
+        if u == nil then
+            out[k] = old
+        else
+            if not u.name and old.name then u.name = old.name end
+            if u.idx == nil then
+                u.idx = old.idx
+                u.slot = u.slot or old.slot
+            end
+            if u.is_self == nil then u.is_self = old.is_self end
         end
     end
     return out
@@ -1515,7 +1632,11 @@ end
 local function finish_session()
     if not config.enabled or state == nil or state.finished then return end
     state.finished = utc_now()
-    state.users = quest_users() -- refresh names if needed
+    -- Refresh, but never let an empty/unnamed results-screen list erase the
+    -- roster captured at quest start (its name getter can fault during
+    -- teardown); series names fill any remaining gap.
+    state.users = merge_users(state.users, quest_users())
+    fill_user_names_from_series()
     if #state.em_ids == 0 then state.em_ids = get_active_em_ids() end -- em set may fill late
 
     local started = state.started
