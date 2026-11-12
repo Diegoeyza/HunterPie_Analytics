@@ -426,6 +426,8 @@ def _validate_payload_numbers(payload: dict) -> None:
                 f"total_damage for {p.get('display_name')!r}")
         _nonneg(p.get("peak_dps", 0),
                 f"peak_dps for {p.get('display_name')!r}")
+        _nonneg(p.get("hunter_rank"),
+                f"hunter_rank for {p.get('display_name')!r}")
         gear = p.get("gear") or {}
         _nonneg(gear.get("raw"), f"gear.raw for {p.get('display_name')!r}")
         _nonneg(gear.get("element"),
@@ -655,15 +657,19 @@ def _refresh_abnormalities(session: Session, hunt: Hunt, payload: dict) -> None:
 def _insert_children(session: Session, hunt: Hunt, payload: dict,
                      now: datetime, warnings: list[str], cache: dict,
                      supporter_names: set[str] | None = None,
-                     weapon_names: dict[str, str] | None = None) -> None:
+                     weapon_names: dict[str, str] | None = None,
+                     ranks: dict[str, int] | None = None) -> None:
     """Players (+ awards), snapshots, events, HP steps and abnormalities.
 
     ``supporter_names`` force-flags CPU support hunters that HunterPie lists
     as ordinary players (it does not mark them; the mod does).
     ``weapon_names`` restores the mod's local-player weapon name when a
-    HunterPie dump refreshes a mod-created hunt (HunterPie has no name)."""
+    HunterPie dump refreshes a mod-created hunt (HunterPie has no name).
+    ``ranks`` preserves the last known hunter ranks when an older
+    HunterPie dump (without rank) refreshes a hunt."""
     supporter_names = supporter_names or set()
     weapon_names = weapon_names or {}
+    ranks = ranks or {}
     support = _support_applied(payload["players"])
     player_ids: dict[str, int] = {}
     for p in payload["players"]:
@@ -695,7 +701,10 @@ def _insert_children(session: Session, hunt: Hunt, payload: dict,
             gear_raw=gear.get("raw"), gear_element=gear.get("element"),
             gear_affinity=gear.get("affinity"),
             weapon_name=(p.get("weapon_name")
-                         or weapon_names.get(p["display_name"]))))
+                         or weapon_names.get(p["display_name"])),
+            hunter_rank=(p.get("hunter_rank")
+                         if p.get("hunter_rank") is not None
+                         else ranks.get(p["display_name"]))))
         for a in p.get("awards") or []:
             _add_award(session, hunt.id, pid, a,
                        support.get(p["display_name"]))
@@ -797,6 +806,13 @@ def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
         .select_from(HuntPlayer)
         .join(Player, Player.id == HuntPlayer.player_id)
         .where(HuntPlayer.hunt_id == hunt.id)).all() if wn}
+    # Older companion builds have no rank: keep the last known value.
+    ranks = {name: rank for name, rank in session.execute(
+        select(Player.display_name, HuntPlayer.hunter_rank)
+        .select_from(HuntPlayer)
+        .join(Player, Player.id == HuntPlayer.player_id)
+        .where(HuntPlayer.hunt_id == hunt.id)).all()
+        if rank is not None}
     cols = _hunt_columns(payload, started, ended,
                          sorted(p["display_name"] for p in payload["players"]))
     cols["player_count"] = max(1, sum(
@@ -826,7 +842,8 @@ def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
         _delete_children(session, hunt.id)
         session.flush()
         _insert_children(session, hunt, payload, now, warnings, cache,
-                         supporter_names=supporters, weapon_names=names)
+                         supporter_names=supporters, weapon_names=names,
+                         ranks=ranks)
         for pid, ts, hp, red, mx in saved_health:
             session.add(PlayerHealthStep(
                 hunt_id=hunt.id, player_id=pid, ts_offset_seconds=ts,
@@ -902,6 +919,10 @@ def _enrich_from_reframework(session: Session, hunt: Hunt,
             changed = True
         if p.get("is_supporter") and not hp.is_supporter:
             hp.is_supporter = True
+            changed = True
+        rank = p.get("hunter_rank")
+        if rank is not None and hp.hunter_rank != rank:
+            hp.hunter_rank = rank
             changed = True
         for a in p.get("awards") or []:
             aid = a.get("id")

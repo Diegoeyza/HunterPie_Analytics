@@ -528,6 +528,7 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
                                          "is_supporter": bool(p.get("is_supporter", False)),
                                          "weapon_name": p.get("weapon_name") if trust_name else None,
                                          "awards": None, "health": None,
+                                         "hunter_rank": None,
                                          "damages": [], "abnormalities": []})
         # Gear fingerprint (fork >= gear build, local player only):
         # first non-null snapshot wins; stats are taken at quest start.
@@ -539,6 +540,10 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
         # Player HP samples (REFramework mod): keep the first non-empty.
         if entry["health"] is None and p.get("health_steps"):
             entry["health"] = p["health_steps"]
+        # Hunter rank (HunterPie fork): same for every frame of a player.
+        rank = p.get("hunter_rank")
+        if entry["hunter_rank"] is None and isinstance(rank, (int, float)):
+            entry["hunter_rank"] = int(rank)
         if trust_name and entry["weapon_name"] is None and p.get("weapon_name"):
             entry["weapon_name"] = p["weapon_name"]
         entry["damages"].extend(p.get("damages") or [])
@@ -656,6 +661,7 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
             "peak_dps": peak,  # ~1s sampling: max single-frame damage
             "is_supporter": bool(p.get("is_supporter", False)),
             "weapon_name": p.get("weapon_name"),
+            "hunter_rank": p.get("hunter_rank"),
             "awards": p.get("awards") or [],
         })
         cum, prev = 0.0, None

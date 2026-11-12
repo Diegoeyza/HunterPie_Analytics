@@ -33,9 +33,10 @@ HP = [(0.0, 1.0), (5.0, 0.8), (10.0, 0.4), (15.0, 0.2), (20.0, 0.9)]
 
 
 def health_payload(start, source="reframework", with_health=True,
-                   external="hp-1"):
+                   external="hp-1", rank=210):
     players = [{"display_name": "Isi", "weapon_id": 6,
                 "total_damage": 1000.0, "peak_dps": 50.0,
+                "hunter_rank": rank,
                 "is_supporter": False}]
     snaps = [{"display_name": "Isi", "ts_offset_seconds": 10.0 * k,
               "cumulative_damage": 100.0 * k, "instant_dps": 10.0}
@@ -128,7 +129,7 @@ def test_hunterpie_refresh_preserves_player_health():
     from sqlalchemy import func, select
 
     from app.ingest import upsert_hunt
-    from app.models import Monster, PlayerHealthStep, Weapon
+    from app.models import HuntPlayer, Monster, PlayerHealthStep, Weapon
 
     def seed(s):
         s.add_all([Monster(id=31, name="Xu Wu"),
@@ -139,11 +140,14 @@ def test_hunterpie_refresh_preserves_player_health():
 
     _, s, path = make_client(seed)
     try:
-        hp = health_payload(datetime(2026, 9, 6, 3, 0), source="hunterpie")
+        hp = health_payload(datetime(2026, 9, 6, 3, 0), source="hunterpie",
+                            rank=None)
         hp.pop("player_health", None)
         upsert_hunt(s, hp)
         n = s.execute(select(func.count(PlayerHealthStep.id))).scalar_one()
         assert n == 5
+        # An older companion dump has no rank: the last known value survives.
+        assert s.execute(select(HuntPlayer.hunter_rank)).scalar_one() == 210
     finally:
         s.close()
         dispose_engine(path)
@@ -154,7 +158,7 @@ def test_reframework_enrich_attaches_player_health():
     from sqlalchemy import func, select
 
     from app.ingest import upsert_hunt
-    from app.models import Monster, PlayerHealthStep, Weapon
+    from app.models import HuntPlayer, Monster, PlayerHealthStep, Weapon
 
     def seed(s):
         s.add_all([Monster(id=31, name="Xu Wu"),
@@ -163,13 +167,15 @@ def test_reframework_enrich_attaches_player_health():
         s.flush()
         upsert_hunt(s, health_payload(datetime(2026, 9, 6, 3, 0),
                                       source="hunterpie",
-                                      with_health=False))
+                                      with_health=False, rank=None))
 
     _, s, path = make_client(seed)
     try:
         upsert_hunt(s, health_payload(datetime(2026, 9, 6, 3, 0)))
         n = s.execute(select(func.count(PlayerHealthStep.id))).scalar_one()
         assert n == 5
+        # A later companion dump fills in the rank the older one could not provide.
+        assert s.execute(select(HuntPlayer.hunter_rank)).scalar_one() == 210
         # Repeated enriches must not duplicate rows.
         upsert_hunt(s, health_payload(datetime(2026, 9, 6, 3, 0)))
         n = s.execute(select(func.count(PlayerHealthStep.id))).scalar_one()

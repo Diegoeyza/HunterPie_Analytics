@@ -20,7 +20,12 @@ import Modal from "../Modal";
 import SearchSelect from "../SearchSelect";
 
 interface CurvePoint { t: number; dmg: number; }
-interface CurvePlayer { player: string; weapon: string | null; weapon_name?: string | null; points: CurvePoint[]; }
+interface CurvePlayer {
+  player: string; weapon: string | null; weapon_name?: string | null;
+  /** Hunter rank at quest time (mod); null for companion-only hunts. */
+  hunter_rank?: number | null;
+  points: CurvePoint[];
+}
 interface CurveEvent { type: string; start: number; end: number | null; monster?: string | null; }
 interface HuntCurve {
   hunt_id: number; monster: string; started_at: string;
@@ -104,6 +109,14 @@ const columns: ColumnDef<HuntSummary>[] = [
   {
     id: "players", accessorKey: "players", header: "Hunters",
     meta: { cls: "num" },
+    cell: ({ row }) => {
+      const party = row.original.party ?? [];
+      if (party.length === 0) return row.original.players;
+      const tip = party.map((p) => p.hunter_rank != null
+        ? `${p.player} · HR ${p.hunter_rank}`
+        : p.player).join("\n");
+      return <span title={tip}>{row.original.players}</span>;
+    },
   },
   {
     id: "highlights", accessorFn: (r) => r.highlight_count ?? 0,
@@ -142,6 +155,20 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
   const settingsQ = useApi<AppSettings>("/settings");
   const questMode = settingsQ.data?.dps_window === "quest";
 
+  // Rank is stored per hunt/player. Missing on mod-only hunts and on dumps
+  // from older companion builds, so every use is optional.
+  const rankOf = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of curve?.players ?? []) {
+      if (p.hunter_rank != null) m.set(p.player, p.hunter_rank);
+    }
+    return m;
+  }, [curve]);
+  const rankTitle = (name: string, rank?: number | null) => {
+    const r = rank ?? rankOf.get(name);
+    return r != null ? `${name} · Hunter Rank ${r}` : name;
+  };
+
   const members = useMemo(() => {
     if (!curve) return [];
     const team = curve.players.reduce(
@@ -156,6 +183,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
         const eng = engagementOf(curve, i, questMode);
         return {
           player: p.player, caption: p.weapon_name ?? p.weapon ?? "Unknown",
+          hunter_rank: p.hunter_rank ?? null,
           total_damage: total,
           dps: eng ? total / eng : null,
           share: team > 0 ? total / team : 0, shareLabel: "of hunt",
@@ -336,7 +364,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                       <tbody>
                         {(curve.survival ?? []).map((s) => (
                           <tr key={s.player}>
-                            <td>{s.player}</td>
+                            <td title={rankTitle(s.player)}>{s.player}</td>
                             <td className="num">{s.min_hp != null ? fmtPct(s.min_hp) : "—"}</td>
                             <td className="num">{fmtTime(s.time_below_50)}</td>
                             <td className="num">{fmtTime(s.time_below_25)}</td>
@@ -355,7 +383,8 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                         <tr>
                           <th>Award</th>
                           {highlights.players.map((p) => (
-                            <th key={p.player_id} className="num">
+                            <th key={p.player_id} className="num"
+                              title={rankTitle(p.player, p.hunter_rank)}>
                               {p.player}{p.is_supporter ? " (NPC)" : ""}
                             </th>
                           ))}

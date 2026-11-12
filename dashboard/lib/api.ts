@@ -209,6 +209,8 @@ export interface FilterOptions {
 export interface HuntHighlightAward { id: number; count: number; channels?: number[]; }
 export interface HuntHighlightPlayer {
   player_id: number; player: string; is_supporter: boolean;
+  /** Hunter rank at quest time (REFramework mod); null for companion-only hunts. */
+  hunter_rank?: number | null;
   total_damage: number; damage_share: number;
   awards: HuntHighlightAward[];
 }
@@ -247,6 +249,8 @@ export interface HuntSummary {
   id: number; monster: string; started_at: string;
   quest_id: number | null; quest_stars: number | null;
   clear_s: number | null; cleared: boolean; carts: number; players: number;
+  /** Non-supporter party, for the Hunters cell tooltip (name + rank). */
+  party?: { player: string; hunter_rank?: number | null }[];
   ignored: boolean;
   /** Soft-deleted from the hunt manager (only listed with include_deleted). */
   deleted?: boolean;

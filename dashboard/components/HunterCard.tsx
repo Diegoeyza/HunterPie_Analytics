@@ -6,6 +6,8 @@ export interface HunterCardData {
   player: string;
   /** Right-side caption (weapon, hunt count…). */
   caption: string;
+  /** Hunter rank at quest time; null/undefined hides the badge. */
+  hunter_rank?: number | null;
   total_damage: number;
   dps: number | null;
   /** Share of the relevant total (hunt team or quest), 0..1. */
@@ -17,10 +19,18 @@ export interface HunterCardData {
 /** Party-member stat card: name + caption, big damage, DPS + share, bar.
  *  Shared by the Quests and Hunts popups. */
 export default function HunterCard({ m, mvp }: { m: HunterCardData; mvp: boolean }) {
+  const nameTitle = m.hunter_rank != null
+    ? `${m.player} · Hunter Rank ${m.hunter_rank}`
+    : m.player;
   return (
     <div className={`member-card${mvp ? " mvp" : ""}`}>
       <div className="member-top">
-        <span className="member-name" title={m.player}>{mvp ? "★ " : ""}{m.player}</span>
+        <span className="member-name" title={nameTitle}>
+          <span className="member-name-text">{mvp ? "★ " : ""}{m.player}</span>
+          {m.hunter_rank != null && (
+            <span className="member-hr">HR {m.hunter_rank}</span>
+          )}
+        </span>
         <span className="muted" title={m.caption}>{m.caption}</span>
       </div>
       <div className="member-dmg">{fmtInt(m.total_damage)}</div>

@@ -56,7 +56,7 @@ EXTRA_COLUMNS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-LATEST_VERSION = 12
+LATEST_VERSION = 13
 
 
 def _sqlite_url(db_path: str | Path) -> str:
@@ -325,6 +325,11 @@ def _migrate_v12(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_hunts_deleted ON hunts (deleted_at)"))
 
 
+def _migrate_v13(conn) -> None:
+    """Per-hunt hunter rank from the HunterPie fork export."""
+    _add_missing_columns(conn, "hunt_players", [("hunter_rank", "INTEGER")])
+
+
 # v4/v5 (the REFramework weapon-model experiment) were reverted before release;
 # their tables/columns never existed in a shipped DB, so those versions are
 # intentionally absent. migrate() tolerates the gap in the sequence.
@@ -332,7 +337,7 @@ MIGRATIONS: dict[int, object] = {1: _migrate_v1, 2: _migrate_v2, 3: _migrate_v3,
                                  6: _migrate_v6, 7: _migrate_v7,
                                  8: _migrate_v8, 9: _migrate_v9,
                                  10: _migrate_v10, 11: _migrate_v11,
-                                 12: _migrate_v12}
+                                 12: _migrate_v12, 13: _migrate_v13}
 
 
 def migrate(engine=None, db_path: str | Path = DEFAULT_DB_PATH) -> int:

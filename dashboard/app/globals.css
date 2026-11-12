@@ -488,7 +488,19 @@ table.grid tbody tr.selected td { background: var(--row-hover); box-shadow: inse
 }
 .member-card.mvp { border-color: var(--accent); }
 .member-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
-.member-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-name {
+  font-weight: 600; display: flex; align-items: center; gap: 6px;
+  min-width: 0;
+}
+.member-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-hr {
+  flex: none; font-size: 10px; font-weight: 500; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 0 4px; vertical-align: 1px;
+  opacity: 0; transition: opacity .12s;
+}
+.member-card:hover .member-hr, .member-card:focus-within .member-hr { opacity: 1; }
+@media (hover: none) { .member-hr { opacity: 1; } }
 .member-dmg { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 2px 0; }
 .member-sub { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
 .share-track { height: 5px; background: var(--panel); border-radius: 3px; margin-top: 6px; overflow: hidden; }

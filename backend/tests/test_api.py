@@ -55,6 +55,7 @@ def seed_two_hunts(s):
             "hunterpie_version": "t", "game_version": "g",
             "players": [{"display_name": n, "weapon_id": w,
                          "total_damage": dmg, "peak_dps": 50.0,
+                         "hunter_rank": 100 + (0 if n == "Isi" else 1),
                          "is_supporter": False} for n, w, dmg in members],
             "snapshots": [{"display_name": n, "ts_offset_seconds": 10.0,
                            "cumulative_damage": dmg / 2, "instant_dps": 40.0}
@@ -394,10 +395,13 @@ def test_weapons_and_synergy():
 
 def test_curve_and_404():
     client, _ = make_client(seed_two_hunts)
-    hunt_id = client.get("/api/hunts").json()["hunts"][0]["id"]
+    hunt = client.get("/api/hunts").json()["hunts"][0]
+    hunt_id = hunt["id"]
+    assert {p["player"]: p["hunter_rank"] for p in hunt["party"]}["Isi"] == 100
     curve = client.get(f"/api/hunts/{hunt_id}/curve").json()
     assert curve["players"] and curve["players"][0]["points"]
     assert set(curve["players"][0]["points"][0]) == {"t", "dmg", "dps"}
+    assert {p["player"]: p["hunter_rank"] for p in curve["players"]}["Isi"] == 100
     assert client.get("/api/hunts/9999/curve").status_code == 404
 
 
@@ -797,7 +801,7 @@ def test_migration_backfills_old_db():
     tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     con.close()
     assert {"quest_id", "quest_stars", "monster_max_hp", "monster_crown"} <= cols
-    assert {"gear_raw", "gear_element", "gear_affinity"} <= hp_cols
+    assert {"gear_raw", "gear_element", "gear_affinity", "hunter_rank"} <= hp_cols
     assert "weapon_identities" in tables
 
 

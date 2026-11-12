@@ -97,6 +97,7 @@ CREATE TABLE hunt_players (
     gear_element  REAL,
     gear_affinity REAL,
     weapon_name   TEXT,  -- localized name, LOCAL player only (REFramework mod); NULL otherwise
+    hunter_rank   INTEGER,  -- HR at quest time (HunterPie fork); NULL for old/companion-less dumps
     PRIMARY KEY (hunt_id, player_id),
     CHECK (total_damage >= 0),
     CHECK (peak_dps >= 0)

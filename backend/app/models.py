@@ -183,6 +183,9 @@ class HuntPlayer(Base):
     # weapon id -> name lookup is reliable but remote players come out
     # swapped, so only self is recorded). NULL otherwise.
     weapon_name: Mapped[str | None] = mapped_column(Text)
+    # Hunter rank at quest time, from the HunterPie fork export (network
+    # member info). NULL for older companion builds and mod-only hunts.
+    hunter_rank: Mapped[int | None] = mapped_column(Integer)
 
     __table_args__ = (
         Index("idx_hunt_players_player", "player_id"),

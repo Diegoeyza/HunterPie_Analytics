@@ -29,6 +29,7 @@ def sample_doc(**over):
                   "level": 1, "stars": 6},
         "players": [{
             "name": "Isi", "weapon": 5, "is_hunterpie_user": True,
+            "hunter_rank": 217,
             "damages": [
                 {"damage": 57.0, "dealt_at": "2026-09-06T03:33:30.7341915Z"},
                 {"damage": 126.0, "dealt_at": "2026-09-06T03:36:12.4542845Z"},
@@ -105,6 +106,7 @@ def test_payload_mapping():
     assert (payload["monster_max_hp"], payload["monster_variant"]) == (18450.0, 5)
     assert payload["players"][0]["total_damage"] == 183.0
     assert payload["players"][0]["peak_dps"] == 126.0
+    assert payload["players"][0]["hunter_rank"] == 217
     # cumulative snapshots incl. tail frame past finished_at (tolerated)
     assert [s["cumulative_damage"] for s in payload["snapshots"]] == [57.0, 183.0]
     assert payload["snapshots"][-1]["ts_offset_seconds"] > 176  # past finished_at
@@ -237,6 +239,7 @@ def test_end_to_end_import_and_redup():
     assert len(s.execute(select(DpsSnapshot)).scalars().all()) == 2
     assert len(s.execute(select(MonsterEvent)).scalars().all()) == 1
     assert s.get(HuntPlayer, (hunt.id, 1)).weapon_id == 6  # HuntingHorn enum 5 -> row 6
+    assert s.get(HuntPlayer, (hunt.id, 1)).hunter_rank == 217
     # re-import dedups
     [(_, created2, _)] = import_doc(s, sample_doc(), {31: "Tetranadon"}, "hv", "gv")
     assert created2 is False

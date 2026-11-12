@@ -357,6 +357,21 @@ def hunt_list(session: Session, limit: int = 200,
         stmt.order_by(Hunt.started_at.desc()).limit(limit)
     ).all()
     hunt_ids = [h.id for h, _m in rows]
+    # Party names + ranks for the Hunters cell tooltip. Supporter rows are
+    # excluded so the hover agrees with the count (player_count).
+    party: dict[int, list[dict]] = {}
+    if hunt_ids:
+        for hid, name, rank in session.execute(
+            select(HuntPlayer.hunt_id, Player.display_name,
+                   HuntPlayer.hunter_rank)
+            .join(Player, Player.id == HuntPlayer.player_id)
+            .where(HuntPlayer.hunt_id.in_(hunt_ids),
+                   HuntPlayer.is_supporter.is_(False))
+            .order_by(HuntPlayer.hunt_id,
+                      HuntPlayer.total_damage.desc())
+        ).all():
+            party.setdefault(hid, []).append(
+                {"player": name, "hunter_rank": rank})
     highlights = _hunt_highlight_summary(session, hunt_ids)
     with_buffs = set(session.execute(
         select(PlayerAbnormality.hunt_id)
@@ -378,6 +393,7 @@ def hunt_list(session: Session, limit: int = 200,
          "quest_id": h.quest_id, "quest_stars": h.quest_stars,
          "clear_s": hunt_duration_s(h), "cleared": bool(h.cleared),
          "carts": h.cart_count, "players": h.player_count,
+         "party": party.get(h.id, []),
          "ignored": bool(h.ignored),
          "deleted": h.deleted_at is not None,
          "source": h.source,
@@ -699,17 +715,19 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
     # weapon per player comes from hunt_players, not the snapshot join above
     hp_rows = session.execute(
         select(HuntPlayer.player_id, Weapon.name, HuntPlayer.gear_raw,
-               HuntPlayer.gear_element, HuntPlayer.gear_affinity)
+               HuntPlayer.gear_element, HuntPlayer.gear_affinity,
+               HuntPlayer.hunter_rank)
         .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
         .where(HuntPlayer.hunt_id == hunt_id)
     ).all()
     labels = identity_label_map(session)
     weapons: dict[int, dict] = {}
-    for pid, wname, raw, element, affinity in hp_rows:
+    for pid, wname, raw, element, affinity, rank in hp_rows:
         weapons[pid] = {
             "name": wname,
             "variant": gear_variant_label(labels, wname, raw, element,
                                            affinity),
+            "hunter_rank": rank,
         }
     series: dict[int, dict] = {}
     for snap, name in snaps:
@@ -717,6 +735,7 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
         s = series.setdefault(snap.player_id,
                               {"player": name, "weapon": w.get("name"),
                                "variant": w.get("variant"),
+                               "hunter_rank": w.get("hunter_rank"),
                                "points": []})
         s["points"].append({"t": snap.ts_offset_seconds, "dmg": snap.cumulative_damage,
                             "dps": snap.instant_dps})
@@ -1506,6 +1525,7 @@ def hunt_highlights(session: Session, hunt_id: int) -> dict:
         by_player[hp.player_id] = {
             "player_id": hp.player_id, "player": name,
             "is_supporter": bool(hp.is_supporter),
+            "hunter_rank": hp.hunter_rank,
             "total_damage": hp.total_damage or 0.0, "awards": [],
         }
     present: set[int] = set()
