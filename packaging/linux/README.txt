@@ -6,10 +6,30 @@ progress and rankings — in a local dashboard. Everything runs on your machine;
 nothing is uploaded.
 
 This Linux build reads REFramework mod dumps (the game running through Proton).
-The HunterPie companion is a Windows app and is NOT included, so buff uptime,
-weapon classes, crowns/variants and quest-objective (is_target) data are missing
-here. The "Only quest objectives" setting has no data to work with in a
-mod-only capture, so it leaves hunts visible.
+There is no native Linux HunterPie, but the Windows companion runs inside the
+game's Proton prefix — that is how most Linux hunters use it. Mod-only captures
+still give damage, HP, highlights, progress and rankings; with the companion you
+also get buff uptime, weapon classes, crowns/variants and quest-objective
+(is_target) data for the "Only quest objectives" filter.
+
+Running the companion (optional, for full data)
+-----------------------------------------------
+The release ships HunterPieAnalytics-Companion-Proton.zip (self-contained — it
+bundles .NET, so you do NOT need to install the Desktop Runtime):
+  1. Extract it to ~/.local/share/HunterPie
+  2. Start Monster Hunter Wilds and get into the game
+  3. In a terminal:
+       protontricks-launch --appid 2246340 ~/.local/share/HunterPie/HunterPie.exe
+     Flatpak protontricks:
+       flatpak run --command=protontricks-launch \
+         com.github.Matoking.protontricks --appid 2246340 \
+         ~/.local/share/HunterPie/HunterPie.exe
+  4. Dumps land in ~/.local/share/HunterPie/HuntExports, which this app detects
+     automatically.
+
+The overlay only draws over the game in Borderless Windowed mode. Do not add the
+companion as a non-Steam game while Wilds is running: Steam will refuse to start
+a second app in the same prefix.
 
 Requirements
 ------------

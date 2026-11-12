@@ -94,9 +94,63 @@ def _hunterpie_dir_candidates_nt(
     return _dedupe(cands)
 
 
+def _linux_hunterpie_candidates(home: Path) -> list[Path]:
+    """Places a Linux user commonly extracts the Windows companion to.
+
+    The Proton guide extracts the archive to ``~/.local/share/HunterPie``; the
+    dump service writes next to ``HunterPie.exe``, hence ``HuntExports`` there.
+    """
+    return [
+        home / ".local" / "share" / "HunterPie" / "HuntExports",
+        home / ".local" / "share" / "hunterpie" / "HuntExports",
+        home / "HunterPie" / "HuntExports",
+        home / "Games" / "HunterPie" / "HuntExports",
+    ]
+
+
+def _prefix_hunterpie_candidates(prefixes: list[Path]) -> list[Path]:
+    """HuntExports inside Wine/Proton prefixes (installed or portable copy)."""
+    out: list[Path] = []
+    for pfx in prefixes:
+        drive_c = pfx / "drive_c"
+        if not drive_c.is_dir():
+            continue
+        out += [
+            drive_c / "Program Files" / "HunterPie" / "HuntExports",
+            drive_c / "Program Files (x86)" / "HunterPie" / "HuntExports",
+            drive_c / "HunterPie" / "HuntExports",
+        ]
+        out += sorted(drive_c.glob("users/*/AppData/Local/HunterPie/HuntExports"))
+    return out
+
+
+def _wine_hunterpie_candidates(home: Path) -> list[Path]:
+    """HuntExports in ``~/.wine`` and every Steam Proton prefix.
+
+    People either run the companion inside the Wilds prefix (appid 2246340) or
+    a dedicated one, so all prefixes are checked; each is a handful of stats.
+    """
+    prefixes = [home / ".wine"]
+    for root in _steam_library_roots():
+        prefixes.extend(sorted((root / "steamapps" / "compatdata").glob("*/pfx")))
+    return _prefix_hunterpie_candidates(prefixes)
+
+
 def _hunterpie_dir_candidates() -> list[Path]:
-    """Possible HunterPie HuntExports folders on this machine."""
+    """Possible HunterPie HuntExports folders on this machine.
+
+    On Linux the companion is the Windows build run through Proton/Wine (there
+    is no native Linux HunterPie), so its dumps live either next to the
+    extracted app (``~/.local/share/HunterPie``) or inside a Wine/Proton
+    prefix. WSL keeps the ``/mnt/c`` fallback.
+    """
     if os.name != "nt":
+        if sys.platform.startswith("linux"):
+            return _dedupe([
+                *_linux_hunterpie_candidates(Path.home()),
+                *_wine_hunterpie_candidates(Path.home()),
+                _WSL_HUNTERPIE,
+            ])
         return [_WSL_HUNTERPIE]
     return _hunterpie_dir_candidates_nt(
         os.environ.get("LOCALAPPDATA"),
@@ -286,6 +340,14 @@ def default_export_dirs() -> list[Path]:
 
 def _names_xml_candidates() -> list[Path]:
     if os.name != "nt":
+        if sys.platform.startswith("linux"):
+            home = Path.home()
+            return _dedupe([
+                home / ".local" / "share" / "HunterPie" / "Languages" / "en-us.xml",
+                home / ".local" / "share" / "hunterpie" / "Languages" / "en-us.xml",
+                home / "HunterPie" / "Languages" / "en-us.xml",
+                _WSL_HUNTERPIE_XML,
+            ])
         return [_WSL_HUNTERPIE_XML]
     cands: list[Path] = []
     local = os.environ.get("LOCALAPPDATA")

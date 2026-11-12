@@ -59,13 +59,37 @@ def test_linux_steam_roots_reads_libraryfolders(tmp_path):
     extra = tmp_path / "Games"
     extra.mkdir()
     (steam / "steamapps" / "libraryfolders.vdf").write_text(
-        '"libraryfolders"\n{\n  "0"\n  {\n    "path" "%s"\n  }\n}\n'
-        % str(extra).replace("\\", "\\\\"),
+        f'"libraryfolders"\n{{\n  "0"\n  {{\n    "path" "{extra}"\n  }}\n}}\n',
         encoding="utf-8")
 
     roots = _linux_steam_roots(tmp_path)
     assert steam in roots
     assert extra in roots
+
+
+def test_linux_hunterpie_candidates_cover_proton_guide_layout(tmp_path):
+    """The Windows companion run via Proton dumps next to its exe."""
+    from app.import_hunt import _linux_hunterpie_candidates
+
+    paths = _linux_hunterpie_candidates(tmp_path)
+    assert tmp_path / ".local/share/HunterPie/HuntExports" in paths
+    assert tmp_path / "HunterPie/HuntExports" in paths
+
+
+def test_prefix_hunterpie_candidates_find_installer_layout(tmp_path):
+    from app.import_hunt import _prefix_hunterpie_candidates
+
+    pfx = tmp_path / "compatdata" / "2246340" / "pfx"
+    (pfx / "drive_c" / "Program Files" / "HunterPie" / "HuntExports").mkdir(
+        parents=True)
+    (pfx / "drive_c" / "users" / "steamuser" / "AppData" / "Local"
+     / "HunterPie" / "HuntExports").mkdir(parents=True)
+
+    paths = _prefix_hunterpie_candidates([pfx])
+    assert pfx / "drive_c/Program Files/HunterPie/HuntExports" in paths
+    assert (pfx / "drive_c/users/steamuser/AppData/Local/HunterPie/HuntExports"
+            in paths)
+    assert _prefix_hunterpie_candidates([tmp_path / "missing"]) == []
 
 
 def test_parse_ts_handles_z_and_7_digits():

@@ -217,12 +217,19 @@ cd HunterPieAnalytics
 ```
 
 The REFramework mod works through Proton, so damage, HP, highlights and the
-progress/ranking tabs work on Linux. The **HunterPie companion is Windows-only**
-and is not included: buff uptime, weapon classes, crowns/variants and
-quest-objective (`is_target`) data are missing, so the "Only quest objectives"
-setting has nothing to act on. Steam libraries (including Flatpak and Snap
-installs) are auto-detected; add a folder under Settings otherwise. Hunt history
-lives in `~/.local/share/HunterPieAnalytics`.
+progress/ranking tabs work on Linux. For **full data** (buff uptime, weapon
+classes, crowns/variants, quest targets), run the companion: there is no native
+Linux HunterPie, but the self-contained Windows build in
+`HunterPieAnalytics-Companion-Proton.zip` runs inside the game's Proton prefix —
+extract it to `~/.local/share/HunterPie`, then with Wilds running:
+
+```bash
+protontricks-launch --appid 2246340 ~/.local/share/HunterPie/HunterPie.exe
+```
+
+Its `HuntExports` folder is auto-detected. Steam libraries (including Flatpak and
+Snap installs) are auto-detected as well; add a folder under Settings otherwise.
+Hunt history lives in `~/.local/share/HunterPieAnalytics`.
 
 ### Uninstall
 
@@ -235,15 +242,16 @@ hunts.
 
 | | |
 |---|---|
-| **OS** | Windows 10 / 11 (64-bit) for the companion + desktop app; Linux x86_64 (glibc 2.35+) for the app with mod-only capture. |
+| **OS** | Windows 10 / 11 (64-bit) for the desktop app; Linux x86_64 (glibc 2.35+) for the app with mod-only capture (the companion can run in the game's Proton prefix). |
 | **Game** | Monster Hunter Wilds (PC). |
 | **Capture** | [REFramework](https://github.com/praydog/REFramework) for the bundled mod, and/or [HunterPie](https://github.com/HunterPie/HunterPie) with the [analytics-export fork](https://github.com/Diegoeyza/HunterPie) (Windows). |
 | **Runtime** | Windows: WebView2 (ships with Windows 11 / most Windows 10; the installer sets it up if missing). Linux: any browser. |
 | **Privileges** | None — per-user install, no admin, no UAC. |
 
 The dashboard/API also run on macOS/Linux from source (see
-[For developers](#for-developers)). Wilds itself runs on Linux through Proton
-and the mod works there, but the HunterPie companion is Windows-only.
+[For developers](#for-developers)). Wilds runs on Linux through Proton; the mod
+works there, and the companion is a Windows .NET app that also runs inside the
+game's Proton prefix (see the Linux section above).
 
 ## FAQ & troubleshooting
 

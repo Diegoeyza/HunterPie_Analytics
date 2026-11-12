@@ -179,6 +179,13 @@ jobs:
         with:
           name: release-assets
           path: assets
+      # The companion is also useful outside the Windows installer: Linux users
+      # run this self-contained build inside the game's Proton prefix.
+      - uses: actions/download-artifact@v4
+        with:
+          name: hunterpie-fork
+      - name: Name the companion bundle
+        run: mv HunterPie-AnalyticsFork.zip assets/HunterPieAnalytics-Companion-Proton.zip
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -192,11 +199,12 @@ jobs:
             |------|---------------|
             | **`HunterPieAnalytics-Setup-*.exe`** | **Start here (Windows).** One-click install (per-user, no admin): the dashboard, the HunterPie companion, and the REFramework mod. |
             | **`HunterPieAnalytics-linux-*.tar.gz`** | **Linux / Steam Deck** (x86_64, glibc 2.35+). Dashboard with mod-only capture; extract and run, no Python needed. |
+            | **`HunterPieAnalytics-Companion-Proton.zip`** | The companion alone (self-contained) for Linux users running MH Wilds through Proton — see the Linux section. |
             | **`HuntDumper-*.zip`** | Just the in-game REFramework mod. Extract into the game folder (Vortex-ready). |
             | `SHA256SUMS.txt` | Checksums for the files above. |
 
             **Players (Windows):** run `HunterPieAnalytics-Setup-*.exe`.
-            **Linux:** extract `HunterPieAnalytics-linux-*.tar.gz` and run `./install.sh` (the mod is bundled; `./install-mod.sh` copies it into your Steam copy). The HunterPie companion is Windows-only, so buff/weapon/target data is unavailable there.
+            **Linux:** extract `HunterPieAnalytics-linux-*.tar.gz` and run `./install.sh` (the mod is bundled; `./install-mod.sh` copies it into your Steam copy). For buff/weapon/quest-target data, run the companion inside the game's Proton prefix: extract `HunterPieAnalytics-Companion-Proton.zip` to `~/.local/share/HunterPie` and start it with `protontricks-launch --appid 2246340 ~/.local/share/HunterPie/HunterPie.exe` while Wilds is running.
             **In-game mod only:** `HuntDumper-*.zip` →
             `<game>\reframework\autorun\hunt_dumper.lua`.
 

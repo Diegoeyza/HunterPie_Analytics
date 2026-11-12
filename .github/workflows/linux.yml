@@ -83,6 +83,7 @@ jobs:
           gh release download "$tag" -D sums --clobber \
             -p 'HunterPieAnalytics-Setup-*' \
             -p 'HuntDumper-*.zip' \
+            -p 'HunterPieAnalytics-Companion-*' \
             -p 'HunterPieAnalytics-linux-*'
           ( cd sums && sha256sum * > SHA256SUMS.txt )
 

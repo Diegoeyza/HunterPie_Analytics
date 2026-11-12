@@ -73,7 +73,10 @@ the legacy $19 fee is waived. You must start at this exact entry point:
    ```
 
 4. CI builds and attaches to the Release:
-   `HunterPieAnalytics-Setup-*.exe`, `HuntDumper-*.zip`, `SHA256SUMS.txt`.
+   `HunterPieAnalytics-Setup-*.exe`, `HuntDumper-*.zip`,
+   `HunterPieAnalytics-Companion-Proton.zip` (the self-contained companion for
+   Linux/Proton, added to the release job from the fork artifact) and
+   `SHA256SUMS.txt`.
    A second workflow (`.github/workflows/linux.yml`) runs when the release is
    published, builds `HunterPieAnalytics-linux-*.tar.gz` on **ubuntu-22.04**
    (glibc 2.35 is the oldest supported; the frozen Python cannot run on older
