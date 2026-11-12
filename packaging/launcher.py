@@ -167,7 +167,9 @@ def main() -> int:
 def _serve_browser(url: str, reason: Exception | None = None) -> int:
     """Keep the API alive with the dashboard in the default browser."""
     from app.openurl import open_url
+    from app.version import APP_VERSION
 
+    print(f"HunterPie Analytics {APP_VERSION} — browser mode")
     if reason is not None:
         print(f"Native window unavailable ({reason}); opening your browser.")
     else:
