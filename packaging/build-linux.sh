@@ -13,7 +13,13 @@ cd "$(dirname "$0")/.."
 VERSION="$(sed -n 's/^APP_VERSION = "\([^"]*\)".*/\1/p' backend/app/version.py)"
 MOD_VERSION="$(sed -n 's/^local VERSION = "\([^"]*\)".*/\1/p' \
   reframework/hunt_dumper.lua | head -1)"
-PY="${PYTHON:-.venv/bin/python}"
+if [ -n "${PYTHON:-}" ]; then
+  PY="$PYTHON"
+elif [ -x .venv/bin/python ]; then
+  PY=".venv/bin/python"
+else
+  PY="python3"
+fi
 ROOT="$PWD"
 BUILD="build/linux"
 OUT="dist/linux"
