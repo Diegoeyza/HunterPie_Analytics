@@ -1,4 +1,5 @@
 name: Linux bundle
+run-name: Linux bundle ${{ inputs.tag || github.ref_name }}
 
 # Builds the Linux (Proton / Steam Deck) tarball and attaches it to the release
 # that `release.yml` just published. Kept separate from the Windows job: it must
