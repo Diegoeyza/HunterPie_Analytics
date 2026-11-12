@@ -22,7 +22,7 @@ local imgui = imgui
 local os = os
 local io = io
 
-local VERSION = "0.12.5"
+local VERSION = "0.12.6"
 local OUT_SUBDIR = "HuntExports"
 local CONFIG_FILE = "hunt_dumper.json"
 local GAME_TYPE = 2
@@ -591,22 +591,26 @@ local function player_index(inst, pi)
     return nil
 end
 
--- Stable per-hunter identity. HunterCharacter exposes quest/member
--- indices that are constant for the whole quest (proven stable across
--- faints/disconnects on live dumps) AND equal the NetworkManager user
--- index, unlike every positional order (compact list, _PlayerList slots).
--- Validated 0-7 integer or nil; nil falls back to the old chain.
+-- Stable per-hunter identity: the control/network user slot.
+-- get_StableMemberIndex returns the _PlayerList slot, which is the same
+-- index the NetworkManager user list (and the roster's IsSelf entry) is
+-- keyed by. Validated on live 4-player dumps: it equals the slot and the
+-- roster user index for every hunter.
+--
+-- Do NOT use get_StableQuestMemberIndex here. That is quest/join order
+-- (compact 0..3), not the user slot: on a live dump it read 0,2,3,1 while
+-- the slots were 0,1,2,3, so three hunters' HP series got another
+-- hunter's name. get_CurrentNetworkMemberIndex is also permuted and is
+-- not the user slot.
 local function stable_member_index(inst, pi)
     if inst == nil then return nil end
     local ch = safe(function() return character_of(inst, pi) end)
     if ch == nil or ch == 0 then return nil end
-    for _, m in ipairs({ "get_StableQuestMemberIndex",
-                         "get_CurrentNetworkMemberIndex" }) do
-        local v = boxed_float(safe(function() return call_method(ch, m) end))
-        if type(v) == "number" and v >= 0 and v < 8
-            and math.floor(v) == v then
-            return v
-        end
+    local v = boxed_float(safe(function()
+        return call_method(ch, "get_StableMemberIndex") end))
+    if type(v) == "number" and v >= 0 and v < 8
+        and math.floor(v) == v then
+        return v
     end
     return nil
 end
@@ -624,14 +628,15 @@ local function users_by_index(idx)
             return u.name
         end
     end
-    -- Fallback: roster position. The UserIndex accessors sometimes read nil
-    -- for a whole quest (observed: users with neither idx nor slot); the
-    -- roster list itself is still the same list at poll time and dump time,
-    -- so a positional hit here is consistent for series labeling, and the
-    -- stable series KEY (never positional) is what protects the data.
+    -- Fallback: roster position, only for entries that carry no index of
+    -- their own (older dumps captured before get_MemberIndex was read).
+    -- When the entry knows its slot and it disagrees with `idx`, a
+    -- positional hit is a different hunter and must not be used.
     if type(idx) == "number" then
         local u = state.users and state.users[idx]
-        if u and u.name then return u.name end
+        if u and u.name and u.idx == nil and u.slot == nil then
+            return u.name
+        end
     end
     return nil
 end
@@ -655,31 +660,26 @@ local function name_of(inst, pi, i, qi, slot, st)
         if n then return n, "user_index" end
     end
     if type(st) ~= "number" then st = stable_member_index(inst, pi) end
+    if type(slot) == "number" then
+        -- _PlayerList is indexed by the network user/control slot, and the
+        -- roster records the same slot (get_MemberIndex / get_UserIndex).
+        -- This is the stable identity; it must beat quest/join order
+        -- (qidx) and every positional guess below, which silently relabel
+        -- hunters when the two orders disagree.
+        n = users_by_index(slot)
+        if n then return n, "user_slot" end
+    end
     if type(st) == "number" then
-        -- Ground truth: the character's own stable quest member index.
-        -- Beats roster_qi (quest roster order), user_slot (_PlayerList
-        -- order) and every positional fallback below — those orders
-        -- disagree with each other and silently relabel hunters.
+        -- Same value as slot; used when the object-identity map is empty.
         n = users_by_index(st)
-        if n then return n, "stable_qm" end
+        if n then return n, "stable_member" end
     end
     if type(qi) == "number" then
-        -- The quest roster maps this instance to its true user index.
-        -- Identity, not position: lobby order and join order often differ
-        -- (SOS), so this must beat every positional guess below. A
-        -- users[slot] hit further down proves nothing when the two orders
-        -- disagree — it silently relabels one hunter as another.
         n = users_by_index(qi)
         if n then return n, "roster_qi" end
     end
     if type(slot) == "number" then
-        -- The compact user list has no entry at this control slot, but the
-        -- entry itself records it (SOS slots can be 6 while position is 1).
-        for _, u in pairs(state.users or {}) do
-            if u and u.slot == slot and u.name then
-                return u.name, "user_slot"
-            end
-        end
+        -- Positional fallback for a roster captured without its own index.
         local u = state.users and state.users[slot]
         if u and u.name and (u.slot == nil or u.slot == slot) then
             return u.name, "player_list"
@@ -718,7 +718,8 @@ local function poll_party_hp(now)
                     -- self member index is authoritative; without it, label
                     -- only when the quest is provably solo (1 member/instance).
                     local self_hit = state.self_idx ~= nil
-                        and (st == state.self_idx or idx == state.self_idx)
+                        and (slot == state.self_idx or st == state.self_idx
+                             or idx == state.self_idx)
                     if not self_hit and state.self_idx == nil
                         and ((inst_num or 0) == 1 or (state.member_num or 0) == 1) then
                         self_hit = true
@@ -726,13 +727,11 @@ local function poll_party_hp(now)
                     if self_hit then n, src = state.self_name, "self_index" end
                 end
                 if n then r.name = n; r.name_src = src end
-                -- Strongest identity first: the character's stable quest
-                -- member index (constant all quest, equals the user index),
-                -- then the player object's user index, the quest roster's
-                -- index for this instance, then _PlayerList position. List
-                -- position is join order, NOT identity, so it ranks last:
-                -- it can only label a series, never identify it.
-                local key = st or idx or qidx[i] or slot or i
+                -- The series key is the control/network user slot, the same
+                -- index the roster uses. get_StableQuestMemberIndex (quest
+                -- order) must never be the key: it permutes against the
+                -- user list and mixes hunters' HP.
+                local key = slot or st or idx or qidx[i] or i
                 state.php_names = state.php_names or {}
                 local u = state.users and state.users[i]
                 state.php_names[i] = { name = n, src = src,
@@ -1898,6 +1897,20 @@ local function finish_session()
     -- awards: multiplayer fills `awards` via the shared sync (per userIndex);
     -- solo falls back to the self player's get_QuestAwardInfo().
     local self_awards = read_self_awards()
+    -- Cross-check the shared-award index against the self award block: both
+    -- describe the local player, so their damage must agree. If they do not,
+    -- the sync's idx is not the user slot and damage/awards are mislabeled
+    -- even when HP is right.
+    if config.debug and self_awards and state.self_idx ~= nil then
+        local rec = awards[(state.self_idx or 0) + 1]
+        local shared = rec and rec.awards and rec.awards[DAMAGE_AWARD_ID]
+        local solo = self_awards.awards and self_awards.awards[DAMAGE_AWARD_ID]
+        if type(shared) == "number" and type(solo) == "number" then
+            dlog("award self check: slot=%d sync=%.0f self=%.0f match=%s",
+                 state.self_idx, shared, solo,
+                 tostring(math.abs(shared - solo) < 1))
+        end
+    end
     -- Local weapon name read at the reward screen (the older build did this
     -- and it looked stable); keep the quest-start reading for calibration.
     local self_wid = self_weapon_id()
@@ -2139,6 +2152,35 @@ local function finish_session()
                         probe = weapon_entry_probe(state.self_wtype, self_wid) },
         hash = state.hash,
     }
+
+    -- Audit the series-to-hunter mapping against the game's live controls.
+    -- HP is frozen at the reward screen, so each player's last sample must
+    -- match the current HP of the control at that player's slot. A mismatch
+    -- means the identity chain is wrong again (the 0.12.5 quest/join-order
+    -- index did exactly this); say so in the log instead of shipping it.
+    if config.debug then
+        local live = {}
+        for _, e in ipairs((dump.mod_debug and dump.mod_debug.player_list) or {}) do
+            if e.hp_ok and type(e.slot) == "number" then live[e.slot] = e.hp end
+        end
+        local slot_of = {}
+        for _, u in pairs(state.users or {}) do
+            if u and u.name then slot_of[u.name] = u.slot or u.idx end
+        end
+        for _, p in ipairs(players) do
+            local slot = slot_of[p.name]
+            local hs = p.health_steps
+            if type(slot) == "number" and hs and #hs > 0
+                and type(live[slot]) == "number" then
+                local last = hs[#hs].percentage
+                if type(last) == "number"
+                    and math.abs(last - live[slot]) > 0.02 then
+                    dlog("HP MAP WARN: %s slot=%d series_end=%.3f live=%.3f",
+                         tostring(p.name), slot, last, live[slot])
+                end
+            end
+        end
+    end
 
     local where = safe(write_dump, dump)
     config.last_status = where and ("wrote " .. tostring(where)) or "write failed"
