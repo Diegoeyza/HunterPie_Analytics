@@ -1495,6 +1495,21 @@ def test_settings_dps_window_roundtrip_and_validation(tmp_path, monkeypatch):
     assert client.get("/api/settings").json()["dps_window"] == "quest"
 
 
+def test_whats_new_seen_persists_server_side():
+    """The acknowledged release note lives in settings, not localStorage."""
+    client, _ = make_client(seed_two_hunts)
+    assert client.get("/api/health").json()["whats_new_seen"] == ""
+
+    assert client.post("/api/whats-new/seen",
+                       json={"version": "1.2.4"}).json() == {"seen": "1.2.4"}
+    assert client.get("/api/health").json()["whats_new_seen"] == "1.2.4"
+
+    # A settings PUT (Settings menu) must not wipe the marker.
+    client.put("/api/settings", json={"export_dirs": []})
+    assert client.get("/api/health").json()["whats_new_seen"] == "1.2.4"
+    assert client.post("/api/whats-new/seen", json={}).status_code == 422
+
+
 def test_settings_quest_targets_only_filters_and_restores():
     """The quest-objective setting hides non-target hunts (like Ignore),
     restores them when switched off, and never overrides a manual ignore."""

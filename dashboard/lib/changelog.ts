@@ -15,6 +15,14 @@ export const RELEASES_URL = "https://github.com/Diegoeyza/HunterPie_Analytics/re
 
 export const RELEASES: ReleaseNote[] = [
   {
+    version: "1.2.5",
+    title: "Fixes",
+    bullets: [
+      "The \u201cWhat's new\u201d note now stays closed after you close it. It used to come back on every launch because the desktop app picked a new local port each time, which reset the browser storage that remembered it.",
+      "The app now keeps a stable local port, so your last tab, hunter scope, filters and party size are remembered across launches too.",
+    ],
+  },
+  {
     version: "1.2.4",
     title: "Only quest objectives",
     bullets: [

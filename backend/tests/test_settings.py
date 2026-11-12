@@ -16,7 +16,7 @@ def test_settings_path_defaults_to_user_data(monkeypatch, tmp_path):
 def test_missing_settings_is_empty(tmp_path):
     assert settings.load_settings(tmp_path / "missing.json") == {
         "export_dirs": [], "dps_window": "quest", "quest_targets_only": False,
-        "quest_targets_backfilled": False}
+        "quest_targets_backfilled": False, "whats_new_seen": ""}
 
 
 def test_roundtrip_export_dirs(tmp_path):
@@ -26,7 +26,7 @@ def test_roundtrip_export_dirs(tmp_path):
     assert settings.load_settings(path) == {
         "export_dirs": ["C:/MO2/overwrite"], "dps_window": "quest",
         "quest_targets_only": False,
-        "quest_targets_backfilled": False}
+        "quest_targets_backfilled": False, "whats_new_seen": ""}
     assert settings.configured_export_dirs(path) == [Path("C:/MO2/overwrite")]
 
 
@@ -36,7 +36,7 @@ def test_corrupt_settings_falls_back_to_empty(tmp_path):
 
     assert settings.load_settings(path) == {
         "export_dirs": [], "dps_window": "quest", "quest_targets_only": False,
-        "quest_targets_backfilled": False}
+        "quest_targets_backfilled": False, "whats_new_seen": ""}
 
 
 def test_non_list_export_dirs_ignored(tmp_path):
@@ -45,7 +45,7 @@ def test_non_list_export_dirs_ignored(tmp_path):
 
     assert settings.load_settings(path) == {
         "export_dirs": [], "dps_window": "quest", "quest_targets_only": False,
-        "quest_targets_backfilled": False}
+        "quest_targets_backfilled": False, "whats_new_seen": ""}
 
 
 def test_non_string_entries_dropped(tmp_path):
@@ -55,7 +55,7 @@ def test_non_string_entries_dropped(tmp_path):
     assert settings.load_settings(path) == {
         "export_dirs": ["C:/ok"], "dps_window": "quest",
         "quest_targets_only": False,
-        "quest_targets_backfilled": False}
+        "quest_targets_backfilled": False, "whats_new_seen": ""}
 
 
 def test_dps_window_defaults_to_quest(tmp_path):
@@ -69,11 +69,11 @@ def test_dps_window_roundtrip(tmp_path):
     path = tmp_path / "config.json"
     settings.save_settings(
         {"export_dirs": [], "dps_window": "quest", "quest_targets_only": False,
-        "quest_targets_backfilled": False}, path)
+        "quest_targets_backfilled": False, "whats_new_seen": ""}, path)
 
     assert settings.load_settings(path) == {
         "export_dirs": [], "dps_window": "quest", "quest_targets_only": False,
-        "quest_targets_backfilled": False}
+        "quest_targets_backfilled": False, "whats_new_seen": ""}
     assert settings.dps_window(path) == "quest"
 
 
@@ -119,3 +119,19 @@ def test_quest_targets_backfilled_marker(tmp_path):
 
     assert settings.quest_targets_backfilled(path) is True
     assert settings.quest_targets_only(path) is True
+
+
+def test_whats_new_seen_roundtrip_survives_settings_put(tmp_path):
+    """The acknowledged note is server-side so a changing origin can't reset it."""
+    path = tmp_path / "config.json"
+    assert settings.whats_new_seen(path) == ""
+
+    settings.mark_whats_new_seen("1.2.5", path)
+    assert settings.whats_new_seen(path) == "1.2.5"
+
+    # A normal settings save (dashboard PUT) must not wipe the marker.
+    data = settings.load_settings(path)
+    data["export_dirs"] = ["/tmp/exports"]
+    settings.save_settings(data, path)
+    assert settings.whats_new_seen(path) == "1.2.5"
+    assert settings.configured_export_dirs(path) == [Path("/tmp/exports")]

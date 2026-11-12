@@ -104,6 +104,10 @@ class SettingsBody(BaseModel):
     quest_targets_only: bool | None = None
 
 
+class SeenVersionBody(BaseModel):
+    version: str = Field(min_length=1, max_length=40)
+
+
 def _clean_export_dirs(raw: list[str]) -> list[str]:
     """Trim, dedupe and normalize user-supplied export folders.
 
@@ -185,6 +189,16 @@ def put_app_settings(body: SettingsBody, db: Session = Depends(get_db)):
     return out
 
 
+@app.post("/api/whats-new/seen")
+def whats_new_seen(body: SeenVersionBody):
+    """Remember that the release note for ``version`` was closed.
+
+    Server-side (not the dashboard's localStorage) so it survives the desktop
+    app's changing loopback origin and in-place updates."""
+    settings.mark_whats_new_seen(body.version)
+    return {"seen": body.version}
+
+
 @app.get("/api/filter-options")
 def filter_options(db: Session = Depends(get_db)):
     return queries.filter_options(db)
@@ -196,7 +210,8 @@ def health(db: Session = Depends(get_db)):
     # REFramework mod); the dashboard uses it for the first-run status note.
     # `app_version` drives the Settings footer + the in-app updater.
     return {**queries.health(db), "sources": detected_sources(),
-            "app_version": APP_VERSION, "mod": queries.mod_status(db)}
+            "app_version": APP_VERSION, "mod": queries.mod_status(db),
+            "whats_new_seen": settings.whats_new_seen()}
 
 
 @app.get("/api/hunts")

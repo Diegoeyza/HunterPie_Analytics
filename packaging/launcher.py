@@ -57,6 +57,27 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def _preferred_port() -> int:
+    """Stable loopback port, falling back to a free one when it is taken.
+
+    The origin (host:port) is what partitions localStorage, and the dashboard
+    keeps its UI preferences plus the acknowledged release note there. A
+    random port made every launch a fresh origin, so the "what's new" dialog
+    reopened each time (and tab/scope/filter choices were lost). ``HPA_PORT``
+    overrides the default for users who need a specific port.
+    """
+    try:
+        preferred = int(os.environ.get("HPA_PORT", "47600"))
+    except ValueError:
+        return _free_port()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind(("127.0.0.1", preferred))
+        except OSError:
+            return _free_port()
+    return preferred
+
+
 def _configure_env() -> None:
     """Point the app at bundled UI assets and a writable per-user DB.
 
@@ -95,7 +116,7 @@ def _serve(port: int) -> None:
 
 def main() -> int:
     _configure_env()
-    port = _free_port()
+    port = _preferred_port()
     threading.Thread(target=_serve, args=(port,), daemon=True).start()
     _wait_healthy(port)
     url = f"http://127.0.0.1:{port}/"

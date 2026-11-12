@@ -49,7 +49,11 @@ def settings_path() -> Path:
 def _defaults() -> dict:
     return {"export_dirs": [], "dps_window": DEFAULT_DPS_WINDOW,
             "quest_targets_only": DEFAULT_QUEST_TARGETS_ONLY,
-            "quest_targets_backfilled": False}
+            "quest_targets_backfilled": False,
+            # UI bookkeeping: the last app version whose release note was
+            # acknowledged. Kept server-side because the desktop app's origin
+            # (and therefore localStorage) can change between launches.
+            "whats_new_seen": ""}
 
 
 def load_settings(path: Path | None = None) -> dict:
@@ -77,6 +81,9 @@ def load_settings(path: Path | None = None) -> dict:
         # Bookkeeping (not a user preference): survives load/save so every
         # settings PUT doesn't re-arm the one-time target backfill.
         "quest_targets_backfilled": raw.get("quest_targets_backfilled") is True,
+        # Likewise: the acknowledged release note must survive settings PUTs.
+        "whats_new_seen": (raw.get("whats_new_seen")
+                           if isinstance(raw.get("whats_new_seen"), str) else ""),
     }
 
 
@@ -114,4 +121,22 @@ def mark_quest_targets_backfilled(path: Path | None = None) -> None:
     path = path or settings_path()
     data = load_settings(path)
     data["quest_targets_backfilled"] = True
+    save_settings(data, path)
+
+
+def whats_new_seen(path: Path | None = None) -> str:
+    """Last app version whose "what's new" note was acknowledged ('' = never)."""
+    return load_settings(path)["whats_new_seen"]
+
+
+def mark_whats_new_seen(version: str, path: Path | None = None) -> None:
+    """Remember that the release note for ``version`` was closed.
+
+    Stored beside the DB rather than in the dashboard's localStorage: the
+    packaged app used to pick a random loopback port, so each launch was a
+    different origin and the note reappeared every time.
+    """
+    path = path or settings_path()
+    data = load_settings(path)
+    data["whats_new_seen"] = version
     save_settings(data, path)

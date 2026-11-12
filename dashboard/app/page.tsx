@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Health } from "../lib/api";
 import { useApi } from "../lib/useApi";
-import { apiInvalidate } from "../lib/api";
+import { apiInvalidate, apiSend } from "../lib/api";
 import { parseIds, readParam, writeParams } from "../lib/url";
 import { TABS, type ViewCtx } from "../lib/registry";
 import ScopeBar, { DEFAULT_PARTY_SIZE, loadParty, loadScope, loadVariant, loadWeaponName, storeParty, storeScope, storeVariant, storeWeaponName } from "../components/ScopeBar";
@@ -165,14 +165,21 @@ export default function Home() {
   // An in-place update should say what changed: the note ships with the
   // dashboard (offline, no update check needed) and opens once per version.
   const appVersion = health?.app_version;
+  const seenVersion = health?.whats_new_seen;
   useEffect(() => {
-    if (!appVersion || !noteFor(appVersion) || loadSeenVersion() === appVersion) return;
+    if (!appVersion || !noteFor(appVersion)) return;
+    // Server-side record first (survives the desktop app's changing origin),
+    // localStorage second (dev/offline fast path).
+    if (seenVersion === appVersion || loadSeenVersion() === appVersion) return;
     setWhatsNewOpen(true);
-  }, [appVersion]);
+  }, [appVersion, seenVersion]);
 
   const closeWhatsNew = () => {
     setWhatsNewOpen(false);
-    if (appVersion) storeSeenVersion(appVersion);
+    if (!appVersion) return;
+    storeSeenVersion(appVersion);
+    apiSend<{ seen: string }>("POST", "/whats-new/seen", { version: appVersion })
+      .catch(() => { /* localStorage already recorded it */ });
   };
 
   const versions = health?.hunterpie_version ?? health?.game_version

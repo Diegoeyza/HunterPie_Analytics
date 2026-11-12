@@ -25,8 +25,13 @@ export async function apiGet<T>(path: string, params?: Params): Promise<T> {
   return (await res.json()) as T;
 }
 
-export async function apiSend<T>(method: string, path: string): Promise<T> {
-  const res = await fetch(apiUrl(path), { method });
+export async function apiSend<T>(method: string, path: string,
+                                 body?: unknown): Promise<T> {
+  const res = await fetch(apiUrl(path), {
+    method,
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
   return (await res.json()) as T;
 }
@@ -148,6 +153,8 @@ export interface Health {
   hunterpie_version?: string; game_version?: string;
   sources?: HealthSource[];
   app_version?: string;
+  /** App version whose release note was already acknowledged ('' = never). */
+  whats_new_seen?: string;
   mod?: ModStatus;
 }
 
