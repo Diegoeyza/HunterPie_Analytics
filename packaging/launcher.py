@@ -140,6 +140,12 @@ def main() -> int:
     # the WebView2 window it always had.
     if os.environ.get("HPA_NO_WINDOW") == "1":
         return _serve_browser(url)
+    if os.name != "nt":
+        # Qt/GTK Python bindings are system packages (qtpy/PyGObject), not
+        # pip wheels in the build venv: a frozen interpreter can never see
+        # them, so pywebview would only print backend tracebacks and fail.
+        # The supported Linux mode is the browser.
+        return _serve_browser(url)
     try:
         import webview
     except Exception as exc:  # noqa: BLE001 - any import failure is a fallback
@@ -160,11 +166,13 @@ def main() -> int:
 
 def _serve_browser(url: str, reason: Exception | None = None) -> int:
     """Keep the API alive with the dashboard in the default browser."""
-    import webbrowser
+    from app.openurl import open_url
 
     if reason is not None:
         print(f"Native window unavailable ({reason}); opening your browser.")
-    webbrowser.open(url)
+    else:
+        print("Opening the dashboard in your browser.")
+    open_url(url)
     print(f"HunterPie Analytics is running at {url}")
     print("Close this window or press Ctrl+C to stop.")
     try:

@@ -35,6 +35,7 @@ from .filters import (
 )
 from .import_hunt import default_export_dirs, detected_sources, known_export_dirs
 from .import_job import JobBusyError, cancel_job, get_job, start_import_job
+from .openurl import open_url
 from .paths import resource_path
 from .version import APP_VERSION
 
@@ -608,9 +609,7 @@ def update_open():
         raise HTTPException(409, info.get("error") or "no update available")
     if not updater.is_trusted_url(url):
         raise HTTPException(502, "unexpected download host")
-    import webbrowser
-
-    webbrowser.open(url)
+    open_url(url)
     return {"status": "opened", "version": info.get("latest"), "url": url}
 
 
