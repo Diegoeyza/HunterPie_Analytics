@@ -62,9 +62,11 @@ jobs:
           fi
           echo "Attaching to $tag"
 
-          # The Windows job generated SHA256SUMS.txt before this asset existed.
-          # Pull every payload back, add the tarball, and re-upload the sums so
-          # one file covers all downloads.
+          # Upload the tarball first, then rebuild SHA256SUMS.txt from every
+          # release payload (the Windows job generated it before this asset
+          # existed). One sums file covers all downloads.
+          gh release upload "$tag" dist/linux/HunterPieAnalytics-linux-*.tar.gz --clobber
+
           rm -rf sums && mkdir sums
           gh release download "$tag" -D sums --clobber \
             -p 'HunterPieAnalytics-Setup-*' \
@@ -72,6 +74,5 @@ jobs:
             -p 'HunterPieAnalytics-linux-*'
           ( cd sums && sha256sum * > SHA256SUMS.txt )
 
-          gh release upload "$tag" dist/linux/HunterPieAnalytics-linux-*.tar.gz --clobber
           gh release upload "$tag" sums/SHA256SUMS.txt --clobber
           gh release view "$tag" --json assets --jq '.assets[].name'
