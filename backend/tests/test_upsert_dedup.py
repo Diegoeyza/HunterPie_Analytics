@@ -72,6 +72,27 @@ def test_idempotent_retry_same_quest_id(session):
     assert len(session.execute(select(Hunt)).scalars().all()) == 1
 
 
+def test_hunterpie_reimport_backfills_hunter_rank(session):
+    """A forced recheck of a newer companion dump fills the rank on a hunt
+    imported before the fork exported it, without touching damage/HP."""
+    h1, c1, _ = upsert_hunt(session, base_payload(quest_id_external="rank-1"))
+    assert c1
+    hp = session.execute(
+        select(HuntPlayer).where(HuntPlayer.hunt_id == h1.id)).scalar_one()
+    assert hp.hunter_rank is None
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="rank-1",
+        players=[{"display_name": "Diego", "weapon_id": 1,
+                  "total_damage": 9000, "peak_dps": 120,
+                  "hunter_rank": 942}]))
+    assert (c2, h2.id) == (False, h1.id)
+    session.expire_all()
+    hp = session.execute(
+        select(HuntPlayer).where(HuntPlayer.hunt_id == h1.id)).scalar_one()
+    assert hp.hunter_rank == 942
+    assert hp.total_damage == 9000
+
+
 def test_deleted_hunt_is_not_recreated_and_stays_hidden(session):
     """A soft-deleted hunt still dedups its dump (so an import — even a
     forced recheck — can't recreate it) and the quest-objective filter can't

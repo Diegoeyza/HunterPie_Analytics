@@ -536,6 +536,25 @@ def _apply_target_flags(hunt: Hunt, payload: dict) -> None:
         hunt.ignore_reason = "quest_target"
 
 
+def _apply_player_ranks(session: Session, hunt: Hunt, payload: dict) -> None:
+    """Backfill hunter ranks on a same-source re-import without touching
+    damage/curves/HP. Missing ranks (old companion dumps) never erase one."""
+    ranks = {p["display_name"]: int(p["hunter_rank"])
+             for p in payload.get("players", [])
+             if p.get("hunter_rank") is not None}
+    if not ranks:
+        return
+    rows = session.execute(
+        select(Player.display_name, HuntPlayer)
+        .select_from(HuntPlayer)
+        .join(Player, Player.id == HuntPlayer.player_id)
+        .where(HuntPlayer.hunt_id == hunt.id)).all()
+    for name, hp in rows:
+        rank = ranks.get(name)
+        if rank is not None and hp.hunter_rank != rank:
+            hp.hunter_rank = rank
+
+
 def _support_applied(players: list[dict]) -> dict[str, float]:
     """Support All-Star ("Buffs and Heals Applied") per player.
 
@@ -1204,6 +1223,9 @@ def upsert_hunt(session: Session, payload: dict,
             # them is idempotent and heals hunts imported before the carry-in
             # merge / quest-clock fix. Damage, awards and HP are untouched.
             _refresh_abnormalities(session, existing, payload)
+            # A forced recheck of a dump from the newer companion can backfill
+            # hunter ranks on a hunt imported before the fork exported them.
+            _apply_player_ranks(session, existing, payload)
             # Target identity may be new (companion gained is_target, or the
             # quest-objective filter was just switched on) — refresh it here
             # too, otherwise a forced recheck could never backfill old hunts.
