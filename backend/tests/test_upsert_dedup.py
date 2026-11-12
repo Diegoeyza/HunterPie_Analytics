@@ -194,6 +194,30 @@ def test_cross_source_partial_mid_hunt_joins(session):
     assert len(session.execute(select(Hunt)).scalars().all()) == 1
 
 
+def test_cross_source_mid_hunt_attach_merges(session):
+    """Companion restarted mid-hunt: its window starts AND ends later by the
+    attach delay, and its duration is close to the mod's. That is the same
+    quest, not a farming repeat."""
+    h1, c1, _ = upsert_hunt(session, base_payload(
+        quest_id_external="rf-mid",
+        source="reframework",
+        started_at=datetime(2026, 2, 1, 12, 0, 14),
+        ended_at=datetime(2026, 2, 1, 12, 7, 34),
+        players=[{"display_name": "Diego", "weapon_id": None,
+                  "total_damage": 53581, "peak_dps": 120}],
+        snapshots=[], events=[]))
+    h2, c2, _ = upsert_hunt(session, base_payload(
+        quest_id_external="pie-mid",
+        started_at=datetime(2026, 2, 1, 12, 3, 26),
+        ended_at=datetime(2026, 2, 1, 12, 10, 36),
+        players=[{"display_name": "Diego", "weapon_id": 1,
+                  "total_damage": 53581, "peak_dps": 120}],
+        snapshots=[], events=[]))
+    assert (c1, c2) == (True, False)
+    assert h1.id == h2.id
+    assert len(session.execute(select(Hunt)).scalars().all()) == 1
+
+
 def test_cross_source_partial_with_different_damage_stays_separate(session):
     """Containment alone is not enough: a partial capture with different
     hunter damage is treated as a different hunt."""

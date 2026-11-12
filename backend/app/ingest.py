@@ -208,11 +208,11 @@ CROSS_SOURCE_WINDOW_SECONDS = 30
 old mod dumps): same monster + (subset) roster starting this close is the
 same hunt."""
 
-CROSS_SOURCE_DAMAGE_WINDOW_SECONDS = 180
-"""Wide start window used only when the quest also ENDS at the same time.
-The mod records quest start when its script notices the quest, up to a couple
-of minutes after HunterPie's timestamp (observed 78 s), so start time alone
-cannot unite them."""
+CROSS_SOURCE_DAMAGE_WINDOW_SECONDS = 300
+"""Wide start window used only when the quest also ENDS at the same time or
+the two windows are the same quest shifted by a mid-hunt attach. A source
+can notice the quest up to several minutes late (observed 192 s when the
+companion was restarted mid-hunt), so start time alone cannot unite them."""
 
 CROSS_SOURCE_END_WINDOW_SECONDS = 120
 """End timestamps are the reliable witness: the mod and companion both mark
@@ -298,18 +298,37 @@ def find_hunt_by_payload(session: Session, payload: dict) -> Hunt | None:
             end_delta = abs(
                 (cand.ended_at - incoming_end).total_seconds())
             if end_delta > CROSS_SOURCE_END_WINDOW_SECONDS:
-                # A mid-hunt join or a mid-hunt mod reload can leave one
-                # source with only a slice of the quest. If its whole window
-                # is contained in the other, the usual end-time guard is too
-                # strict; fall through to the per-hunter damage check, which
-                # distinguishes the same quest from a farming repeat.
+                # A mid-hunt join or a mid-hunt mod/companion reload can
+                # leave one source with only a slice of the quest. Two shapes
+                # are still the same quest:
+                #  * one window is contained in the other, or
+                #  * both windows have the same duration and overlap, but
+                #    are shifted by the attach delay (later start AND later
+                #    end, by roughly the same amount). This is what a
+                #    companion restarted mid-hunt produces; the old check
+                #    created a duplicate hunt for it.
                 contained = (
                     (started >= cand.started_at
                      and incoming_end <= cand.ended_at)
                     or (cand.started_at >= started
                         and cand.ended_at <= incoming_end)
                 )
-                if not contained:
+                dur_in = (incoming_end - started).total_seconds()
+                dur_have = (cand.ended_at - cand.started_at).total_seconds()
+                overlap = (min(incoming_end, cand.ended_at)
+                           > max(started, cand.started_at))
+                start_shift = (started - cand.started_at).total_seconds()
+                end_shift = (incoming_end - cand.ended_at).total_seconds()
+                shifted_same_quest = (
+                    overlap
+                    and abs(start_shift - end_shift) <= 30.0
+                    and abs(dur_in - dur_have) <= max(
+                        30.0, 0.05 * max(dur_in, dur_have))
+                )
+                if not contained and not shifted_same_quest:
+                    # Fall through to the per-hunter damage check only for
+                    # the two shapes above; it distinguishes the same quest
+                    # from a farming repeat.
                     continue
         # Wider window needs damage agreement. The mod only tracks hunters
         # it can see: unobserved roster members come in as zeros, so a
