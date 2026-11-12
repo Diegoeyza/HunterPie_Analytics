@@ -22,7 +22,7 @@ local imgui = imgui
 local os = os
 local io = io
 
-local VERSION = "0.12.6"
+local VERSION = "0.12.7"
 local OUT_SUBDIR = "HuntExports"
 local CONFIG_FILE = "hunt_dumper.json"
 local GAME_TYPE = 2
@@ -485,14 +485,12 @@ local function diag_probe_names(inst, pi, ch)
     return out
 end
 
--- Samples are keyed by USER SLOT, never by name. The same instance can
--- resolve to different names across polls (context vs roster), and a bad
--- name used to merge the host's HP into the local player's series. The slot
--- is stable; the display name is only resolved once, at dump time.
--- The observed name is still remembered on the series (rec.name) so the
--- dump-time assignment can cross-check it: slot first, name second, list
--- position last. Position must never win over slot (SOS slots can be 6
--- while the list position is 1), or two hunters' HP series swap.
+-- Samples are keyed by NetworkManager user index, never by name and never
+-- by the _PlayerList control slot. The same instance can resolve to
+-- different names across polls (context vs roster), and a bad name used to
+-- merge the host's HP into the local player's series. The user index is
+-- stable for the quest; the display name is resolved on every poll and
+-- remembered on the series (rec.name) as a cross-check at dump time.
 local function record_hp(key, name, h, now)
     if key == nil or type(h.hp) ~= "number" then return false end
     state.php = state.php or {}
@@ -519,7 +517,7 @@ end
 -- (live dump: _PlayerList[2] held user1's control, _PlayerList[4] held
 -- user2's). Positions from either list are join-order hints, never
 -- identity — match the SAME object by identity and treat any position
--- as a last-resort label only. True identity is stable_member_index.
+-- as a last-resort label only. True identity is network_member_index.
 local function player_list_slots(pm)
     local out = {}
     local plist = field_value(pm, "_PlayerList")
@@ -591,23 +589,24 @@ local function player_index(inst, pi)
     return nil
 end
 
--- Stable per-hunter identity: the control/network user slot.
--- get_StableMemberIndex returns the _PlayerList slot, which is the same
--- index the NetworkManager user list (and the roster's IsSelf entry) is
--- keyed by. Validated on live 4-player dumps: it equals the slot and the
--- roster user index for every hunter.
+-- Stable per-hunter identity: the NetworkManager user/member index.
+-- get_CurrentNetworkMemberIndex is the same index the quest roster
+-- (get_MemberIndex) and the quest award sync use, and it is stable for
+-- the whole quest (validated on every 5 s sample).
 --
--- Do NOT use get_StableQuestMemberIndex here. That is quest/join order
--- (compact 0..3), not the user slot: on a live dump it read 0,2,3,1 while
--- the slots were 0,1,2,3, so three hunters' HP series got another
--- hunter's name. get_CurrentNetworkMemberIndex is also permuted and is
--- not the user slot.
-local function stable_member_index(inst, pi)
+-- Do NOT use either of the other two indices here:
+--   * get_StableQuestMemberIndex is quest/join order (compact 0..3); on a
+--     live hunt it read 0,2,3,1 while the roster was 0,1,2,3.
+--   * get_StableMemberIndex is the _PlayerList control slot. On a 4-player
+--     hunt the control slots were 0,1,2,3 but the user indices were
+--     1,0,2,3: the first two hunters' HP and names were swapped, so the
+--     local player's near-death HP was attributed to the host.
+local function network_member_index(inst, pi)
     if inst == nil then return nil end
     local ch = safe(function() return character_of(inst, pi) end)
     if ch == nil or ch == 0 then return nil end
     local v = boxed_float(safe(function()
-        return call_method(ch, "get_StableMemberIndex") end))
+        return call_method(ch, "get_CurrentNetworkMemberIndex") end))
     if type(v) == "number" and v >= 0 and v < 8
         and math.floor(v) == v then
         return v
@@ -630,7 +629,7 @@ local function users_by_index(idx)
     end
     -- Fallback: roster position, only for entries that carry no index of
     -- their own (older dumps captured before get_MemberIndex was read).
-    -- When the entry knows its slot and it disagrees with `idx`, a
+    -- When the entry knows its index and it disagrees with `idx`, a
     -- positional hit is a different hunter and must not be used.
     if type(idx) == "number" then
         local u = state.users and state.users[idx]
@@ -641,7 +640,7 @@ local function users_by_index(idx)
     return nil
 end
 
-local function name_of(inst, pi, i, qi, slot, st)
+local function name_of(inst, pi, i, qi, nm)
     local ctx = call_method(inst, "get_ContextHolder")
     local pl = ctx and (call_method(ctx, "get_Pl")
         or call_method(ctx, "get_Player")
@@ -659,33 +658,26 @@ local function name_of(inst, pi, i, qi, slot, st)
         n = users_by_index(idx)
         if n then return n, "user_index" end
     end
-    if type(st) ~= "number" then st = stable_member_index(inst, pi) end
-    if type(slot) == "number" then
-        -- _PlayerList is indexed by the network user/control slot, and the
-        -- roster records the same slot (get_MemberIndex / get_UserIndex).
-        -- This is the stable identity; it must beat quest/join order
-        -- (qidx) and every positional guess below, which silently relabel
-        -- hunters when the two orders disagree.
-        n = users_by_index(slot)
-        if n then return n, "user_slot" end
-    end
-    if type(st) == "number" then
-        -- Same value as slot; used when the object-identity map is empty.
-        n = users_by_index(st)
-        if n then return n, "stable_member" end
+    if type(nm) ~= "number" then nm = network_member_index(inst, pi) end
+    if type(nm) == "number" then
+        -- The NetworkManager user index, the index the roster and the
+        -- award sync are keyed by. This is the only index that names the
+        -- right hunter; control-slot order and quest order both permute.
+        n = users_by_index(nm)
+        if n then return n, "network_member" end
     end
     if type(qi) == "number" then
         n = users_by_index(qi)
         if n then return n, "roster_qi" end
     end
-    if type(slot) == "number" then
-        -- Positional fallback for a roster captured without its own index.
-        local u = state.users and state.users[slot]
-        if u and u.name and (u.slot == nil or u.slot == slot) then
-            return u.name, "player_list"
-        end
+    if type(nm) ~= "number" and type(qi) ~= "number" then
+        -- Last resort for a build with neither accessor: both lists are
+        -- compact, so list position may line up. Never use this when nm
+        -- is known: the compact control order is not the roster order.
+        local u = state.users and state.users[i]
+        if u and u.name then return u.name, "roster_i" end
     end
-    return roster_name(i, qi)
+    return nil, nil
 end
 
 local function poll_party_hp(now)
@@ -711,15 +703,14 @@ local function poll_party_hp(now)
                 local pi = r.pi
                 local slot = slots[tostring(inst)]
                 local idx = player_index(inst, pi)
-                local st = stable_member_index(inst, pi)
-                local n, src = name_of(inst, pi, i, qidx[i], slot, st)
+                local nm = network_member_index(inst, pi)
+                local n, src = name_of(inst, pi, i, qidx[i], nm)
                 if not n and state.self_name then
                     -- Never guess a remote's name: only the self series. The
                     -- self member index is authoritative; without it, label
                     -- only when the quest is provably solo (1 member/instance).
                     local self_hit = state.self_idx ~= nil
-                        and (slot == state.self_idx or st == state.self_idx
-                             or idx == state.self_idx)
+                        and nm == state.self_idx
                     if not self_hit and state.self_idx == nil
                         and ((inst_num or 0) == 1 or (state.member_num or 0) == 1) then
                         self_hit = true
@@ -727,15 +718,21 @@ local function poll_party_hp(now)
                     if self_hit then n, src = state.self_name, "self_index" end
                 end
                 if n then r.name = n; r.name_src = src end
-                -- The series key is the control/network user slot, the same
-                -- index the roster uses. get_StableQuestMemberIndex (quest
-                -- order) must never be the key: it permutes against the
-                -- user list and mixes hunters' HP.
-                local key = slot or st or idx or qidx[i] or i
+                -- The series key is the NetworkManager user index, the same
+                -- index the roster and the award sync use. Neither quest
+                -- order nor the _PlayerList control slot can be the key:
+                -- both permute against the roster and mix hunters' HP.
+                local key = nm or idx or qidx[i] or i
                 state.php_names = state.php_names or {}
-                local u = state.users and state.users[i]
+                local u = nil
+                for _, x in pairs(state.users or {}) do
+                    if x and nm ~= nil and (x.idx == nm or x.slot == nm) then
+                        u = x
+                        break
+                    end
+                end
                 state.php_names[i] = { name = n, src = src,
-                                       slot = slot, idx = idx, st = st,
+                                       slot = slot, nm = nm, idx = idx,
                                        qi = qidx[i], key = key,
                                        roster_self = u and u.is_self or nil,
                                        hp_ok = r.hp_ok, fail = r.fail }
@@ -764,10 +761,12 @@ local function poll_party_hp(now)
         local h = health_of(ch)
         state.master_fail = h.fail
         state.master_hp_ok = type(h.hp) == "number"
-        -- getMasterPlayer() is the HOST (slot 0), not the local player. Only
-        -- fall back to self_name when the roster proves this is solo.
-        local host_name = users_by_index(0)
-        if not host_name and state.self_name then
+        -- getMasterPlayer() is the quest HOST, not necessarily user index 0
+        -- (the host can be any network member). Without the instanced list
+        -- its name cannot be resolved safely, so only record it when the
+        -- roster proves this is solo, where host == self.
+        local host_name = nil
+        if state.self_name then
             local n = 0
             for _ in pairs(state.users or {}) do n = n + 1 end
             if n <= 1 then host_name = state.self_name end
@@ -855,12 +854,20 @@ local function party_debug()
             for i = 0, 7 do
                 local inst = array_get(plist, i)
                 if inst then
-                    local ch = character_of(inst,
-                        call_method(inst, "get_PlayerInfo")) or inst
+                    local pi = call_method(inst, "get_PlayerInfo")
+                    local ch = character_of(inst, pi) or inst
                     local h = safe(function() return health_of(ch) end) or {}
-                    local u = state.users and state.users[i]
+                    local nm = network_member_index(inst, pi)
+                    local u = nil
+                    for _, x in pairs(state.users or {}) do
+                        if x and nm ~= nil
+                            and (x.idx == nm or x.slot == nm) then
+                            u = x
+                            break
+                        end
+                    end
                     out.player_list[#out.player_list + 1] = {
-                        slot = i, ptr = tostring(inst),
+                        slot = i, nm = nm, ptr = tostring(inst),
                         char_ptr = tostring(ch),
                         name = u and u.name or nil,
                         is_self = u and u.is_self or nil,
@@ -887,7 +894,7 @@ local function party_debug()
             local ctx = call_method(inst, "get_ContextHolder")
             local pl = ctx and call_method(ctx, "get_Pl")
             info.name = safe_str(pl and call_method(pl, "get_PlayerName"))
-            local n, src = name_of(inst, call_method(inst, "get_PlayerInfo"), i, nil, nil, nil)
+            local n, src = name_of(inst, call_method(inst, "get_PlayerInfo"), i, nil, nil)
             info.resolved_name = n
             info.name_src = src
             local pi = call_method(inst, "get_PlayerInfo")
@@ -1183,7 +1190,11 @@ local function quest_users()
             local valid = safe(function() return u:get_IsValid() end)
             if valid ~= false then
                 -- Wilds exposes get_MemberIndex; get_UserIndex is the older
-                -- build's name. Both are the user/control slot.
+                -- build's name. It is the NetworkManager user index (the
+                -- same value get_CurrentNetworkMemberIndex reports on each
+                -- character), NOT the _PlayerList control slot: on a live
+                -- 4-player hunt the control slots were 0,1,2,3 while these
+                -- indices were 1,0,2,3.
                 local uid = boxed_float(safe(function() return u:get_UserIndex() end))
                     or boxed_float(safe(function() return u:get_MemberIndex() end))
                 local is_self = safe(function() return u:get_IsSelf() end)
@@ -1193,9 +1204,8 @@ local function quest_users()
                     name = name,
                     is_self = is_self,
                     idx = uid,
-                    -- _PlayerList is indexed by this user/control slot; the
-                    -- list itself is compact join order, so a slot can be 6
-                    -- while its list position is 1 (SOS quests).
+                    -- Legacy field name for the same user index; HP series
+                    -- keys and award lookups use it.
                     slot = uid,
                 }
             end
@@ -1320,8 +1330,7 @@ local function fill_user_names_from_series()
     for _, pn in pairs(state.php_names or {}) do
         if pn and pn.name then
             put(pn.idx, pn.name)
-            put(pn.slot, pn.name)
-            put(pn.st, pn.name)
+            put(pn.nm, pn.name)
             put(pn.qi, pn.name)
         end
     end
@@ -1929,12 +1938,12 @@ local function finish_session()
         return out
     end
 
-    -- Map HP series to roster entries. `php` is keyed by control slot;
-    -- the compact user list position is NOT that slot (an SOS player can sit at
-    -- slot 6 while being list position 1), so position `i` is only a last
-    -- resort. Order: observed name on the series, then stable slot/index,
-    -- then position. Trying `i` first swaps two hunters' HP (e.g. one
-    -- hunter shown with another's cart).
+    -- Map HP series to roster entries. `php` is keyed by the NetworkManager
+    -- user index, which is exactly the roster's idx/slot value, so the
+    -- stable slot/index lookup below lands on the right hunter. The compact
+    -- list position `i` is only a last resort (an SOS player can sit at a
+    -- different control slot), and the observed series name is a
+    -- cross-check. Never try `i` first: it swaps two hunters' HP.
     local hp_assigned = {}
     local hp_used = {}
     local missing = {}
@@ -2154,29 +2163,30 @@ local function finish_session()
     }
 
     -- Audit the series-to-hunter mapping against the game's live controls.
-    -- HP is frozen at the reward screen, so each player's last sample must
-    -- match the current HP of the control at that player's slot. A mismatch
-    -- means the identity chain is wrong again (the 0.12.5 quest/join-order
-    -- index did exactly this); say so in the log instead of shipping it.
+    -- HP is frozen at the reward screen, so every sampled series must end at
+    -- the current HP of the control it was sampled from. Each php_names
+    -- entry remembers the network user index (nm) used as the series key
+    -- and the _PlayerList control slot it came from; comparing those
+    -- directly catches any identity mix-up (the 0.12.6 control-slot key did
+    -- exactly this, swapping the first two hunters). Say so in the log.
     if config.debug then
         local live = {}
         for _, e in ipairs((dump.mod_debug and dump.mod_debug.player_list) or {}) do
             if e.hp_ok and type(e.slot) == "number" then live[e.slot] = e.hp end
         end
-        local slot_of = {}
-        for _, u in pairs(state.users or {}) do
-            if u and u.name then slot_of[u.name] = u.slot or u.idx end
-        end
-        for _, p in ipairs(players) do
-            local slot = slot_of[p.name]
-            local hs = p.health_steps
-            if type(slot) == "number" and hs and #hs > 0
-                and type(live[slot]) == "number" then
-                local last = hs[#hs].percentage
-                if type(last) == "number"
-                    and math.abs(last - live[slot]) > 0.02 then
-                    dlog("HP MAP WARN: %s slot=%d series_end=%.3f live=%.3f",
-                         tostring(p.name), slot, last, live[slot])
+        for _, pn in pairs(state.php_names or {}) do
+            local nm, slot = pn.nm, pn.slot
+            local rec = type(nm) == "number" and state.php and state.php[nm]
+            if rec and rec.samples and #rec.samples > 0
+                and type(slot) == "number" and type(live[slot]) == "number" then
+                local last = rec.samples[#rec.samples].hp
+                if type(last) == "number" then
+                    dlog("hp map: nm=%s name=%s slot=%d end=%.3f live=%.3f",
+                         tostring(nm), tostring(pn.name), slot, last, live[slot])
+                    if math.abs(last - live[slot]) > 0.02 then
+                        dlog("HP MAP WARN: nm=%s name=%s slot=%d series_end=%.3f live=%.3f",
+                             tostring(nm), tostring(pn.name), slot, last, live[slot])
+                    end
                 end
             end
         end
