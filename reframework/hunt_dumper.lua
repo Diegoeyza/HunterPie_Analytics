@@ -22,12 +22,16 @@ local imgui = imgui
 local os = os
 local io = io
 
-local VERSION = "0.12.4"
+local VERSION = "0.12.5"
 local OUT_SUBDIR = "HuntExports"
 local CONFIG_FILE = "hunt_dumper.json"
 local GAME_TYPE = 2
 local SESSION_QUEST = 2
 local HP_POLL_SECONDS = 1.0
+-- The quest roster can be empty/unnamed when the start hook fires (join in
+-- progress, Proton/Wine loading order). Sampling it with plain field reads
+-- while the quest runs captures names as soon as the network layer has them.
+local ROSTER_POLL_SECONDS = 5.0
 local DAMAGE_AWARD_FIELD = "award05" -- award id 4 (= damage); see better_hunter_highlights
 
 -- ---------------------------------------------------------------------------
@@ -613,6 +617,13 @@ local function users_by_index(idx)
             return u.name
         end
     end
+    -- Names captured by the safe 5 s poll (field reads only). Same list, but
+    -- may be populated when the start hook ran too early.
+    for _, u in pairs(state.roster_seen or {}) do
+        if u and (u.idx == idx or u.slot == idx) and u.name then
+            return u.name
+        end
+    end
     -- Fallback: roster position. The UserIndex accessors sometimes read nil
     -- for a whole quest (observed: users with neither idx nor slot); the
     -- roster list itself is still the same list at poll time and dump time,
@@ -689,6 +700,8 @@ local function poll_party_hp(now)
     local arr = instanced_array(pm)
     local qidx = quest_player_indices(pm)
     local slots = player_list_slots(pm)
+    local inst_num = boxed_float(safe(function()
+        return call_method(pm, "get_InstancedPlayerNum") end))
     if arr then
         for i = 0, 7 do
             local inst = array_get(arr, i)
@@ -700,6 +713,18 @@ local function poll_party_hp(now)
                 local idx = player_index(inst, pi)
                 local st = stable_member_index(inst, pi)
                 local n, src = name_of(inst, pi, i, qidx[i], slot, st)
+                if not n and state.self_name then
+                    -- Never guess a remote's name: only the self series. The
+                    -- self member index is authoritative; without it, label
+                    -- only when the quest is provably solo (1 member/instance).
+                    local self_hit = state.self_idx ~= nil
+                        and (st == state.self_idx or idx == state.self_idx)
+                    if not self_hit and state.self_idx == nil
+                        and ((inst_num or 0) == 1 or (state.member_num or 0) == 1) then
+                        self_hit = true
+                    end
+                    if self_hit then n, src = state.self_name, "self_index" end
+                end
                 if n then r.name = n; r.name_src = src end
                 -- Strongest identity first: the character's stable quest
                 -- member index (constant all quest, equals the user index),
@@ -818,6 +843,10 @@ local function party_debug()
         out.diag_hook = state and state.diag_hook or {}
         out.diag_sync_fields = state and state.diag_sync_fields or nil
         out.diag_stable = state and state.diag_stable or {}
+        out.roster_seen = state and state.roster_seen or {}
+        out.self_name = state and state.self_name
+        out.self_idx = state and state.self_idx
+        out.member_num = state and state.member_num
     end
     if config.debug then
         out.arr_type = type_name(arr)
@@ -1028,13 +1057,39 @@ local function quest_meta()
     return m
 end
 
+-- NetworkManager accessors are used at quest start/finish and by the safe
+-- roster poll. `_UserName` and `_UserInfoManager` are plain fields (seen in
+-- the REFramework type dump); managed methods are only fallbacks.
+local function network_manager()
+    local NM = safe(sdk.find_type_definition, "app.NetworkManager")
+    return NM and safe(function() return sdk.get_managed_singleton("app.NetworkManager") end)
+end
+
+local function user_info_manager(nm)
+    if not nm then return nil end
+    return safe(function() return nm:call("get_UserInfoManager") end)
+        or safe(function() return field_value(nm, "<UserInfoManager>k__BackingField") end)
+        or safe(function() return field_value(nm, "_UserInfoManager") end)
+end
+
 -- Self display name straight from NetworkManager: independent of the quest
 -- user-info list, so it still works when that list is invalid or tearing down.
 local function self_user_name(nm)
     if not nm then return nil end
-    local n = safe_str(safe(function() return call_method(nm, "SelfUserName") end))
+    -- Field first: _UserName is the same string as SelfUserName() without a
+    -- managed invoke, which is the call that faults during teardown.
+    local n = safe_str(safe(function() return field_value(nm, "_UserName") end))
     if n and n ~= "" then return n end
-    return safe_str(safe(function() return field_value(nm, "_UserName") end))
+    return safe_str(safe(function() return call_method(nm, "SelfUserName") end))
+end
+
+-- Number of players in the current quest session (1 = solo).
+local function quest_member_num(nm)
+    local uim = user_info_manager(nm)
+    if not uim then return nil end
+    local n = safe(function() return uim:getMemberNum(SESSION_QUEST) end)
+    if type(n) == "number" then return n end
+    return nil
 end
 
 local _NAME_FIELDS = { "<PlName>k__BackingField", "_PlName", "PlName",
@@ -1048,28 +1103,39 @@ local function name_from_fields(obj, fields)
     return nil
 end
 
+-- Field-only name lookup. Net_UserInfo has no PlName field of its own (the
+-- type dump shows only param/IsValid/IsSelf/MemberIndex), so the name lives
+-- in the param struct. No managed getter here: this runs on the 5 s poll.
+local function fields_name(u)
+    local n = name_from_fields(u, _NAME_FIELDS)
+    if n then return n end
+    local param = safe(function() return field_value(u, "param") end)
+    if not param then return nil end
+    n = name_from_fields(param, _NAME_FIELDS)
+    if n then return n end
+    -- Field names drift between builds: accept any non-buddy string field
+    -- whose name looks like a name (case-insensitive; "plName" is valid).
+    local td = safe(function() return param:get_type_definition() end)
+    for _, f in ipairs(safe(function() return td and td:get_fields() end) or {}) do
+        local fn = safe(function() return f:get_name() end)
+        if fn and fn:lower():find("name") and not fn:find("Otomo") then
+            n = safe_str(safe(function() return f:get_data(param) end))
+            if n and n ~= "" then return n end
+        end
+    end
+    return nil
+end
+
 -- Name of one Net_UserInfo. get_PlName is a managed property getter and can
 -- fault (REFramework logs an access violation) on an entry that is no longer
 -- valid — the quest user list still holds empty entries while it tears down
 -- at the results screen. Read the param struct's fields first: plain field
 -- reads cannot fault, and a bad entry must never cost the whole dump.
 local function user_name(u, self_name)
-    local n = name_from_fields(u, _NAME_FIELDS)
+    local n = fields_name(u)
     if n then return n end
     local param = safe(function() return field_value(u, "param") end)
     if param then
-        n = name_from_fields(param, _NAME_FIELDS)
-        if n then return n end
-        -- Field names drift between builds: accept any non-buddy string
-        -- field that looks like a name.
-        local td = safe(function() return param:get_type_definition() end)
-        for _, f in ipairs(safe(function() return td and td:get_fields() end) or {}) do
-            local fn = safe(function() return f:get_name() end)
-            if fn and fn:find("Name") and not fn:find("Otomo") then
-                n = safe_str(safe(function() return f:get_data(param) end))
-                if n and n ~= "" then return n end
-            end
-        end
         n = safe_str(safe(function() return call_method(param, "get_PlName") end))
         if n and n ~= "" then return n end
     end
@@ -1083,12 +1149,30 @@ local function user_name(u, self_name)
     return nil
 end
 
+-- Log the param field names/values once per hunt so a Proton log tells us
+-- which field holds the player name without another debug cycle.
+local function log_param_fields(u)
+    if not config.debug or state == nil or state.param_fields_logged then return end
+    local param = safe(function() return field_value(u, "param") end)
+    if not param then return end
+    state.param_fields_logged = true
+    local td = safe(function() return param:get_type_definition() end)
+    local parts = {}
+    for _, f in ipairs(safe(function() return td and td:get_fields() end) or {}) do
+        local fn = safe(function() return f:get_name() end)
+        if fn then
+            parts[#parts + 1] = fn .. "=" .. tostring(safe(function() return f:get_data(param) end))
+            if #parts >= 40 then break end
+        end
+    end
+    log.info("[HuntDumper] Net_UserParam: " .. table.concat(parts, ", "))
+end
+
+-- Closed roster with getters; used at quest start and at the reward screen.
 local function quest_users()
-    local NM = safe(sdk.find_type_definition, "app.NetworkManager")
-    local nm = NM and safe(function() return sdk.get_managed_singleton("app.NetworkManager") end)
+    local nm = network_manager()
     if not nm then return {} end
-    local uim = safe(function() return nm:call("get_UserInfoManager") end)
-        or safe(function() return nm:get_field("<UserInfoManager>k__BackingField") end)
+    local uim = user_info_manager(nm)
     if not uim then return {} end
     local uil = safe(function() return uim:getUserInfoList(SESSION_QUEST) end)
     local arr = uil and safe(function() return uil._ListInfo end)
@@ -1103,9 +1187,12 @@ local function quest_users()
                 -- build's name. Both are the user/control slot.
                 local uid = boxed_float(safe(function() return u:get_UserIndex() end))
                     or boxed_float(safe(function() return u:get_MemberIndex() end))
+                local is_self = safe(function() return u:get_IsSelf() end)
+                local name = user_name(u, self_name)
+                safe(log_param_fields, u)
                 out[i - 1] = {
-                    name = user_name(u, self_name),
-                    is_self = safe(function() return u:get_IsSelf() end),
+                    name = name,
+                    is_self = is_self,
                     idx = uid,
                     -- _PlayerList is indexed by this user/control slot; the
                     -- list itself is compact join order, so a slot can be 6
@@ -1116,6 +1203,109 @@ local function quest_users()
         end
     end
     return out
+end
+
+-- True/false while a quest is live; nil when the accessor is unavailable.
+local function quest_is_playing()
+    local mgr = safe(function()
+        return sdk.get_managed_singleton("app.MissionManager") end)
+    local v = mgr and safe(function() return call_method(mgr, "get_IsPlayingQuest") end)
+    if type(v) == "boolean" then return v end
+    return nil
+end
+
+-- The 5 s roster poll. The field-only version returned zero entries on the
+-- live object (backing-field reads came back nil), so use the same getter
+-- path as quest start/finish, which is proven. Stop once the quest is no
+-- longer playing: the results screen tears the list down and is exactly
+-- where get_PlName used to fault.
+local function roster_snapshot()
+    if quest_is_playing() == false then return nil end
+    return quest_users()
+end
+
+local function user_counts()
+    local n, named = 0, 0
+    for _, u in pairs(state and state.users or {}) do
+        n = n + 1
+        if u and u.name then named = named + 1 end
+    end
+    return n, named
+end
+
+-- Seed the safe snapshot with whatever the getter path managed to capture.
+local function seed_roster_seen()
+    if state == nil then return end
+    state.roster_seen = state.roster_seen or {}
+    for k, u in pairs(state.users or {}) do
+        if u and (u.name or u.idx ~= nil) then
+            local rec = state.roster_seen[k]
+            if rec == nil then rec = {}; state.roster_seen[k] = rec end
+            if not rec.name then rec.name = u.name end
+            if rec.idx == nil then rec.idx = u.idx end
+            if rec.slot == nil then rec.slot = u.slot end
+            if rec.is_self == nil then rec.is_self = u.is_self end
+        end
+    end
+end
+
+-- Add field-read names to the snapshot; a known name is never overwritten.
+local function update_roster_seen()
+    if state == nil then return end
+    local snap = roster_snapshot()
+    if snap == nil then return end
+    state.roster_seen = state.roster_seen or {}
+    local n, named = 0, 0
+    for k, u in pairs(snap) do
+        n = n + 1
+        if u.name then named = named + 1 end
+        local rec = state.roster_seen[k]
+        if rec == nil then
+            state.roster_seen[k] = { name = u.name, idx = u.idx, slot = u.slot,
+                                     is_self = u.is_self }
+        else
+            if not rec.name and u.name then rec.name = u.name end
+            if rec.idx == nil then rec.idx = u.idx; rec.slot = rec.slot or u.slot end
+            if rec.is_self == nil then rec.is_self = u.is_self end
+        end
+    end
+    local roster_n = select(2, user_counts())
+    local key = tostring(n) .. ":" .. tostring(named) .. ":" .. tostring(roster_n)
+    if config.debug and key ~= state.roster_seen_key then
+        state.roster_seen_key = key
+        dlog("roster poll: entries=%d named=%d roster_named=%d", n, named, roster_n)
+    end
+end
+
+-- At dump time: fill missing roster names from the safe snapshot, and adopt
+-- its named entries when the start/finish roster was completely empty.
+local function fill_user_names_from_seen()
+    if state == nil then return end
+    local seen = state.roster_seen or {}
+    local n_users = 0
+    for k, u in pairs(state.users or {}) do
+        n_users = n_users + 1
+        if u and not u.name then
+            local rec = seen[k]
+            if rec and rec.name then u.name = rec.name end
+            if not u.name and u.idx ~= nil then
+                for _, r in pairs(seen) do
+                    if r and r.name and r.idx == u.idx then
+                        u.name = r.name
+                        break
+                    end
+                end
+            end
+        end
+    end
+    if n_users == 0 then
+        for k, r in pairs(seen) do
+            if r and r.name then
+                state.users[k] = { name = r.name, idx = r.idx, slot = r.slot,
+                                   is_self = r.is_self }
+            end
+        end
+    end
 end
 
 -- Names observed while polling the party HP series: a second, independent
@@ -1192,13 +1382,20 @@ local function begin_session()
     -- reading, which the older build used and which looked stable).
     local self_wtype = meta.start_weapon_type
     local self_wid_start = self_weapon_id()
+    local nm = network_manager()
     state = {
         started = utc_now(),
         hash = gen_hash(),
         em_ids = get_active_em_ids(),
         meta = meta,
         users = quest_users(),
-        self_name = nil,
+        -- The field-backed self name/idx are available even when the quest
+        -- user list is empty (join in progress / Wine loading order).
+        self_name = self_user_name(nm),
+        self_idx = nil, -- filled from the roster's IsSelf entry below
+        member_num = quest_member_num(nm),
+        roster_seen = {},
+        roster_poll = 0,
         hp = {},          -- [bossIndex] = { {t, norm}, ... }
         max_hp = nil,
         last_poll = 0,
@@ -1217,13 +1414,27 @@ local function begin_session()
         diag_stable_heartbeat = 0,
         diag_stable_poll = 0,
     }
+    seed_roster_seen()
     for _, u in pairs(state.users or {}) do
         if u and u.is_self and u.name then state.self_name = u.name end
     end
+    -- getSelfUserInfo() requires an argument (calling it bare logs "Invalid
+    -- number of arguments"), so take the index from the roster's IsSelf entry.
+    if state.self_idx == nil then
+        for _, u in pairs(state.users or {}) do
+            if u and u.is_self and u.idx ~= nil then
+                state.self_idx = u.idx
+                break
+            end
+        end
+    end
     awards = {}
-    dlog("quest start: em_ids=%s lv=%s self_type=%s self_id=%s",
+    local n_users, n_named = user_counts()
+    dlog("quest start: em_ids=%s lv=%s self_type=%s self_id=%s users=%d named=%d self=%s idx=%s members=%s",
         tostring(#state.em_ids), tostring(state.meta.level),
-        tostring(self_wtype), tostring(self_wid_start))
+        tostring(self_wtype), tostring(self_wid_start),
+        n_users, n_named, tostring(state.self_name), tostring(state.self_idx),
+        tostring(state.member_num))
 end
 
 local function poll()
@@ -1231,6 +1442,12 @@ local function poll()
     local now = utc_now()
     if now - (state.last_poll or 0) < HP_POLL_SECONDS then return end
     state.last_poll = now
+    -- Safe roster capture first: its field-read names are then available to
+    -- the party-HP identity chain in the same poll.
+    if now - (state.roster_poll or 0) >= ROSTER_POLL_SECONDS then
+        state.roster_poll = now
+        safe(update_roster_seen)
+    end
     local bosses = get_bosses()
     for i, enemy in ipairs(bosses) do
         local hm = typecall("app.EnemyCharacter", "get_HealthMgr", enemy)
@@ -1580,6 +1797,19 @@ end
 local RESULT_HINTS = { "Result", "Success", "Fail", "Clear", "QuestState",
                        "Life" }
 
+-- Only zero-argument methods can be called without REFramework logging
+-- "Invalid number of arguments" for every setter whose name matched a hint.
+local function probe_no_args(m, name)
+    local np = safe(function() return m:get_num_params() end)
+    if np == nil then
+        local pt = safe(function() return m:get_param_types() end)
+        np = pt and #pt or nil
+    end
+    if np ~= nil then return np == 0 end
+    -- Unknown signature: at least drop obvious setters and compiler thunks.
+    return not (name:match("^set_") or name:match("^<"))
+end
+
 local function quest_result_probe()
     local probe = {}
     local mgr = safe(function()
@@ -1601,7 +1831,7 @@ local function quest_result_probe()
                     if n:find(h) then hit = true break end
                 end
             end
-            if hit then
+            if hit and probe_no_args(m, n) then
                 local v = safe(function() return m:call(obj) end)
                 if v ~= nil and (type(v) == "number" or type(v) == "boolean") then
                     probe[#probe + 1] = { obj = key, name = n,
@@ -1636,7 +1866,12 @@ local function finish_session()
     -- roster captured at quest start (its name getter can fault during
     -- teardown); series names fill any remaining gap.
     state.users = merge_users(state.users, quest_users())
+    fill_user_names_from_seen()
     fill_user_names_from_series()
+    if config.debug then
+        local n_users, n_named = user_counts()
+        dlog("roster finish: users=%d named=%d", n_users, n_named)
+    end
     if #state.em_ids == 0 then state.em_ids = get_active_em_ids() end -- em set may fill late
 
     local started = state.started
