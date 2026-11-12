@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -31,8 +33,19 @@ from .version import APP_VERSION, RELEASE_API
 USER_AGENT = "HunterPieAnalytics-Updater"
 SETUP_PREFIX = "HunterPieAnalytics-Setup-"
 SETUP_SUFFIX = ".exe"
+LINUX_PREFIX = "HunterPieAnalytics-linux-"
+LINUX_SUFFIX = ".tar.gz"
 SUMS_NAME = "SHA256SUMS.txt"
 CHECK_TTL = 6 * 3600  # seconds a successful check is reused
+
+
+def host_platform() -> str:
+    """'windows' | 'linux' | 'other' — which release asset this app can use."""
+    if os.name == "nt":
+        return "windows"
+    if sys.platform.startswith("linux"):
+        return "linux"
+    return "other"
 
 # Release assets are served from github.com (redirects to these hosts).
 _TRUSTED_HOSTS = {
@@ -79,26 +92,34 @@ def parse_sums(text: str) -> dict[str, str]:
     return out
 
 
-def select_assets(release: dict) -> dict | None:
-    """Pick the Setup .exe + the SHA256SUMS URL from a release JSON.
+def select_assets(release: dict, platform: str = "windows") -> dict | None:
+    """Pick this platform's download + the SHA256SUMS URL from a release.
 
-    Returns None when the release carries no installer (e.g. a fork-only tag).
+    ``platform`` defaults to Windows so the historical Setup selection stays
+    the default for callers/tests; ``describe_update`` passes the host.
+    Linux ships a tarball (no silent installer), so the caller gets the same
+    shape with ``installable=False``.
     """
     setup: dict | None = None
+    bundle: dict | None = None
     sums_url: str | None = None
     for asset in release.get("assets") or []:
         name = asset.get("name", "")
         if name.startswith(SETUP_PREFIX) and name.endswith(SETUP_SUFFIX):
             setup = asset
+        elif name.startswith(LINUX_PREFIX) and name.endswith(LINUX_SUFFIX):
+            bundle = asset
         elif name == SUMS_NAME:
             sums_url = asset.get("browser_download_url")
-    if setup is None:
+    picked = setup if platform == "windows" else bundle if platform == "linux" else None
+    if picked is None:
         return None
     return {
-        "name": setup["name"],
-        "url": setup.get("browser_download_url"),
-        "size": setup.get("size"),
+        "name": picked["name"],
+        "url": picked.get("browser_download_url"),
+        "size": picked.get("size"),
         "sums_url": sums_url,
+        "installable": picked is setup,
     }
 
 
@@ -109,12 +130,18 @@ def is_trusted_url(url: str) -> bool:
 
 
 def describe_update(release: dict | None, current: str = APP_VERSION,
-                    sha256: str | None = None) -> dict:
-    """Shape the ``/api/update`` payload (also used when a check fails)."""
+                    sha256: str | None = None,
+                    platform: str | None = None) -> dict:
+    """Shape the ``/api/update`` payload (also used when a check fails).
+
+    ``platform`` defaults to this host; pass one explicitly to test both
+    Windows (installer) and Linux (download) releases.
+    """
     info = {
         "current": current,
         "latest": None,
         "update_available": False,
+        "installable": False,
         "url": None,
         "sha256": None,
         "size": None,
@@ -129,10 +156,11 @@ def describe_update(release: dict | None, current: str = APP_VERSION,
     info["notes_url"] = release.get("html_url")
     if not is_newer(tag, current):
         return info
-    picked = select_assets(release)
+    picked = select_assets(release, platform or host_platform())
     if not picked or not picked.get("url"):
         return info
     info["update_available"] = True
+    info["installable"] = bool(picked.get("installable"))
     info["url"] = picked["url"]
     info["size"] = picked["size"]
     info["sha256"] = sha256
@@ -172,7 +200,7 @@ def check_for_update(current: str = APP_VERSION, *, force: bool = False,
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
         return dict(describe_update(None, current), error=str(exc))
     sha = None
-    picked = select_assets(release) if release else None
+    picked = select_assets(release, host_platform()) if release else None
     if picked and picked.get("sums_url"):
         try:
             sums = parse_sums(_get(picked["sums_url"], timeout).decode("utf-8"))

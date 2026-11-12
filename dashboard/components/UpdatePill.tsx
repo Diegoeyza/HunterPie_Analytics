@@ -27,6 +27,19 @@ export default function UpdatePill({ enabled }: { enabled: boolean }) {
   const install = useCallback(async () => {
     if (!info?.latest) return;
     setBusy(true);
+    if (!info.installable) {
+      // Linux (or any non-Windows build): no silent installer — hand the
+      // download to the system browser.
+      try {
+        await apiSend<{ status: string }>("POST", "/update/open");
+        toast.push(`Opening the v${info.latest} download in your browser.`);
+      } catch (e) {
+        toast.push(e instanceof Error ? e.message : "Could not open the download", true);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const mb = info.size ? Math.round(info.size / 1048576) : null;
     toast.push(`Downloading v${info.latest}${mb ? ` (~${mb} MB)` : ""}…`);
     try {
@@ -41,8 +54,12 @@ export default function UpdatePill({ enabled }: { enabled: boolean }) {
   if (!enabled || !info?.update_available || !info.latest) return null;
   return (
     <button type="button" className="update-pill" onClick={install} disabled={busy}
-      title={`Update to v${info.latest}`}>
-      {busy ? "Updating…" : `↑ v${info.latest} available`}
+      title={info.installable
+        ? `Update to v${info.latest}`
+        : `Download v${info.latest} in your browser`}>
+      {busy ? "Updating…" : info.installable
+        ? `↑ v${info.latest} available`
+        : `↓ v${info.latest} available`}
     </button>
   );
 }

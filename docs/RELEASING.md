@@ -1,7 +1,9 @@
 # Releasing
 
-Everything end-user-facing is built by `.github/workflows/release.yml` on a
-Windows runner and attached to a GitHub Release when you push a `v*` tag.
+Everything end-user-facing is built by CI and attached to a GitHub Release when
+you push a `v*` tag: `.github/workflows/release.yml` (Windows setup + mod zip)
+and `.github/workflows/linux.yml` (Linux tarball, triggered by the published
+release).
 
 ## One-time setup
 
@@ -72,6 +74,16 @@ the legacy $19 fee is waived. You must start at this exact entry point:
 
 4. CI builds and attaches to the Release:
    `HunterPieAnalytics-Setup-*.exe`, `HuntDumper-*.zip`, `SHA256SUMS.txt`.
+   A second workflow (`.github/workflows/linux.yml`) runs when the release is
+   published, builds `HunterPieAnalytics-linux-*.tar.gz` on **ubuntu-22.04**
+   (glibc 2.35 is the oldest supported; the frozen Python cannot run on older
+   glibc than the build machine), attaches it, and regenerates `SHA256SUMS.txt`
+   so it covers every download. If the automatic run is missed, trigger it
+   manually:
+
+   ```sh
+   gh workflow run linux.yml -f tag=v1.2.4
+   ```
 5. Since the direct download is unsigned, mention it in the release notes
    (SmartScreen "More info → Run anyway").
 6. The MSIX/Store package is not attached to releases; build it locally with

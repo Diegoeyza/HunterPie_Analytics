@@ -98,18 +98,47 @@ def main() -> int:
     port = _free_port()
     threading.Thread(target=_serve, args=(port,), daemon=True).start()
     _wait_healthy(port)
+    url = f"http://127.0.0.1:{port}/"
 
-    import webview
-
-    webview.create_window(
-        APP_TITLE,
-        f"http://127.0.0.1:{port}/",
-        width=1360,
-        height=880,
-        min_size=(900, 600),
-    )
-    webview.start()
+    # Linux has no bundled WebView2: the GTK backend needs the system's
+    # GObject introspection + WebKit2GTK, and a PyInstaller build cannot
+    # reliably carry those. Fall back to the user's browser when the native
+    # window is unavailable (or when HPA_NO_WINDOW=1 is set). Windows keeps
+    # the WebView2 window it always had.
+    if os.environ.get("HPA_NO_WINDOW") == "1":
+        return _serve_browser(url)
+    try:
+        import webview
+    except Exception as exc:  # noqa: BLE001 - any import failure is a fallback
+        return _serve_browser(url, exc)
+    try:
+        webview.create_window(
+            APP_TITLE,
+            url,
+            width=1360,
+            height=880,
+            min_size=(900, 600),
+        )
+        webview.start()
+    except Exception as exc:  # noqa: BLE001 - GTK/WebKit missing at runtime
+        return _serve_browser(url, exc)
     return 0
+
+
+def _serve_browser(url: str, reason: Exception | None = None) -> int:
+    """Keep the API alive with the dashboard in the default browser."""
+    import webbrowser
+
+    if reason is not None:
+        print(f"Native window unavailable ({reason}); opening your browser.")
+    webbrowser.open(url)
+    print(f"HunterPie Analytics is running at {url}")
+    print("Close this window or press Ctrl+C to stop.")
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        return 0
 
 
 if __name__ == "__main__":

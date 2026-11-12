@@ -51,13 +51,29 @@ def test_select_assets_finds_setup_and_sums_only():
     assert picked["sums_url"].endswith("SHA256SUMS.txt")
 
 
+def test_select_assets_linux_picks_tarball_and_is_not_installable():
+    rel = _release("v1.0.6", [
+        "HuntDumper-0.9.3.zip",
+        "HunterPieAnalytics-Setup-1.0.6.exe",
+        "HunterPieAnalytics-linux-1.0.6.tar.gz",
+        "SHA256SUMS.txt",
+    ])
+    picked = updater.select_assets(rel, "linux")
+    assert picked is not None
+    assert picked["name"] == "HunterPieAnalytics-linux-1.0.6.tar.gz"
+    assert picked["installable"] is False
+    assert picked["sums_url"].endswith("SHA256SUMS.txt")
+    win = updater.select_assets(rel, "windows")
+    assert win is not None and win["installable"] is True
+
+
 def test_select_assets_none_when_no_installer():
     assert updater.select_assets(_release("v1.0.6", ["HuntDumper-0.9.3.zip"])) is None
 
 
 def test_describe_update_flags_newer_only():
     rel = _release("v1.0.6", ["HunterPieAnalytics-Setup-1.0.6.exe", "SHA256SUMS.txt"])
-    newer = updater.describe_update(rel, "1.0.5", sha256="abc")
+    newer = updater.describe_update(rel, "1.0.5", sha256="abc", platform="windows")
     assert newer["update_available"] is True
     assert newer["latest"] == "1.0.6"
     assert newer["sha256"] == "abc"

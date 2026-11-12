@@ -190,11 +190,13 @@ jobs:
 
             | File | What it's for |
             |------|---------------|
-            | **`HunterPieAnalytics-Setup-*.exe`** | **Start here.** One-click install (per-user, no admin): the dashboard, the HunterPie companion, and the REFramework mod. |
+            | **`HunterPieAnalytics-Setup-*.exe`** | **Start here (Windows).** One-click install (per-user, no admin): the dashboard, the HunterPie companion, and the REFramework mod. |
+            | **`HunterPieAnalytics-linux-*.tar.gz`** | **Linux / Steam Deck** (x86_64, glibc 2.35+). Dashboard with mod-only capture; extract and run, no Python needed. |
             | **`HuntDumper-*.zip`** | Just the in-game REFramework mod. Extract into the game folder (Vortex-ready). |
-            | `SHA256SUMS.txt` | Checksums for the two files above. |
+            | `SHA256SUMS.txt` | Checksums for the files above. |
 
-            **Players:** run `HunterPieAnalytics-Setup-*.exe`.
+            **Players (Windows):** run `HunterPieAnalytics-Setup-*.exe`.
+            **Linux:** extract `HunterPieAnalytics-linux-*.tar.gz` and run `./install.sh` (the mod is bundled; `./install-mod.sh` copies it into your Steam copy). The HunterPie companion is Windows-only, so buff/weapon/target data is unavailable there.
             **In-game mod only:** `HuntDumper-*.zip` →
             `<game>\reframework\autorun\hunt_dumper.lua`.
 

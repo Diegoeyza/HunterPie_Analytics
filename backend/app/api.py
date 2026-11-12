@@ -584,6 +584,21 @@ def update_run():
     return {"status": "started", "version": info["latest"], "installer": dest.name}
 
 
+@app.post("/api/update/open")
+def update_open():
+    """Open this platform's download in the system browser (Linux/no installer)."""
+    info = updater.check_for_update(APP_VERSION)
+    url = info.get("url") or info.get("notes_url")
+    if not info.get("update_available") or not url:
+        raise HTTPException(409, info.get("error") or "no update available")
+    if not updater.is_trusted_url(url):
+        raise HTTPException(502, "unexpected download host")
+    import webbrowser
+
+    webbrowser.open(url)
+    return {"status": "opened", "version": info.get("latest"), "url": url}
+
+
 def _exit_for_update(delay: float = 2.0) -> None:
     """Let the HTTP response flush, then quit so the installer can replace us."""
     if not _SELF_EXIT:

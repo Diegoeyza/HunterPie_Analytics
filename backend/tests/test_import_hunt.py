@@ -50,6 +50,24 @@ def sample_doc(**over):
     return doc
 
 
+def test_linux_steam_roots_reads_libraryfolders(tmp_path):
+    """Native Linux: the default Steam root plus extra library drives."""
+    from app.import_hunt import _linux_steam_roots
+
+    steam = tmp_path / ".steam" / "steam"
+    (steam / "steamapps").mkdir(parents=True)
+    extra = tmp_path / "Games"
+    extra.mkdir()
+    (steam / "steamapps" / "libraryfolders.vdf").write_text(
+        '"libraryfolders"\n{\n  "0"\n  {\n    "path" "%s"\n  }\n}\n'
+        % str(extra).replace("\\", "\\\\"),
+        encoding="utf-8")
+
+    roots = _linux_steam_roots(tmp_path)
+    assert steam in roots
+    assert extra in roots
+
+
 def test_parse_ts_handles_z_and_7_digits():
     assert parse_ts("2026-09-06T03:33:06.0749492Z") == datetime(2026, 9, 6, 3, 33, 6, 74949)
 

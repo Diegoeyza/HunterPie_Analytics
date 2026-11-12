@@ -156,6 +156,8 @@ export interface UpdateInfo {
   current: string;
   latest: string | null;
   update_available: boolean;
+  /** True when the app can install it silently (Windows Setup exe). */
+  installable: boolean;
   url: string | null;
   sha256: string | null;
   size: number | null;

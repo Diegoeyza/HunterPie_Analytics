@@ -126,9 +126,35 @@ def _steam_install_root() -> Path | None:
         return None
 
 
+def _linux_steam_roots(home: Path) -> list[Path]:
+    """Existing Steam install roots on native Linux (incl. Flatpak and Snap).
+
+    The game dumps live in the Linux filesystem even when Wilds runs through
+    Proton, so the same ``libraryfolders.vdf`` scan as Windows works. Pure
+    enough to unit-test with a throwaway home directory.
+    """
+    candidates = [
+        home / ".steam" / "steam",  # symlink to the real install
+        home / ".local" / "share" / "Steam",
+        home / ".var" / "app" / "com.valvesoftware.Steam" / "data" / "Steam",
+        home / "snap" / "steam" / "common" / ".local" / "share" / "Steam",
+    ]
+    roots = [p for p in candidates if p.is_dir()]
+    for root in list(roots):
+        vdf = root / "steamapps" / "libraryfolders.vdf"
+        try:
+            roots.extend(_parse_library_folders(
+                vdf.read_text(encoding="utf-8", errors="ignore")))
+        except OSError:
+            pass
+    return _dedupe(roots)
+
+
 def _steam_library_roots() -> list[Path]:
     """Steam install roots: HKCU SteamPath + every library in libraryfolders.vdf."""
     if os.name != "nt":
+        if sys.platform.startswith("linux"):
+            return _linux_steam_roots(Path.home())
         return []
     roots: list[Path] = []
     steam = _steam_install_root()
@@ -176,9 +202,17 @@ def _mo2_overwrite_candidates() -> list[Path]:
 
 
 def _reframework_dir_candidates() -> list[Path]:
-    """Possible REFramework HuntExports folders on this machine."""
+    """Possible REFramework HuntExports folders on this machine.
+
+    Native Linux scans the Steam libraries (Wilds runs through Proton, but the
+    game folder and its ``reframework/data`` tree are plain Linux files); WSL
+    keeps the ``/mnt/c`` fallback for a Windows install.
+    """
     if os.name != "nt":
-        return [_WSL_REF]
+        return _dedupe([
+            *_reframework_dirs_from_roots(_steam_library_roots()),
+            _WSL_REF,
+        ])
     return _dedupe([
         *_reframework_dirs_from_roots(_steam_library_roots()),
         *_mo2_overwrite_candidates(),

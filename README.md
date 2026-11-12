@@ -156,9 +156,10 @@ Grab the latest release from **[GitHub Releases](https://github.com/Diegoeyza/Hu
 
 | File | What it's for |
 |------|---------------|
-| `HunterPieAnalytics-Setup-<ver>.exe` | **Recommended.** One-click install (per-user, no admin): dashboard + companion + bundled mod. |
+| `HunterPieAnalytics-Setup-<ver>.exe` | **Recommended on Windows.** One-click install (per-user, no admin): dashboard + companion + bundled mod. |
+| `HunterPieAnalytics-linux-<ver>.tar.gz` | **Linux** (x86_64, glibc 2.35+). Dashboard with mod-only capture; no Python/Node needed. |
 | `HuntDumper-<ver>.zip` | The REFramework mod only (game-folder layout, Vortex-ready). |
-| `SHA256SUMS.txt` | Checksums for the two files above. |
+| `SHA256SUMS.txt` | Checksums for the files above. |
 
 ### 1. The in-game capture (REFramework mod)
 
@@ -201,6 +202,28 @@ hunt history are kept (they live outside the install folder). Prefer it manual?
 Turn the check off in **Settings** and grab the installer from
 [Releases](https://github.com/Diegoeyza/HunterPie_Analytics/releases).
 
+### Linux (Steam Deck / Proton)
+
+A prebuilt Linux bundle is attached to the releases
+(`HunterPieAnalytics-linux-<ver>.tar.gz`, x86_64, glibc 2.35+). It needs no
+Python or Node install — extract, run, and the dashboard opens in your browser:
+
+```bash
+tar -xzf HunterPieAnalytics-linux-*.tar.gz
+cd HunterPieAnalytics
+./HunterPieAnalytics       # run directly
+# or: ./install.sh          # app-menu entry + `hunterpie-analytics` command
+./install-mod.sh            # copies the bundled mod into your Steam copy of Wilds
+```
+
+The REFramework mod works through Proton, so damage, HP, highlights and the
+progress/ranking tabs work on Linux. The **HunterPie companion is Windows-only**
+and is not included: buff uptime, weapon classes, crowns/variants and
+quest-objective (`is_target`) data are missing, so the "Only quest objectives"
+setting has nothing to act on. Steam libraries (including Flatpak and Snap
+installs) are auto-detected; add a folder under Settings otherwise. Hunt history
+lives in `~/.local/share/HunterPieAnalytics`.
+
 ### Uninstall
 
 Windows **Settings → Apps → HunterPie Analytics**, or run `unins000.exe` in the
@@ -212,14 +235,15 @@ hunts.
 
 | | |
 |---|---|
-| **OS** | Windows 10 / 11 (64-bit) for the capture tools and the desktop app. |
+| **OS** | Windows 10 / 11 (64-bit) for the companion + desktop app; Linux x86_64 (glibc 2.35+) for the app with mod-only capture. |
 | **Game** | Monster Hunter Wilds (PC). |
-| **Capture** | [REFramework](https://github.com/praydog/REFramework) for the bundled mod, and/or [HunterPie](https://github.com/HunterPie/HunterPie) with the [analytics-export fork](https://github.com/Diegoeyza/HunterPie). |
-| **Runtime** | WebView2 (ships with Windows 11 / most Windows 10; the installer sets it up if missing). |
+| **Capture** | [REFramework](https://github.com/praydog/REFramework) for the bundled mod, and/or [HunterPie](https://github.com/HunterPie/HunterPie) with the [analytics-export fork](https://github.com/Diegoeyza/HunterPie) (Windows). |
+| **Runtime** | Windows: WebView2 (ships with Windows 11 / most Windows 10; the installer sets it up if missing). Linux: any browser. |
 | **Privileges** | None — per-user install, no admin, no UAC. |
 
-The dashboard/API also run on macOS/Linux for development (see
-[For developers](#for-developers)); the game and capture tools are Windows-only.
+The dashboard/API also run on macOS/Linux from source (see
+[For developers](#for-developers)). Wilds itself runs on Linux through Proton
+and the mod works there, but the HunterPie companion is Windows-only.
 
 ## FAQ & troubleshooting
 
