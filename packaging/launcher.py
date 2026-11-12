@@ -70,12 +70,24 @@ def _preferred_port() -> int:
         preferred = int(os.environ.get("HPA_PORT", "47600"))
     except ValueError:
         return _free_port()
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        try:
-            sock.bind(("127.0.0.1", preferred))
-        except OSError:
-            return _free_port()
-    return preferred
+    # Retry briefly: right after an in-place update the previous instance may
+    # still be releasing the port, and a fallback would reset the origin.
+    for _ in range(10):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            # Linux refuses to bind a port that still has TIME_WAIT connections
+            # (killing the previous instance leaves some). uvicorn binds with
+            # SO_REUSEADDR too, so probe the same way; Windows allows rebinding
+            # TIME_WAIT ports by default, and SO_REUSEADDR there would let the
+            # probe succeed while another instance is actually listening.
+            if os.name != "nt":
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind(("127.0.0.1", preferred))
+                return preferred
+            except OSError:
+                pass
+        time.sleep(0.2)
+    return _free_port()
 
 
 def _configure_env() -> None:
