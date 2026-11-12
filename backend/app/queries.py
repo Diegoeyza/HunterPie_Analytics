@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import json
 import statistics
-from datetime import UTC
+from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from . import filters, monster_status
@@ -71,6 +71,10 @@ __all__ = [
     "UNKNOWN_VARIANT_ID",
     "parse_ids",
     "set_hunt_ignored",
+    "delete_hunt",
+    "restore_hunt",
+    "apply_quest_target_filter",
+    "count_unknown_targets",
     "player_variants",
     "set_identity_label",
     "filter_options",
@@ -97,14 +101,88 @@ __all__ = [
 ]
 
 
-def set_hunt_ignored(session: Session, hunt_id: int, ignored: bool) -> dict:
-    """Hide (or restore) a hunt from every stat view. Reversible."""
+def _live_hunt(session: Session, hunt_id: int) -> Hunt:
+    """The hunt, or KeyError when it is missing or soft-deleted.
+
+    Every per-hunt endpoint goes through this so a deleted hunt 404s like a
+    missing one (no leftover charts or highlights)."""
     hunt = session.get(Hunt, hunt_id)
-    if hunt is None:
+    if hunt is None or hunt.deleted_at is not None:
         raise KeyError(hunt_id)
+    return hunt
+
+
+def set_hunt_ignored(session: Session, hunt_id: int, ignored: bool) -> dict:
+    """Hide (or restore) a hunt from every stat view. Reversible.
+
+    Marked ``manual`` so the quest-objective filter never overrides it and
+    so switching that filter off can't silently un-hide a user's own pick.
+    A deleted hunt is gone: it can't be un-ignored back into view."""
+    hunt = _live_hunt(session, hunt_id)
     hunt.ignored = bool(ignored)
+    hunt.ignore_reason = "manual" if ignored else None
     session.commit()
     return {"id": hunt.id, "ignored": bool(hunt.ignored)}
+
+
+def delete_hunt(session: Session, hunt_id: int) -> dict:
+    """Delete a hunt from every view (soft delete, reversible by restore).
+
+    The row stays so the importer's dedup keeps recognising its dumps — a
+    re-import (including a forced recheck) can never bring it back. Deleted
+    hunts are excluded from the hunt manager too unless it opts into them.
+    """
+    hunt = _live_hunt(session, hunt_id)
+    hunt.deleted_at = datetime.now(UTC).replace(tzinfo=None)
+    hunt.ignored = True
+    hunt.ignore_reason = "deleted"
+    session.commit()
+    return {"id": hunt.id, "deleted": True}
+
+
+def restore_hunt(session: Session, hunt_id: int) -> dict:
+    """Undo a soft delete and make the hunt visible again in every view."""
+    hunt = session.get(Hunt, hunt_id)
+    if hunt is None or hunt.deleted_at is None:
+        raise KeyError(hunt_id)
+    hunt.deleted_at = None
+    hunt.ignored = False
+    hunt.ignore_reason = None
+    session.commit()
+    return {"id": hunt.id, "deleted": False}
+
+
+def apply_quest_target_filter(session: Session, enabled: bool) -> int:
+    """Hide/restore hunts by quest-objective identity (the settings toggle).
+
+    Only hunts whose ``is_target`` is known are touched, so mod-only and old
+    companion hunts (NULL) are left alone. Enabling hides only currently
+    visible non-targets, so an ignore the user set before this feature
+    (reason NULL) keeps its meaning; disabling restores only rows this
+    filter hid. A manual Ignore always survives. Returns the row count."""
+    if enabled:
+        rows = session.execute(
+            update(Hunt)
+            .where(Hunt.is_target.is_(False), Hunt.ignored.is_(False))
+            .values(ignored=True, ignore_reason="quest_target"))
+    else:
+        rows = session.execute(
+            update(Hunt)
+            .where(Hunt.ignore_reason == "quest_target")
+            .values(ignored=False, ignore_reason=None))
+    session.commit()
+    return rows.rowcount or 0
+
+
+def count_unknown_targets(session: Session) -> int:
+    """Companion hunts whose quest-target identity was never recorded.
+
+    These predate the `is_target` column; a forced re-import backfills them
+    from the dumps still on disk."""
+    return session.execute(
+        select(func.count()).select_from(Hunt)
+        .where(Hunt.source == "hunterpie", Hunt.is_target.is_(None))
+    ).scalar_one() or 0
 
 
 
@@ -255,10 +333,15 @@ def hunt_list(session: Session, limit: int = 200,
               player_ids: list[int] | None = None,
               party: int | None = None,
               weapon_name: str | None = None,
-              source: str | None = None) -> dict:
+              source: str | None = None,
+              include_deleted: bool = False) -> dict:
     stmt = select(Hunt, Monster).join(Monster)
     if not include_ignored:
         stmt = stmt.where(filters.visible())
+    elif not include_deleted:
+        # Deleted hunts are ignored too; the manager's "show deleted" view is
+        # the only caller that opts into them.
+        stmt = stmt.where(Hunt.deleted_at.is_(None))
     if player_ids:
         stmt = (stmt.join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
                 .where(HuntPlayer.player_id.in_(player_ids))
@@ -296,6 +379,7 @@ def hunt_list(session: Session, limit: int = 200,
          "clear_s": hunt_duration_s(h), "cleared": bool(h.cleared),
          "carts": h.cart_count, "players": h.player_count,
          "ignored": bool(h.ignored),
+         "deleted": h.deleted_at is not None,
          "source": h.source,
          "has_buffs": h.id in with_buffs,
          "has_health": h.id in with_health,
@@ -605,9 +689,7 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
     monsters). Snapshots are identical across siblings (full quest damage
     each); only HP steps and events differ per monster.
     """
-    hunt = session.get(Hunt, hunt_id)
-    if hunt is None:
-        raise KeyError(hunt_id)
+    hunt = _live_hunt(session, hunt_id)
     snaps = session.execute(
         select(DpsSnapshot, Player.display_name)
         .join(Player, Player.id == DpsSnapshot.player_id)
@@ -662,7 +744,8 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
             select(PlayerHealthStep.hunt_id)
             .join(Hunt, Hunt.id == PlayerHealthStep.hunt_id)
             .where(Hunt.started_at == hunt.started_at,
-                   Hunt.id != hunt_id)
+                   Hunt.id != hunt_id,
+                   Hunt.deleted_at.is_(None))
             .limit(1)).scalars().all()
     php_rows = session.execute(
         select(Player.display_name, PlayerHealthStep)
@@ -765,9 +848,7 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
 
 def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
     """Abnormality activations for a hunt, grouped by player."""
-    hunt = session.get(Hunt, hunt_id)
-    if hunt is None:
-        raise KeyError(hunt_id)
+    hunt = _live_hunt(session, hunt_id)
     # Buffs are companion-only: a hunt only the mod captured has none, even if
     # a legacy import left rows behind.
     rows = [] if hunt.source != "hunterpie" else session.execute(
@@ -826,9 +907,7 @@ def hunt_monster_status(session: Session, hunt_id: int) -> dict:
     always the monster of the selected hunt; siblings are separate hunts.
     Windows are merged per status so overlapping slots can't double-count.
     """
-    hunt = session.get(Hunt, hunt_id)
-    if hunt is None:
-        raise KeyError(hunt_id)
+    hunt = _live_hunt(session, hunt_id)
     rows = session.execute(
         select(MonsterEvent.event_type,
                MonsterEvent.start_offset_seconds,
@@ -1176,7 +1255,8 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
         .join(Player, Player.id == HuntPlayer.player_id)
         .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
         .join(Monster, Monster.id == Hunt.monster_id)
-        .where(filters.cleared(include_failed), HuntPlayer.is_supporter.is_(False))
+        .where(filters.cleared(include_failed), HuntPlayer.is_supporter.is_(False),
+               Hunt.deleted_at.is_(None))
     )
     if not include_ignored:
         stmt = stmt.where(filters.visible())
@@ -1410,9 +1490,7 @@ def hunt_highlights(session: Session, hunt_id: int) -> dict:
 
     Awards come from the REFramework mod (0..29); absent for fork-only hunts.
     """
-    hunt = session.get(Hunt, hunt_id)
-    if hunt is None:
-        raise KeyError(hunt_id)
+    hunt = _live_hunt(session, hunt_id)
     monster = session.get(Monster, hunt.monster_id)
     hp_rows = session.execute(
         select(HuntPlayer, Player.display_name)

@@ -71,6 +71,69 @@ def test_payload_mapping():
     assert len(payload["abnormalities"]) == 0  # sample doc has empty activations
 
 
+def _two_monster_doc():
+    """Arkveld (target) + Guardian Rathalos (invader, not a target)."""
+    doc = sample_doc()
+    hunt_window = {
+        "variant": None, "crown": 0, "enrage": {"activations": []},
+        "ailments": [], "hunt_type": 1,
+        "hunt_started_at": "2026-09-06T03:33:30.7334751Z",
+        "hunt_finished_at": "2026-09-06T03:36:12.4631848Z",
+    }
+    doc["monsters"] = [
+        {**hunt_window, "id": 27, "max_health": 20000.0, "is_target": True,
+         "health_steps": [{"percentage": 0.2,
+                           "time": "2026-09-06T03:35:00Z"}]},
+        {**hunt_window, "id": 2, "max_health": 12000.0, "is_target": False,
+         "health_steps": [{"percentage": 0.1,
+                           "time": "2026-09-06T03:35:00Z"}]},
+    ]
+    return doc
+
+
+def test_quest_targets_only_marks_non_targets_hidden():
+    """Setting on: a non-target monster is imported hidden (Ignore-like),
+    the target stays visible, and the quest is no longer a split quest."""
+    payloads = poogie_to_payloads(_two_monster_doc(),
+                                  {27: "Arkveld", 2: "Guardian Rathalos"},
+                                  "hv", "gv", quest_targets_only=True)
+    by_id = {p["monster_id"]: (p, w) for p, w in payloads}
+    assert set(by_id) == {27, 2}
+    target, target_notes = by_id[27]
+    assert target["is_target"] is True
+    assert "ignored" not in target
+    extra, extra_notes = by_id[2]
+    assert extra["is_target"] is False
+    assert extra["ignored"] is True
+    assert any("not a quest target" in w for w in extra_notes)
+    assert not any("skipping" in w for w in target_notes + extra_notes)
+    # one visible row -> not a split quest
+    assert all(p["is_split_quest"] is False for p, _ in payloads)
+
+
+def test_target_identity_exported_with_filter_off():
+    """Target identity is stored even when the filter is off, so it can be
+    toggled later; both monsters stay visible and the quest is split."""
+    payloads = poogie_to_payloads(_two_monster_doc(),
+                                  {27: "Arkveld", 2: "Guardian Rathalos"},
+                                  "hv", "gv")
+    by_id = {p["monster_id"]: p for p, _ in payloads}
+    assert by_id[27]["is_target"] is True
+    assert by_id[2]["is_target"] is False
+    assert "ignored" not in by_id[2]
+    assert all(p["is_split_quest"] is True for p, _ in payloads)
+
+
+def test_quest_targets_only_without_target_identity_falls_back():
+    """Mod-only dumps (and old companion builds) have no is_target: keep the
+    previous behavior and report that the filter could not be applied."""
+    [(payload, warnings)] = poogie_to_payloads(
+        sample_doc(), {31: "Tetranadon"}, "hv", "gv", quest_targets_only=True)
+    assert "is_target" not in payload
+    assert "ignored" not in payload
+    assert any("quest-objective filter skipped" in w for w in warnings)
+
+
 def test_ailment_activations_become_events():
     """Fork `monsters[].ailments[]` becomes `ailment.<name>` spans; duplicate
     slots and enrage/unknown ids never reach monster_events."""

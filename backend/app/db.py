@@ -56,7 +56,7 @@ EXTRA_COLUMNS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-LATEST_VERSION = 10
+LATEST_VERSION = 12
 
 
 def _sqlite_url(db_path: str | Path) -> str:
@@ -297,13 +297,42 @@ def _migrate_v10(conn) -> None:
             "AND award_id = 0"), params)
 
 
+def _migrate_v11(conn) -> None:
+    """Quest-objective filter: target identity + the reason a hunt is hidden.
+
+    ``is_target`` comes from the companion dump (``monsters[].is_target``);
+    NULL means unknown (mod-only hunt, or a companion build that predates the
+    field). ``ignore_reason`` separates the automatic quest-target hide from
+    a manual Ignore, so switching the setting off restores only the
+    automatic ones."""
+    _add_missing_columns(conn, "hunts", [
+        ("is_target", "INTEGER"),
+        ("ignore_reason", "TEXT"),
+    ])
+    conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_hunts_is_target ON hunts (is_target)"))
+
+
+def _migrate_v12(conn) -> None:
+    """Hunt manager: Delete distinct from Ignore.
+
+    Delete is a soft delete: the row stays so the importer's dedup still
+    recognises its dumps (a re-import can't resurrect it) and every read path
+    hides it. ``ignore_reason='deleted'`` marks the reason, alongside the
+    existing 'manual' and 'quest_target'."""
+    _add_missing_columns(conn, "hunts", [("deleted_at", "TIMESTAMP")])
+    conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_hunts_deleted ON hunts (deleted_at)"))
+
+
 # v4/v5 (the REFramework weapon-model experiment) were reverted before release;
 # their tables/columns never existed in a shipped DB, so those versions are
 # intentionally absent. migrate() tolerates the gap in the sequence.
 MIGRATIONS: dict[int, object] = {1: _migrate_v1, 2: _migrate_v2, 3: _migrate_v3,
                                  6: _migrate_v6, 7: _migrate_v7,
                                  8: _migrate_v8, 9: _migrate_v9,
-                                 10: _migrate_v10}
+                                 10: _migrate_v10, 11: _migrate_v11,
+                                 12: _migrate_v12}
 
 
 def migrate(engine=None, db_path: str | Path = DEFAULT_DB_PATH) -> int:

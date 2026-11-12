@@ -463,7 +463,7 @@ def _validate_payload_numbers(payload: dict) -> None:
 def _hunt_columns(payload: dict, started_at: datetime,
                   ended_at: datetime | None, player_names: list[str]) -> dict:
     """Hunt-level columns derived from a payload (shared by create/refresh)."""
-    return dict(
+    cols = dict(
         quest_id_external=payload.get("quest_id_external"),
         dedup_hash=payload.get("dedup_hash")
         or compute_dedup_hash(payload["monster_id"], player_names, started_at),
@@ -493,6 +493,26 @@ def _hunt_columns(payload: dict, started_at: datetime,
         game_version=payload["game_version"],
         mod_version=payload.get("mod_version"),
     )
+    # Quest-target identity is only present on companion dumps. Absent means
+    # "unknown" (mod-only/old companion) and must not clobber a stored value.
+    if "is_target" in payload:
+        cols["is_target"] = bool(payload["is_target"])
+    if payload.get("ignored"):
+        cols["ignored"] = True
+        cols["ignore_reason"] = "quest_target"
+    return cols
+
+
+def _apply_target_flags(hunt: Hunt, payload: dict) -> None:
+    """Refresh target identity / auto-ignore on an existing hunt.
+
+    A manual Ignore (or a deleted hunt) always wins over the automatic
+    quest-target filter."""
+    if "is_target" in payload:
+        hunt.is_target = bool(payload["is_target"])
+    if payload.get("ignored") and hunt.ignore_reason not in ("manual", "deleted"):
+        hunt.ignored = True
+        hunt.ignore_reason = "quest_target"
 
 
 def _support_applied(players: list[dict]) -> dict[str, float]:
@@ -782,6 +802,11 @@ def _refresh_from_hunterpie(session: Session, hunt: Hunt, payload: dict,
     cols["player_count"] = max(1, sum(
         1 for p in payload["players"]
         if p["display_name"] not in supporters))
+    # A user's manual Ignore (or a deleted hunt) always wins over the
+    # automatic quest-target filter: never rewrite it from an import.
+    if hunt.ignore_reason in ("manual", "deleted"):
+        cols.pop("ignored", None)
+        cols.pop("ignore_reason", None)
     # The companion has no mod_version; keep the last one seen for this hunt
     # so the "reinstall the mod" notice doesn't disappear on a refresh.
     if not cols.get("mod_version"):
@@ -1139,6 +1164,10 @@ def upsert_hunt(session: Session, payload: dict,
             # them is idempotent and heals hunts imported before the carry-in
             # merge / quest-clock fix. Damage, awards and HP are untouched.
             _refresh_abnormalities(session, existing, payload)
+            # Target identity may be new (companion gained is_target, or the
+            # quest-objective filter was just switched on) — refresh it here
+            # too, otherwise a forced recheck could never backfill old hunts.
+            _apply_target_flags(existing, payload)
             session.commit()
         warnings.extend(reconcile_hp_identity(session, existing))
         return existing, False, warnings

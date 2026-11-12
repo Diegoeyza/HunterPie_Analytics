@@ -27,6 +27,10 @@ DPS_WINDOW_QUEST = "quest"
 DPS_WINDOWS = frozenset({DPS_WINDOW_ENGAGEMENT, DPS_WINDOW_QUEST})
 #: Fresh installs (and hand-edited configs with unknown values) get this.
 DEFAULT_DPS_WINDOW = DPS_WINDOW_QUEST
+#: Quest-objective filter. When on, a hunt whose monster was not the quest
+#: objective is still imported but auto-hidden (``ignored``), exactly like
+#: pressing Ignore — and switching the option off restores those hunts.
+DEFAULT_QUEST_TARGETS_ONLY = False
 
 
 def settings_path() -> Path:
@@ -43,7 +47,9 @@ def settings_path() -> Path:
 
 
 def _defaults() -> dict:
-    return {"export_dirs": [], "dps_window": DEFAULT_DPS_WINDOW}
+    return {"export_dirs": [], "dps_window": DEFAULT_DPS_WINDOW,
+            "quest_targets_only": DEFAULT_QUEST_TARGETS_ONLY,
+            "quest_targets_backfilled": False}
 
 
 def load_settings(path: Path | None = None) -> dict:
@@ -67,6 +73,10 @@ def load_settings(path: Path | None = None) -> dict:
         "export_dirs": [d for d in dirs if isinstance(d, str)]
         if isinstance(dirs, list) else [],
         "dps_window": window if window in DPS_WINDOWS else DEFAULT_DPS_WINDOW,
+        "quest_targets_only": raw.get("quest_targets_only") is True,
+        # Bookkeeping (not a user preference): survives load/save so every
+        # settings PUT doesn't re-arm the one-time target backfill.
+        "quest_targets_backfilled": raw.get("quest_targets_backfilled") is True,
     }
 
 
@@ -87,3 +97,21 @@ def configured_export_dirs(path: Path | None = None) -> list[Path]:
 def dps_window(path: Path | None = None) -> str:
     """Active DPS divisor window (``engagement`` or ``quest``)."""
     return load_settings(path)["dps_window"]
+
+
+def quest_targets_only(path: Path | None = None) -> bool:
+    """True when non-objective monsters should be imported hidden."""
+    return load_settings(path)["quest_targets_only"]
+
+
+def quest_targets_backfilled(path: Path | None = None) -> bool:
+    """True once a forced re-import has tried to recover old target identity."""
+    return load_settings(path)["quest_targets_backfilled"]
+
+
+def mark_quest_targets_backfilled(path: Path | None = None) -> None:
+    """Record that the exports were rechecked for target identity."""
+    path = path or settings_path()
+    data = load_settings(path)
+    data["quest_targets_backfilled"] = True
+    save_settings(data, path)

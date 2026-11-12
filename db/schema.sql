@@ -59,7 +59,10 @@ CREATE TABLE hunts (
     real_hunt_time_seconds  REAL,            -- HunterPie "real hunt time" (may differ)
     cart_count              INTEGER NOT NULL DEFAULT 0,
     cleared                 BOOLEAN NOT NULL DEFAULT 0,
-    ignored                 BOOLEAN NOT NULL DEFAULT 0,  -- user-hidden: excluded from all stats
+    ignored                 BOOLEAN NOT NULL DEFAULT 0,  -- hidden from stats: manual Ignore or the quest-objective filter
+    ignore_reason           TEXT,            -- NULL = visible, 'manual' = user Ignore, 'quest_target' = auto-hidden, 'deleted' = soft-deleted
+    deleted_at              TIMESTAMP,       -- soft delete: row kept so dedup can't resurrect it; NULL = live
+    is_target               BOOLEAN,         -- quest objective per the companion dump (NULL = unknown)
     player_count            INTEGER NOT NULL DEFAULT 1,
     is_sos                  BOOLEAN NOT NULL DEFAULT 0,  -- upstream: SOS data is inaccurate
     joined_mid_hunt         BOOLEAN NOT NULL DEFAULT 0,  -- upstream: mid-join not tracked properly
@@ -79,6 +82,8 @@ CREATE INDEX idx_hunts_quest ON hunts(quest_id);
 CREATE INDEX idx_hunts_stars ON hunts(quest_stars);
 CREATE INDEX idx_hunts_players ON hunts(player_count);
 CREATE INDEX idx_hunts_ignored ON hunts(ignored);
+CREATE INDEX idx_hunts_deleted ON hunts(deleted_at);
+CREATE INDEX idx_hunts_is_target ON hunts(is_target);
 CREATE INDEX idx_hunts_cleared ON hunts(cleared);
 
 CREATE TABLE hunt_players (

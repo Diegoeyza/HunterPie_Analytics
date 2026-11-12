@@ -72,6 +72,28 @@ def test_idempotent_retry_same_quest_id(session):
     assert len(session.execute(select(Hunt)).scalars().all()) == 1
 
 
+def test_deleted_hunt_is_not_recreated_and_stays_hidden(session):
+    """A soft-deleted hunt still dedups its dump (so an import — even a
+    forced recheck — can't recreate it) and the quest-objective filter can't
+    un-delete it."""
+    from app.queries import delete_hunt
+
+    hunt, created, _ = upsert_hunt(session, base_payload(quest_id_external="q-del"))
+    assert created
+    delete_hunt(session, hunt.id)
+
+    again, created2, _ = upsert_hunt(session, base_payload(quest_id_external="q-del"))
+    assert created2 is False and again.id == hunt.id
+    session.refresh(again)
+    assert again.deleted_at is not None
+    assert again.ignored and again.ignore_reason == "deleted"
+
+    upsert_hunt(session, base_payload(quest_id_external="q-del",
+                                      is_target=False, ignored=True))
+    session.refresh(again)
+    assert again.ignored and again.ignore_reason == "deleted"
+
+
 def test_same_session_repeat_quests_coexist(session):
     """The external id is a per-session hash shared by every quest in a
     gaming session: same (external, monster) with a different start is a

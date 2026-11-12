@@ -101,6 +101,7 @@ class SettingsBody(BaseModel):
     export_dirs: list[str] = Field(default_factory=list,
                                    max_length=settings.MAX_EXPORT_DIRS)
     dps_window: str | None = None
+    quest_targets_only: bool | None = None
 
 
 def _clean_export_dirs(raw: list[str]) -> list[str]:
@@ -135,6 +136,7 @@ def _app_settings() -> dict:
         "detected": detected_sources(),
         "env_override": bool(os.environ.get("HUNT_EXPORTS")),
         "dps_window": settings.dps_window(),
+        "quest_targets_only": settings.quest_targets_only(),
     }
 
 
@@ -145,12 +147,17 @@ def get_app_settings():
 
 
 @app.put("/api/settings")
-def put_app_settings(body: SettingsBody):
+def put_app_settings(body: SettingsBody, db: Session = Depends(get_db)):
     """Replace the user-configured export folders (empty list = auto only).
 
     ``dps_window`` (when present) switches the DPS divisor between
     ``engagement`` (first->last hit) and ``quest`` (first hit->quest end);
-    omitted keeps the stored value."""
+    omitted keeps the stored value.
+
+    ``quest_targets_only`` (when present) hides hunts whose monster was not
+    the quest objective — the same effect as the Ignore button, applied to
+    existing hunts immediately when the companion recorded target identity
+    (``is_target``). Turning it off restores only the auto-hidden rows."""
     if body.dps_window is not None and body.dps_window not in settings.DPS_WINDOWS:
         raise HTTPException(
             status_code=422,
@@ -160,8 +167,22 @@ def put_app_settings(body: SettingsBody):
     current["export_dirs"] = dirs
     if body.dps_window is not None:
         current["dps_window"] = body.dps_window
+    filter_changed = (
+        body.quest_targets_only is not None
+        and bool(body.quest_targets_only) != bool(current.get("quest_targets_only"))
+    )
+    if body.quest_targets_only is not None:
+        current["quest_targets_only"] = bool(body.quest_targets_only)
     settings.save_settings(current)
-    return _app_settings()
+    out = _app_settings()
+    if filter_changed:
+        out["filter_applied"] = queries.apply_quest_target_filter(
+            db, current["quest_targets_only"])
+    if current.get("quest_targets_only") and not settings.quest_targets_backfilled():
+        # Older companion hunts have no stored identity: the dashboard runs a
+        # force re-import once to backfill them from the dumps on disk.
+        out["unknown_targets"] = queries.count_unknown_targets(db)
+    return out
 
 
 @app.get("/api/filter-options")
@@ -181,13 +202,15 @@ def health(db: Session = Depends(get_db)):
 @app.get("/api/hunts")
 def hunts(limit: int = Query(200, ge=1, le=MAX_LIMIT),
           include_ignored: bool = False,
+          include_deleted: bool = False,
           player_ids: str | None = None, players: int | None = None,
           weapon_name: str | None = None,
           source: str | None = None,
           db: Session = Depends(get_db)):
     return queries.hunt_list(db, limit, include_ignored,
                              _ids(player_ids), party=_party(players),
-                             weapon_name=weapon_name, source=source)
+                             weapon_name=weapon_name, source=source,
+                             include_deleted=include_deleted)
 
 
 @app.get("/api/highlights")
@@ -350,6 +373,29 @@ def ignore_hunt(hunt_id: int, body: IgnoreBody, db: Session = Depends(get_db)):
         return queries.set_hunt_ignored(db, hunt_id, body.ignored)
     except KeyError:
         raise HTTPException(404, f"hunt {hunt_id} not found") from None
+
+
+@app.delete("/api/hunts/{hunt_id}")
+def delete_hunt(hunt_id: int, db: Session = Depends(get_db)):
+    """Delete a hunt from every view. Soft delete: re-imports can't revive it."""
+    try:
+        return queries.delete_hunt(db, hunt_id)
+    except KeyError:
+        raise HTTPException(404, f"hunt {hunt_id} not found") from None
+
+
+@app.post("/api/hunts/{hunt_id}/restore")
+def restore_hunt(hunt_id: int, db: Session = Depends(get_db)):
+    """Undo a delete (the manager's "show deleted" view)."""
+    try:
+        out = queries.restore_hunt(db, hunt_id)
+    except KeyError:
+        raise HTTPException(404, f"hunt {hunt_id} not found") from None
+    # A restored non-target is still a non-target: let the quest-objective
+    # setting hide it again instead of showing an invader the user filtered.
+    if settings.load_settings()["quest_targets_only"]:
+        queries.apply_quest_target_filter(db, True)
+    return out
 
 
 @app.get("/api/leaderboard")

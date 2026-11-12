@@ -1230,6 +1230,42 @@ def test_import_records_manifest_for_targetless_files(tmp_path, monkeypatch):
     assert second["skipped_manifest"] == 1 and not second["errors"]
 
 
+def test_delete_hunt_hides_everywhere_and_restores():
+    """DELETE /hunts/{id} removes a hunt from every view (including the
+    manager's ignored listing); the row stays hidden after a re-import and
+    can be restored from the "show deleted" view."""
+    client, _ = make_client(seed_two_hunts)
+    assert client.delete("/api/hunts/9999").status_code == 404
+    assert client.post("/api/hunts/9999/restore").status_code == 404
+
+    assert client.delete("/api/hunts/2").json() == {"id": 2, "deleted": True}
+    assert client.get("/api/health").json()["hunts"] == 1
+    assert [h["id"] for h in client.get("/api/hunts").json()["hunts"]] == [1]
+    # ignored-listing callers still don't see a deleted hunt
+    assert [h["id"] for h in client.get(
+        "/api/hunts", params={"include_ignored": 1}).json()["hunts"]] == [1]
+    assert [s["hunt_id"] for s in client.get(
+        "/api/high-scores", params={"include_ignored": 1}).json()["scores"]] == [1]
+
+    # per-hunt endpoints 404 and a stale tab can't toggle it back
+    assert client.get("/api/hunts/2/curve").status_code == 404
+    assert client.get("/api/hunts/2/highlights").status_code == 404
+    assert client.patch("/api/hunts/2/ignore",
+                        json={"ignored": True}).status_code == 404
+    assert client.delete("/api/hunts/2").status_code == 404
+
+    # the manager's "show deleted" view lists it with the flag
+    shown = client.get("/api/hunts", params={"include_ignored": 1,
+                                             "include_deleted": 1}).json()["hunts"]
+    assert [(h["id"], h["deleted"]) for h in shown] == [(2, True), (1, False)]
+
+    assert client.post("/api/hunts/2/restore").json() == {
+        "id": 2, "deleted": False}
+    assert client.get("/api/health").json()["hunts"] == 2
+    assert [s["hunt_id"] for s in client.get(
+        "/api/high-scores").json()["scores"]] == [2, 1]
+
+
 def test_ignore_hunt_hides_everywhere_and_restores():
     """PATCH /hunts/{id}/ignore hides the hunt from every stat view;
     include_ignored=1 reveals it with the flag; un-ignoring restores."""
@@ -1431,7 +1467,7 @@ def test_settings_roundtrip_adds_detected_source(tmp_path, monkeypatch):
 
     assert client.get("/api/settings").json() == {
         "export_dirs": [], "missing": [], "detected": [], "env_override": False,
-        "dps_window": "quest"}
+        "dps_window": "quest", "quest_targets_only": False}
 
     body = client.put("/api/settings",
                       json={"export_dirs": [str(folder)]}).json()
@@ -1457,6 +1493,59 @@ def test_settings_dps_window_roundtrip_and_validation(tmp_path, monkeypatch):
     res = client.put("/api/settings", json={"dps_window": "bogus"})
     assert res.status_code == 422
     assert client.get("/api/settings").json()["dps_window"] == "quest"
+
+
+def test_settings_quest_targets_only_filters_and_restores():
+    """The quest-objective setting hides non-target hunts (like Ignore),
+    restores them when switched off, and never overrides a manual ignore."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    def seed(s):
+        s.add_all([Monster(id=27, name="Arkveld"),
+                   Monster(id=2, name="Guardian Rathalos"),
+                   Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn")])
+        s.flush()
+        same_start = datetime(2026, 11, 10, 23, 43)
+        for mid, is_target in ((27, True), (2, False)):
+            upsert_hunt(s, {
+                "quest_id_external": "q-ark", "dedup_hash": f"d{mid}",
+                "monster_id": mid, "started_at": same_start,
+                "ended_at": same_start + timedelta(minutes=3),
+                "quest_time_seconds": 180, "cart_count": 0, "cleared": True,
+                "is_target": is_target,
+                "hunterpie_version": "t", "game_version": "g",
+                "players": [{"display_name": "Isi", "weapon_id": 6,
+                             "total_damage": 1000.0, "peak_dps": 50.0,
+                             "is_supporter": False}],
+                "snapshots": [], "events": [],
+            })
+
+    client, _ = make_client(seed)
+
+    def names(**params):
+        return sorted(h["monster"] for h in
+                      client.get("/api/hunts", params=params).json()["hunts"])
+
+    assert names() == ["Arkveld", "Guardian Rathalos"]
+
+    body = client.put("/api/settings", json={"quest_targets_only": True}).json()
+    assert body["quest_targets_only"] is True
+    assert body["filter_applied"] == 1
+    assert names() == ["Arkveld"]
+    assert names(include_ignored=1) == ["Arkveld", "Guardian Rathalos"]
+
+    # Manually ignore the target, then switch the filter off: only the
+    # auto-hidden non-target comes back (manual ignores are kept).
+    listed = client.get("/api/hunts", params={"include_ignored": 1}).json()["hunts"]
+    ark_id = next(h["id"] for h in listed if h["monster"] == "Arkveld")
+    client.patch(f"/api/hunts/{ark_id}/ignore", json={"ignored": True})
+    body = client.put("/api/settings", json={"quest_targets_only": False}).json()
+    assert body["quest_targets_only"] is False
+    assert body["filter_applied"] == 1
+    shown = {h["monster"]: h["ignored"] for h in
+             client.get("/api/hunts", params={"include_ignored": 1}).json()["hunts"]}
+    assert shown == {"Arkveld": True, "Guardian Rathalos": False}
 
 
 def test_settings_accepts_missing_folder(tmp_path, monkeypatch):

@@ -41,6 +41,7 @@ HuntDumper records your hunts and a companion dashboard turns them into charts: 
 [list]
 [*][b]Party HP is now attributed correctly[/b] — each hunter's HP series is keyed by the game's stable quest member index instead of list position. In multiplayer the Survival chart can no longer show one hunter's faint under another hunter's name.
 [*][b]DPS matches the in-game meter[/b] — each hunter's own first hit to the party's last hit, the same window HunterPie's overlay uses. Settings can switch to first-hit to last-hit.
+[*][b]Only quest objectives[/b] — hide monsters that invaded a quest without being an objective (like the Ignore button, but automatic and reversible).
 [*][b]Buffs uptime basis[/b] — the dashboard's Buffs tab can measure uptime from hunt start or from first hit.
 [*]Heavy diagnostics are now off by default (Debug log enables them); dump files are smaller.
 [/list]

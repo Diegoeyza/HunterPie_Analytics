@@ -57,18 +57,24 @@ the legacy $19 fee is waived. You must start at this exact entry point:
 
    `APP_VERSION` is what the in-app updater compares against the release tag,
    so all four must match (it is exposed at `/api/health` as `app_version`).
-2. Commit, then tag and push:
+2. Add the user-facing note to `dashboard/lib/changelog.ts`. The app opens a
+   one-time "What's new" popup for the running version (Settings → Data also
+   re-opens it); the note ships inside the build, so it works offline and with
+   the update check off. Keep it to a few plain sentences, and still write real
+   notes on the GitHub release (CI's `generate_release_notes` only lists
+   commit subjects).
+3. Commit, then tag and push:
 
    ```sh
    git tag v1.0.0
    git push origin v1.0.0
    ```
 
-3. CI builds and attaches to the Release:
+4. CI builds and attaches to the Release:
    `HunterPieAnalytics-Setup-*.exe`, `HuntDumper-*.zip`, `SHA256SUMS.txt`.
-4. Since the direct download is unsigned, mention it in the release notes
+5. Since the direct download is unsigned, mention it in the release notes
    (SmartScreen "More info → Run anyway").
-5. The MSIX/Store package is not attached to releases; build it locally with
+6. The MSIX/Store package is not attached to releases; build it locally with
    `packaging/msix/build-msix.ps1` and upload to Partner Center if publishing to
    the Store.
 

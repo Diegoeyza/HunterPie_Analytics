@@ -392,13 +392,20 @@ def _is_environment_bystander(m: dict) -> bool:
 
 
 def poogie_to_payloads(doc: dict, names: dict[int, str],
-                        hunterpie_version: str, game_version: str
+                        hunterpie_version: str, game_version: str,
+                        quest_targets_only: bool = False
                         ) -> list[tuple[dict, list[str]]]:
     """One payload per monster (quest x monster combinations all register).
 
     Each hunt carries the FULL quest damage: per-hit damage can't be
     attributed per monster, and a quest's damage belongs to the quest.
     Single-monster quests are unaffected.
+
+    ``quest_targets_only`` (the "only quest objectives" setting): monsters
+    the companion marked ``is_target: false`` are still imported, but with
+    ``ignored`` set — the same effect as pressing Ignore, and reversible.
+    Dumps without target identity (mod-only, old companion) keep the old
+    heuristics and say so in the warnings.
     """
     warnings: list[str] = []
     started = parse_ts(doc["started_at"])
@@ -452,10 +459,23 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
     out = []
     failed = _quest_failed(doc)
     has_targets = any(_is_quest_target(m) for m in monsters)
+    if quest_targets_only and not has_targets:
+        warnings.append(
+            "quest-objective filter skipped: this dump has no "
+            "monsters[].is_target (mod-only hunt or an old companion build)")
     if has_targets:
         kept = []
         for m in monsters:
-            if _is_quest_target(m) or _lost_more_than_60(m):
+            if _is_quest_target(m):
+                kept.append(m)
+            elif quest_targets_only:
+                # Register it hidden instead of dropping it: same effect as
+                # Ignore, but the row stays reviewable (and un-hideable).
+                kept.append(m)
+                warnings.append(
+                    f"monster id={m['id']} is not a quest target: "
+                    f"registered hidden (quest-objective filter)")
+            elif _lost_more_than_60(m):
                 kept.append(m)
             else:
                 warnings.append(
@@ -479,13 +499,20 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
                             f"(HP never below {ENGAGEMENT_FLOOR:.0%}, "
                             f"not a quest target)")
             continue
-        out.append((_monster_payload(doc, m, merged, started, finished,
-                                     names, hunterpie_version, game_version,
-                                     cleared=not failed),
-                    warnings))
+        payload = _monster_payload(doc, m, merged, started, finished,
+                                   names, hunterpie_version, game_version,
+                                   cleared=not failed)
+        if has_targets:
+            payload["is_target"] = _is_quest_target(m)
+            if quest_targets_only and not payload["is_target"]:
+                payload["ignored"] = True
+        out.append((payload, warnings))
     # Multi-monster quests carry the FULL quest damage on every sibling row;
     # flag them so stats can attribute or exclude shared damage later.
-    is_split = len(out) > 1
+    # Hidden (auto-ignored) siblings don't count: a target-only hunt is not
+    # a split quest once the filter is on.
+    is_split = sum(1 for payload, _ in out
+                   if not payload.get("ignored")) > 1
     for payload, _ in out:
         payload["is_split_quest"] = is_split
     # Awards/hunter highlights are quest-level (not per monster): keep them on
@@ -649,10 +676,12 @@ def _monster_payload(doc: dict, m: dict, merged: dict[str, dict],
 
 def import_doc(session, doc: dict, names: dict[int, str],
                hunterpie_version: str, game_version: str,
-               cache: dict | None = None):
+               cache: dict | None = None,
+               quest_targets_only: bool = False):
     results = []
     for payload, warnings in poogie_to_payloads(doc, names, hunterpie_version,
-                                                game_version):
+                                                game_version,
+                                                quest_targets_only):
         # Always go through upsert_hunt: it owns dedup AND the cross-source
         # rules (a later HunterPie dump refreshes a mod-created hunt, the mod
         # only contributes awards). An early skip here would bypass those.

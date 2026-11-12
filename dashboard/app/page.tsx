@@ -10,7 +10,9 @@ import ScopeBar, { DEFAULT_PARTY_SIZE, loadParty, loadScope, loadVariant, loadWe
 import HuntsManager from "../components/HuntsManager";
 import ImportButton from "../components/ImportButton";
 import SettingsMenu from "../components/SettingsMenu";
+import WhatsNew from "../components/WhatsNew";
 import UpdatePill from "../components/UpdatePill";
+import { loadSeenVersion, noteFor, storeSeenVersion } from "../lib/changelog";
 import ModPill from "../components/ModPill";
 import { ToastProvider } from "../components/Toast";
 
@@ -84,6 +86,7 @@ export default function Home() {
   const [checkUpdates, setCheckUpdates] = useState(true);
   const [scopeReady, setScopeReady] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   const healthQ = useApi<Health>("/health");
 
   useEffect(() => {
@@ -158,6 +161,20 @@ export default function Home() {
   const active = TABS.find((t) => t.id === tab) ?? TABS[0];
   const ctx: ViewCtx = { scope, variantId: scope.length === 1 ? variantId : null, weaponName: scope.length === 1 ? weaponName : null, clearScope: () => changeScope([]), setScope: changeScope, partySize, includeFailed };
   const health = healthQ.data;
+
+  // An in-place update should say what changed: the note ships with the
+  // dashboard (offline, no update check needed) and opens once per version.
+  const appVersion = health?.app_version;
+  useEffect(() => {
+    if (!appVersion || !noteFor(appVersion) || loadSeenVersion() === appVersion) return;
+    setWhatsNewOpen(true);
+  }, [appVersion]);
+
+  const closeWhatsNew = () => {
+    setWhatsNewOpen(false);
+    if (appVersion) storeSeenVersion(appVersion);
+  };
+
   const versions = health?.hunterpie_version ?? health?.game_version
     ? `HunterPie ${health?.hunterpie_version ?? "?"} · game ${health?.game_version ?? "?"}`
     : undefined;
@@ -212,7 +229,8 @@ export default function Home() {
         <ModPill mod={health?.mod} />
         <SettingsMenu includeFailed={includeFailed} onIncludeFailed={changeIncludeFailed}
           checkUpdates={checkUpdates} onCheckUpdates={changeCheckUpdates}
-          appVersion={health?.app_version} />
+          appVersion={health?.app_version}
+          onWhatsNew={() => setWhatsNewOpen(true)} />
       </header>
       {sourceNote && sourceOpen && (
         <div className={`source-note${sourceNote.warn ? " warn" : ""}`} id="source-note">
@@ -247,6 +265,7 @@ export default function Home() {
         <p className="blurb">{active.blurb}</p>
         {active.render(ctx)}
       </main>
+      <WhatsNew appVersion={appVersion} open={whatsNewOpen} onClose={closeWhatsNew} />
     </ToastProvider>
   );
 }

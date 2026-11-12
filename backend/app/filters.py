@@ -5,7 +5,7 @@ so scope/party/visibility semantics stay identical across tabs.
 """
 from __future__ import annotations
 
-from sqlalchemy import true
+from sqlalchemy import and_, true
 
 from .models import Hunt
 
@@ -37,8 +37,11 @@ def parse_ids(raw: str | None) -> list[int]:
 
 
 def visible():
-    """Filter for user-visible hunts (NULL-safe: pre-flag rows are NULL)."""
-    return Hunt.ignored.isnot(True)
+    """Filter for user-visible hunts (NULL-safe: pre-flag rows are NULL).
+
+    Soft-deleted hunts (``deleted_at``) are always hidden, even when a caller
+    opts into ignored rows."""
+    return and_(Hunt.ignored.isnot(True), Hunt.deleted_at.is_(None))
 
 
 def cleared(include_failed: bool):

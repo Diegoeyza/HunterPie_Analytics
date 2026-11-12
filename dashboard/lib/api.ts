@@ -124,6 +124,13 @@ export interface AppSettings {
   export_dirs: string[];
   /** DPS divisor window: "quest" (first hit->kill, the default) or "engagement" (own first->last hit). */
   dps_window: string;
+  /** Hide hunts whose monster was not the quest objective (auto-ignore). */
+  quest_targets_only: boolean;
+  /** Rows hidden/restored by the last settings save (PUT only). */
+  filter_applied?: number;
+  /** Companion hunts with no stored target identity (PUT with the filter on):
+   *  a force re-import backfills them from the dumps on disk. */
+  unknown_targets?: number;
   /** Configured folders that don't exist yet (created later by MO2/game). */
   missing: string[];
   detected: HealthSource[];
@@ -232,6 +239,8 @@ export interface HuntSummary {
   quest_id: number | null; quest_stars: number | null;
   clear_s: number | null; cleared: boolean; carts: number; players: number;
   ignored: boolean;
+  /** Soft-deleted from the hunt manager (only listed with include_deleted). */
+  deleted?: boolean;
   /** Capture source: "hunterpie" (companion) or "reframework" (mod). */
   source?: string;
   /** Companion or mod recorded buff/debuff uptime for this hunt. */

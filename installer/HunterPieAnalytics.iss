@@ -10,7 +10,7 @@
 ;   iscc installer\HunterPieAnalytics.iss
 
 #define AppName "HunterPie Analytics"
-#define AppVersion "1.2.3"
+#define AppVersion "1.2.4"
 #define AppPublisher "Diegoeyza"
 #define AppExe "HunterPieAnalytics.exe"
 #define ForkExe "HunterPie-Fork\HunterPie.exe"

@@ -36,6 +36,10 @@ from .import_hunt import (
     load_monster_names,
 )
 from .models import ImportedFile
+from .settings import (
+    mark_quest_targets_backfilled as setting_mark_targets_backfilled,
+)
+from .settings import quest_targets_only as setting_quest_targets_only
 
 log = logging.getLogger(__name__)
 
@@ -209,6 +213,8 @@ def run_import(db_path: str | Path, src, force: bool = False,
     files = _scan(src)
     names = load_monster_names(None)
     cache: dict = {}  # reference-row lookup cache shared across the job
+    # Read once per run: toggling the setting mid-import applies next run.
+    targets_only = setting_quest_targets_only()
     result = {"scanned": 0, "imported": 0, "imported_ids": [],
               "duplicates": 0, "skipped_manifest": 0, "errors": [],
               "warnings": []}
@@ -252,7 +258,8 @@ def run_import(db_path: str | Path, src, force: bool = False,
             try:
                 outcomes = import_doc(session, doc, names,
                                       DEFAULT_HUNTERPIE_VERSION,
-                                      DEFAULT_GAME_VERSION, cache=cache)
+                                      DEFAULT_GAME_VERSION, cache=cache,
+                                      quest_targets_only=targets_only)
             except Exception as e:  # noqa: BLE001 - one bad dump must never
                 # abort the whole run: skip it, report it, keep importing.
                 session.rollback()
@@ -277,6 +284,11 @@ def run_import(db_path: str | Path, src, force: bool = False,
             session.close()
         if progress:
             progress({**result, "total": len(files)})
+    # A forced run with the filter on was (also) a target-identity backfill:
+    # remember it so toggling the setting later doesn't re-parse everything
+    # for hunts whose dumps simply predate is_target.
+    if force and targets_only and not result.get("cancelled"):
+        setting_mark_targets_backfilled()
     return result
 
 

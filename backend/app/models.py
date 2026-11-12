@@ -115,6 +115,18 @@ class Hunt(Base):
     cart_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cleared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ignored: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Why the hunt is hidden: NULL = visible, "manual" = a user pressed Ignore,
+    # "quest_target" = auto-hidden by the "only quest objectives" setting.
+    # Switching that setting off restores only the automatic ones.
+    ignore_reason: Mapped[str | None] = mapped_column(Text)
+    # Soft delete (the hunt manager's Delete action). The row is kept so the
+    # importer's dedup still recognises its dumps — a re-import can never
+    # resurrect a deleted hunt — while every read path hides it. NULL = live.
+    # "manual" = Ignore, "deleted" = Delete.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Quest-objective identity from the companion dump (monsters[].is_target).
+    # NULL = unknown (mod-only hunt or an old companion build).
+    is_target: Mapped[bool | None] = mapped_column(Boolean)
     player_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_sos: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     joined_mid_hunt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -146,6 +158,7 @@ class Hunt(Base):
         Index("idx_hunts_stars", "quest_stars"),
         Index("idx_hunts_players", "player_count"),
         Index("idx_hunts_ignored", "ignored"),
+        Index("idx_hunts_deleted", "deleted_at"),
         Index("idx_hunts_cleared", "cleared"),
         CheckConstraint("player_count >= 1", name="ck_hunts_player_count"),
         CheckConstraint("cart_count >= 0", name="ck_hunts_carts"),

@@ -60,6 +60,43 @@ def test_negative_snapshot_ts_rejected(session):
         upsert_hunt(session, bad)
 
 
+def test_ignored_payload_sets_quest_target_reason(session):
+    """A hidden payload (quest-objective filter) stores reason=quest_target."""
+    hunt, created, _ = upsert_hunt(session, base_payload(
+        quest_id_external="q-targeted", is_target=False, ignored=True))
+    assert created is True
+    assert hunt.ignored is True
+    assert hunt.ignore_reason == "quest_target"
+    assert hunt.is_target is False
+
+
+def test_same_source_reimport_refreshes_target_keeps_manual_ignore(session):
+    """A forced recheck backfills is_target, but a manual Ignore survives."""
+    hunt, _, _ = upsert_hunt(session, base_payload(
+        quest_id_external="q1", is_target=False))
+    hunt.ignored = True
+    hunt.ignore_reason = "manual"
+    session.commit()
+
+    same, created, _ = upsert_hunt(session, base_payload(
+        quest_id_external="q1", is_target=False, ignored=True))
+    assert created is False
+    assert same.id == hunt.id
+    assert same.is_target is False
+    assert same.ignored is True
+    assert same.ignore_reason == "manual"
+
+
+def test_reimport_without_target_identity_keeps_stored_flag(session):
+    """Mod dumps have no is_target: re-importing one must not clear the
+    identity the companion recorded."""
+    hunt, _, _ = upsert_hunt(session, base_payload(
+        quest_id_external="q2", is_target=False))
+    same, _, _ = upsert_hunt(session, base_payload(quest_id_external="q2"))
+    assert same.id == hunt.id
+    assert same.is_target is False
+
+
 def test_ended_before_started_rejected(session):
     bad = base_payload(quest_id_external="backwards",
                        ended_at=datetime(2026, 2, 1, 11, 0, 0))

@@ -83,10 +83,17 @@ Scope, party size and the active tab sync to the URL, so views are shareable
 and back-button safe.
 
 **Settings (gear icon)** — switch light/dark theme, choose whether **failed
-(carted-out) quests count in the stats**, and toggle **Check for updates**. By
-default only cleared hunts feed DPS and rankings; clear-rate columns always
-count failures. The setting is remembered and synced to the URL (`?failed=1`).
-The update check is opt-out: turn it off for zero network access.
+(carted-out) quests count in the stats**, hide hunts for monsters that were
+**not the quest objective**, and toggle **Check for updates**. By default only
+cleared hunts feed DPS and rankings; clear-rate columns always count failures.
+The setting is remembered and synced to the URL (`?failed=1`). The update check
+is opt-out: turn it off for zero network access.
+
+The **Only quest objectives** filter hides hunts whose monster wasn't a quest
+target (an invading Guardian Rathalos, for example) exactly like pressing
+Ignore — and switching it off restores them. It applies to older hunts too
+when the companion recorded target identity, and it never overrides a manual
+Ignore.
 
 ### The tabs
 
@@ -271,6 +278,22 @@ Hunts where no monster ever dropped below **40% HP** are treated as
 quest target). Failed quests bypass this and are stored. This is an import-time
 filter, so those hunts can't be recovered later without re-importing.
 
+**An invading monster shows up as its own hunt.**
+If a second monster appeared in a quest but wasn't an objective (an invading
+Guardian Rathalos, say) and the party fought it, it registers as a separate
+row. Turn on **Settings (gear) → Only quest objectives**: non-target hunts are
+hidden automatically, the same as pressing Ignore, and switching it off
+restores them. Older hunts are covered when the companion recorded which
+monsters were targets (it rechecks the exports in the background); mod-only
+hunts carry no target identity and keep today's behavior.
+
+**Hide a hunt vs. delete it.**
+**Ignore** (Hunts → All hunts → Ignore) hides a hunt from every stat but keeps
+it in the manager list; Restore brings it back. **Delete** removes it from the
+stats and from that list for good — the row is kept only so a later import of
+the same export can't recreate it, and it stays gone after a full recheck.
+Tick **Show deleted** in the same dialog to review or restore deleted hunts.
+
 **Multi-monster quests look split.**
 One hunt row is created per monster, each carrying the full quest damage
 (flagged as a split quest) — per-hit attribution isn't possible from the dump.
@@ -433,6 +456,7 @@ dashboard/
   app/page.tsx          Root page: URL-synced tab/scope/party, health, toasts
   lib/registry.tsx      Tab registry (14 TABS)
   lib/api.ts            Typed fetch helpers + cache
+  lib/changelog.ts      "What's new" notes, one entry per release
   lib/useApi.tsx        SWR-lite data hook + ApiState
   lib/url.ts            Query-param state helpers
   lib/format.ts         fmtTime/fmtDps/fmtPct/fmtInt/fmtDate/roundDps
@@ -441,6 +465,7 @@ dashboard/
   components/FilterBar.tsx  Shared Monster/Stars/Weapon/Hunter selects
   components/ChartKit.tsx   Theme-aware chart constants
   components/Modal.tsx      Single modal system
+  components/WhatsNew.tsx   One-time "What's new" popup (per version)
   components/Toast.tsx      Toast notifications
 
 Makefile              setup/seed/dev/test/lint/build/bench/import/package/clean
