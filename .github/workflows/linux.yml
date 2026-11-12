@@ -62,6 +62,18 @@ jobs:
           fi
           echo "Attaching to $tag"
 
+          # A `release: published` event can fire before the Windows job has
+          # finished uploading, so wait for its payloads before checksumming.
+          for i in $(seq 1 40); do
+            names="$(gh release view "$tag" --json assets --jq '.assets[].name' || true)"
+            if echo "$names" | grep -q '^HunterPieAnalytics-Setup-' \
+               && echo "$names" | grep -q '^HuntDumper-'; then
+              break
+            fi
+            echo "waiting for the Windows assets… ($i/40)"
+            sleep 10
+          done
+
           # Upload the tarball first, then rebuild SHA256SUMS.txt from every
           # release payload (the Windows job generated it before this asset
           # existed). One sums file covers all downloads.
