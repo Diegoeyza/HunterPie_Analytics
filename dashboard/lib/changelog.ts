@@ -15,6 +15,16 @@ export const RELEASES_URL = "https://github.com/Diegoeyza/HunterPie_Analytics/re
 
 export const RELEASES: ReleaseNote[] = [
   {
+    version: "1.2.6",
+    title: "Hunter rank & HP fixes",
+    bullets: [
+      "Each hunter’s rank is now shown next to their name in a hunt’s party cards and in the Hunters tooltip — read from the HunterPie companion’s party export.",
+      "Party HP curves are now keyed by the game’s network member index, so a hunter’s near-death curve can no longer be assigned to another player.",
+      "A companion restarted mid-hunt is now merged back into the same hunt instead of creating a duplicate with no HP.",
+      "Bundles HuntDumper 0.12.7. If the mod pill asks you to reinstall, update the REFramework mod to match.",
+    ],
+  },
+  {
     version: "1.2.5",
     title: "Fixes",
     bullets: [
