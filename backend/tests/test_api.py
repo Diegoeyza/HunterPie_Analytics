@@ -176,6 +176,68 @@ def test_abnormalities_reports_first_hit():
     assert body["players"][0]["abnormalities"][0]["start"] == 10.0
 
 
+def test_buff_window_ends_at_last_hit():
+    """The companion writes `finished_at` at the results screen, so its stored
+    duration can outlast the fight by a minute or more. A cleared hunt's buff
+    window ends at the party's last hit; short tails, failed hunts and hunts
+    without damage data keep the stored duration."""
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    def seed(s):
+        s.add_all([Monster(id=31, name="Xu Wu"),
+                   Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn")])
+        s.flush()
+
+        def payload(day, duration, cleared, snapshots):
+            start = datetime(2026, 9, day, 3, 0)
+            return {
+                "monster_id": 31, "_monster_name": "Xu Wu",
+                "started_at": start,
+                "ended_at": start + timedelta(seconds=duration),
+                "quest_time_seconds": duration, "cleared": cleared,
+                "hunterpie_version": "t", "game_version": "g",
+                "players": [{"display_name": "Isi", "weapon_id": 6,
+                             "total_damage": 1000.0, "peak_dps": 50.0,
+                             "is_supporter": False}],
+                "snapshots": [{"display_name": "Isi", "ts_offset_seconds": t,
+                               "cumulative_damage": float(i * 500),
+                               "instant_dps": 40.0}
+                              for i, t in enumerate(snapshots)],
+                "abnormalities": [{
+                    "display_name": "Isi", "abnormality_id": "Songs_Songs.12",
+                    "category": "Songs", "started_at_offset": 13.2,
+                    "finished_at_offset": None,
+                }],
+            }
+
+        # Hunt #1377 shape: 351.5 stored, last hit at 276.8 (results tail).
+        upsert_hunt(s, payload(6, 351.5, True, [15.3, 276.8]))
+        # Normal short tail: 2 s is clock noise, not a results screen.
+        upsert_hunt(s, payload(7, 351.1, True, [15.3, 349.1]))
+        # Failed hunts keep the quest timer even if the party stopped hitting.
+        upsert_hunt(s, payload(8, 697.5, False, [15.3, 339.9]))
+        # No damage data: nothing to clamp against.
+        upsert_hunt(s, payload(9, 300.0, True, []))
+
+    client, _ = make_client(seed)
+    hunts = sorted(client.get("/api/hunts").json()["hunts"],
+                   key=lambda h: h["started_at"])
+    tailed, normal, failed, empty = [
+        client.get(f"/api/hunts/{h['id']}/abnormalities").json()
+        for h in hunts
+    ]
+    assert tailed["clear_s"] == 276.8
+    assert tailed["first_hit_s"] == 15.3
+    assert normal["clear_s"] == 351.1
+    assert failed["clear_s"] == 697.5
+    assert empty["clear_s"] == 300.0
+
+    # The Monster sub-tab uses the same window.
+    status = client.get(f"/api/hunts/{hunts[0]['id']}/monster-status").json()
+    assert status["clear_s"] == 276.8
+
+
 def test_abnormalities_reports_enrage_windows():
     """`/hunts/{id}/abnormalities` carries the monster's enrage spans so the
     Buffs tab can derive Agitator uptime. Overlapping spans merge, and a

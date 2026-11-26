@@ -339,11 +339,13 @@ main {
 
 .filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; align-items: end; }
 .filters label { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
-.filters select, .filters input[type="number"] {
+.filters select, .filters input[type="number"],
+.filters input[type="search"] {
   background: var(--input-bg); color: var(--text);
   border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
   font-size: 13px; color-scheme: inherit;
 }
+.filters .hunt-search input { width: 250px; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .seg button {
   background: var(--panel); color: var(--muted);

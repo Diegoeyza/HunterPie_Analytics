@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from app.import_hunt import (
     ensure_monster,
     ensure_weapon,
+    import_doc,
     load_monster_names,
     parse_ts,
     poogie_to_payloads,
@@ -153,6 +154,50 @@ def test_quest_targets_only_marks_non_targets_hidden():
     assert not any("skipping" in w for w in target_notes + extra_notes)
     # one visible row -> not a split quest
     assert all(p["is_split_quest"] is False for p, _ in payloads)
+
+
+def test_old_companion_dump_repairs_dead_targets():
+    """Older companion dumps read the target list at quest end, after each
+    killed target's key was removed. A heavily damaged sibling must still be
+    treated as a target instead of being hidden by the objective filter."""
+    payloads = poogie_to_payloads(_two_monster_doc(),
+                                  {27: "Arkveld", 2: "Guardian Rathalos"},
+                                  "hv", "gv", quest_targets_only=True,
+                                  target_snapshot=False)
+    by_id = {p["monster_id"]: (p, w) for p, w in payloads}
+    assert set(by_id) == {27, 2}
+    assert all(p["is_target"] is True for p, _ in by_id.values())
+    assert all("ignored" not in p for p, _ in by_id.values())
+    assert all(p["is_split_quest"] is True for p, _ in by_id.values())
+    assert any("old dump" in w for _, ws in by_id.values() for w in ws)
+
+
+def test_import_doc_repairs_old_dump_without_snapshot_marker():
+    """A full recheck of a pre-snapshot companion dump must not re-hide a
+    target that the old target list had already dropped."""
+    session = make_session()
+    import_doc(session, _two_monster_doc(), {27: "Arkveld", 2: "Guardian Rathalos"},
+               "hv", "gv", quest_targets_only=True)
+    rows = session.execute(select(Hunt).order_by(Hunt.monster_id)).scalars().all()
+    assert [(h.monster_id, h.is_target, h.ignored) for h in rows] == [
+        (2, True, False),
+        (27, True, False),
+    ]
+
+
+def test_old_companion_dump_still_hides_lightly_damaged_non_target():
+    """The repair only trusts positive HP evidence; a monster that barely
+    lost HP remains a non-target and is hidden by the filter."""
+    doc = _two_monster_doc()
+    doc["monsters"][1]["health_steps"] = [
+        {"percentage": 0.8, "time": "2026-09-06T03:35:00Z"}]
+    payloads = poogie_to_payloads(doc, {27: "Arkveld", 2: "Guardian Rathalos"},
+                                  "hv", "gv", quest_targets_only=True,
+                                  target_snapshot=False)
+    by_id = {p["monster_id"]: p for p, _ in payloads}
+    assert by_id[27]["is_target"] is True
+    assert by_id[2]["is_target"] is False
+    assert by_id[2]["ignored"] is True
 
 
 def test_target_identity_exported_with_filter_off():

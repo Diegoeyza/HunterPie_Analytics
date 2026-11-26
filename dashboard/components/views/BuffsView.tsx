@@ -540,6 +540,7 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
                 />
                 <p className="blurb">
                   Recorded by the HunterPie Analytics companion for the local player.
+                  Uptime ends at the party&apos;s last hit, not at the results screen.
                   {agitator
                     ? " Agitator is derived from this hunt's monster enrage windows, not from your build."
                     : ""}
@@ -550,7 +551,8 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
                 <BuffTimeline lanes={lanes} domain={domain} t0={t0} />
                 <p className="blurb">
                   Shaded = active. Hover a block for exact times. Open-ended
-                  blocks ran to quest end.
+                  blocks ran to quest end, and the window ends at the party&apos;s
+                  last hit rather than at the results screen.
                   {agitator
                     ? " The Agitator lane is derived from the monster's enrage windows."
                     : ""}

@@ -1,7 +1,8 @@
 """Importer: fork HuntExports JSON (PoogieQuestStatisticsModel) -> upsert_hunt payload.
 
 Dump schema (audited 2026-09-06 against Diegoeyza/HunterPie@analytics-export):
-  game_type/started_at/finished_at/uploaded_at/quest/players/monsters/hash
+  game_type/started_at/finished_at/uploaded_at/quest/players/monsters/hash/
+  target_snapshot (new companion only; absent = pre-snapshot target data)
   players[].{name, weapon (Wilds Weapon enum id), damages[{damage, dealt_at}],
              abnormalities, is_hunterpie_user}
   monsters[].{id, variant, max_health, crown, is_target, enrage.activations[],
@@ -489,7 +490,8 @@ def _is_environment_bystander(m: dict) -> bool:
 
 def poogie_to_payloads(doc: dict, names: dict[int, str],
                         hunterpie_version: str, game_version: str,
-                        quest_targets_only: bool = False
+                        quest_targets_only: bool = False,
+                        target_snapshot: bool = True
                         ) -> list[tuple[dict, list[str]]]:
     """One payload per monster (quest x monster combinations all register).
 
@@ -502,6 +504,12 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
     ``ignored`` set — the same effect as pressing Ignore, and reversible.
     Dumps without target identity (mod-only, old companion) keep the old
     heuristics and say so in the warnings.
+
+    ``target_snapshot`` is true for companion dumps that captured each
+    monster's target identity while it was alive (``target_snapshot: true``).
+    Older companion dumps read the game's target list at quest end, after it
+    had already removed every monster that died earlier, so their ``false``
+    values cannot be trusted for heavily damaged monsters.
     """
     warnings: list[str] = []
     started = parse_ts(doc["started_at"])
@@ -560,6 +568,19 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
     out = []
     failed = _quest_failed(doc)
     has_targets = any(_is_quest_target(m) for m in monsters)
+
+    def effective_target(m: dict) -> bool:
+        """Target identity, repaired for companion dumps that read the
+        game's target list only at quest end.
+
+        Old dumps (no ``target_snapshot`` marker) lose each target key when
+        that monster dies, so a heavily damaged sibling is marked false even
+        though it was an objective. Trust the HP evidence there; new dumps
+        carry a snapshot and keep the companion's authoritative answer."""
+        if _is_quest_target(m):
+            return True
+        return not target_snapshot and _lost_more_than_60(m)
+
     if quest_targets_only and not has_targets:
         warnings.append(
             "quest-objective filter skipped: this dump has no "
@@ -567,8 +588,13 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
     if has_targets:
         kept = []
         for m in monsters:
-            if _is_quest_target(m):
+            is_target = effective_target(m)
+            if is_target:
                 kept.append(m)
+                if not _is_quest_target(m):
+                    warnings.append(
+                        f"monster id={m['id']} was fought but the old dump "
+                        f"marked it a non-target; treating it as a target")
             elif quest_targets_only:
                 # Register it hidden instead of dropping it: same effect as
                 # Ignore, but the row stays reviewable (and un-hideable).
@@ -578,6 +604,9 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
                     f"registered hidden (quest-objective filter)")
             elif _lost_more_than_60(m):
                 kept.append(m)
+                warnings.append(
+                    f"monster id={m['id']} is not a quest target but was "
+                    f"fought (HP below {ENGAGEMENT_FLOOR:.0%})")
             else:
                 warnings.append(
                     f"skipping monster id={m['id']} (not a quest target and "
@@ -604,7 +633,7 @@ def poogie_to_payloads(doc: dict, names: dict[int, str],
                                    names, hunterpie_version, game_version,
                                    cleared=not failed)
         if has_targets:
-            payload["is_target"] = _is_quest_target(m)
+            payload["is_target"] = effective_target(m)
             if quest_targets_only and not payload["is_target"]:
                 payload["ignored"] = True
         out.append((payload, warnings))
@@ -781,9 +810,9 @@ def import_doc(session, doc: dict, names: dict[int, str],
                cache: dict | None = None,
                quest_targets_only: bool = False):
     results = []
-    for payload, warnings in poogie_to_payloads(doc, names, hunterpie_version,
-                                                game_version,
-                                                quest_targets_only):
+    for payload, warnings in poogie_to_payloads(
+            doc, names, hunterpie_version, game_version, quest_targets_only,
+            target_snapshot=doc.get("target_snapshot") is True):
         # Always go through upsert_hunt: it owns dedup AND the cross-source
         # rules (a later HunterPie dump refreshes a mod-created hunt, the mod
         # only contributes awards). An early skip here would bypass those.

@@ -104,7 +104,7 @@ Ignore.
 | **Weapons** | Average/peak DPS, hunt count and clear rate per weapon type. |
 | **Highlights** | Quest-end awards (hunter highlights) + average damage share. REFramework hunts. |
 | **Damage curves** | Per-hunt cumulative damage / DPS for all party members, monster HP overlay, enrage markers. |
-| **Hunts** | Every run, latest first — click a row for party damage, DPS and the damage curve. |
+| **Hunts** | Every run, latest first, with search by hunt #, hunter, monster, date or quest — click a row for party damage, DPS and the damage curve. |
 | **Survival** | Per-hunter HP and DPS over time with time-in-danger summary. Requires HuntDumper 0.11+. |
 | **Leaderboard** | Best players by DPS over cleared hunts. |
 | **High Scores** | One row per cleared hunt, ranked by DPS or clear time. |

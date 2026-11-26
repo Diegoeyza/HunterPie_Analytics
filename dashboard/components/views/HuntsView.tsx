@@ -426,6 +426,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
 
 export default function HuntsView({ scope, weaponName, partySize, includeFailed }: { scope: number[]; weaponName: string | null; partySize: number | null; includeFailed: boolean }) {
   const [monsterFilter, setMonsterFilter] = useState<string>("");
+  const [search, setSearch] = useState("");
   // The settings toggle sets the initial result filter; the local segmented
   // control still wins after that.
   const [resultFilter, setResultFilter] = useState<"" | "cleared" | "failed">(
@@ -449,8 +450,27 @@ export default function HuntsView({ scope, weaponName, partySize, includeFailed 
     if (monsterFilter) out = out.filter((h) => h.monster === monsterFilter);
     if (resultFilter === "cleared") out = out.filter((h) => h.cleared);
     if (resultFilter === "failed") out = out.filter((h) => !h.cleared);
+
+    const needle = search.trim().toLowerCase();
+    if (needle) {
+      out = out.filter((h) => {
+        const party = (h.party ?? [])
+          .flatMap((p) => [p.player, p.hunter_rank != null ? `hr ${p.hunter_rank}` : ""]);
+        return [
+          String(h.id), `#${h.id}`, h.monster,
+          h.quest_id != null ? `#${h.quest_id}` : "",
+          h.quest_id != null ? String(h.quest_id) : "",
+          h.quest_stars != null ? `${h.quest_stars}★` : "",
+          h.started_at, fmtDateTime(h.started_at),
+          `${h.players}p`, h.cleared ? "cleared" : "failed",
+          h.source ?? "",
+          ...party,
+          ...(h.highlight_names ?? []),
+        ].join(" ").toLowerCase().includes(needle);
+      });
+    }
     return out;
-  }, [hunts, monsterFilter, resultFilter]);
+  }, [hunts, monsterFilter, resultFilter, search]);
 
   if (error || loading || !hunts) return <ApiState error={error} loading={loading} />;
   if (hunts.length === 0) {
@@ -465,6 +485,11 @@ export default function HuntsView({ scope, weaponName, partySize, includeFailed 
     <div className="card">
       <h2>Hunts ({filtered.length}) — every run, latest first. Click a row for party stats and the damage curve.</h2>
       <div className="filters">
+        <label className="hunt-search">Search
+          <input type="search" value={search} placeholder="Hunt #, hunter, monster, date…"
+            aria-label="Search hunts"
+            onChange={(e) => setSearch(e.target.value)} />
+        </label>
         <SearchSelect
           label="Monster"
           value={monsterFilter}
