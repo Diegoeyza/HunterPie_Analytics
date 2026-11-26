@@ -116,6 +116,22 @@ def main(argv: list[str] | None = None) -> int:
         check("locale survives a reload without ?lang",
               page.evaluate("document.documentElement.lang") == "ja")
 
+        # Buffs must default to a hunt that actually has buff data even when
+        # hundreds of newer mod-only hunts exist.
+        page.goto(f"{base}/?tab=buffs&lang=ja", wait_until="networkidle")
+        page.wait_for_timeout(1600)
+        dismiss_overlays(page)
+        page.wait_for_timeout(800)
+        buffs_text = page.locator("main").inner_text()
+        has_companion_data = page.locator("main table tbody tr").count() > 0
+        skip = "コンパニオン" in buffs_text and not has_companion_data
+        check("buffs tab opens a hunt with data (or explains the companion is missing)",
+              has_companion_data or skip,
+              f"{page.locator('main table tbody tr').count()} rows")
+
+        page.goto(f"{base}/?tab=hunts&lang=ja", wait_until="networkidle")
+        page.wait_for_timeout(1200)
+        dismiss_overlays(page)
         row = page.locator("main table tbody tr").first
         if row.count() > 0:
             row.click()

@@ -247,7 +247,22 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
     limit: 200,
     ...(partySize != null && { players: partySize }),
   });
-  const hunts = huntsQ.data?.hunts ?? null;
+  // Buffs only exist on companion hunts. Someone who has played 200+ hunts
+  // with the mod alone would otherwise see an empty tab, because the newest
+  // page holds no buffed hunt at all.
+  const newestBuffsQ = useApi<{ hunts: HuntSummary[] }>("/hunts", {
+    limit: 1,
+    source: "hunterpie",
+    ...(partySize != null && { players: partySize }),
+  });
+  const hunts = useMemo(() => {
+    const all = huntsQ.data?.hunts ?? null;
+    if (all === null) return null;
+    const newestBuffed = newestBuffsQ.data?.hunts?.[0];
+    if (!newestBuffed || all.some((h) => h.id === newestBuffed.id)) return all;
+    return [...all, newestBuffed]
+      .sort((a, b) => b.started_at.localeCompare(a.started_at));
+  }, [huntsQ.data, newestBuffsQ.data]);
   // Newest hunt with buff data. The plain newest hunt may have none (the
   // companion wasn't running for it), which would make this tab look empty
   // even though older hunts have buff data.
