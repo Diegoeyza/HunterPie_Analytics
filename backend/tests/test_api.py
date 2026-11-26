@@ -172,6 +172,7 @@ def test_abnormalities_reports_first_hit():
     client, _ = make_client(seed)
     hunt_id = client.get("/api/hunts").json()["hunts"][0]["id"]
     body = client.get(f"/api/hunts/{hunt_id}/abnormalities").json()
+    assert body["monster_id"] == 31
     assert body["first_hit_s"] == 42.0
     assert body["players"][0]["abnormalities"][0]["start"] == 10.0
 
@@ -333,6 +334,7 @@ def test_monster_status_reports_enrage_and_ailments():
     hunt_id = client.get("/api/hunts").json()["hunts"][0]["id"]
     body = client.get(f"/api/hunts/{hunt_id}/monster-status").json()
     assert body["monster"] == "Xu Wu"
+    assert body["monster_id"] == 31
     assert body["first_hit_s"] == 42.0
     enrage = [s for s in body["statuses"] if s["id"] == "enrage"]
     assert enrage == [{"id": "enrage", "name": "Enrage", "kind": "Enrage",
@@ -433,10 +435,13 @@ def test_hunts_and_progress():
     client, _ = make_client(seed_two_hunts)
     hunts = client.get("/api/hunts").json()["hunts"]
     assert len(hunts) == 2
+    assert {h["monster_id"] for h in hunts} == {31}
     prog = client.get("/api/progress").json()
     assert len(prog["points"]) == 3  # solo Isi + duo Isi/Pal
     assert len(prog["rolling"]) == 3
     assert prog["rolling"][-1]["avg_dps"] > 0
+    assert {p["monster_id"] for p in prog["points"]} == {31}
+    assert {p["weapon_id"] for p in prog["points"]} == {6, 1}
     # filters narrow
     assert len(client.get("/api/progress", params={"monster_id": 31}).json()["points"]) == 3
     assert client.get("/api/progress", params={"monster_id": 999}).json()["points"] == []
@@ -449,6 +454,9 @@ def test_weapons_and_synergy():
     assert "HuntingHorn" in names and "GreatSword" in names
     hh = next(w for w in weapons if w["weapon"] == "HuntingHorn")
     assert hh["hunts"] == 2 and hh["clear_rate"] == 1.0
+    assert hh["weapon_id"] == 6
+    gs = next(w for w in weapons if w["weapon"] == "GreatSword")
+    assert gs["weapon_id"] == 1
     pairings = client.get("/api/synergy").json()["pairings"]
     assert {p["pairing"] for p in pairings} == {"Isi", "Isi + Pal"}
     duo = next(p for p in pairings if p["pairing"] == "Isi + Pal")
@@ -461,9 +469,11 @@ def test_curve_and_404():
     hunt_id = hunt["id"]
     assert {p["player"]: p["hunter_rank"] for p in hunt["party"]}["Isi"] == 100
     curve = client.get(f"/api/hunts/{hunt_id}/curve").json()
+    assert curve["monster"] == "Xu Wu" and curve["monster_id"] == 31
     assert curve["players"] and curve["players"][0]["points"]
     assert set(curve["players"][0]["points"][0]) == {"t", "dmg", "dps"}
     assert {p["player"]: p["hunter_rank"] for p in curve["players"]}["Isi"] == 100
+    assert {p["player"]: p["weapon_id"] for p in curve["players"]}["Isi"] == 6
     assert client.get("/api/hunts/9999/curve").status_code == 404
 
 
@@ -536,6 +546,7 @@ def test_curve_quest_hp_returns_all_quest_monsters():
     assert "quest_hp" not in plain
     quest = client.get(f"/api/hunts/{hunt_id}/curve", params={"quest_hp": 1}).json()
     assert {q["monster"] for q in quest["quest_hp"]} == {"Lagiacrus", "Rathalos"}
+    assert {q["monster_id"] for q in quest["quest_hp"]} == {8, 1}
     assert all(len(q["points"]) == 2 for q in quest["quest_hp"])
 
 
@@ -580,6 +591,8 @@ def test_curve_quest_hp_returns_all_monsters_events():
     quest = client.get(f"/api/hunts/{lagia_id}/curve", params={"quest_hp": 1}).json()
     assert {e["monster"] for e in quest["events"]} == {
         "Lagiacrus", "Rathalos", "Ajarakan"}
+    assert {(e["monster"], e["monster_id"]) for e in quest["events"]} == {
+        ("Lagiacrus", 8), ("Rathalos", 1), ("Ajarakan", 2)}
     assert sorted(e["start"] for e in quest["events"]) == [100.0, 200.0, 300.0]
     assert all("hunt_id" in e for e in quest["events"])
     # Same quest-wide set regardless of which sibling is selected.
@@ -634,6 +647,9 @@ def test_quest_star_and_scope_filters():
     assert q543["hunts"] == 1 and q543["best_dps"] == 50.0
 
     assert len(client.get("/api/records").json()["records"]) == 1
+    record = client.get("/api/records").json()["records"][0]
+    assert record["monster_id"] == 31
+    assert record["top_dps"]["weapon_id"] == 6
     assert len(client.get("/api/activity").json()["days"]) == 2
     comp = client.get("/api/compare", params={"player_ids": str(isi_id)}).json()
     assert len(comp["points"]) == 2 and comp["scope"] == ["Isi"]
@@ -721,8 +737,8 @@ def test_quest_detail_returns_instances_with_hunters():
     assert [h["id"] for h in detail["hunts"]] == [2, 1]  # latest first
     solo, duo = detail["hunts"]
     assert solo["members"] == [{
-        "player": "Isi", "weapon": "HuntingHorn", "total_damage": 6000.0,
-        "dps": 6000.0 / 180.0}]
+        "player": "Isi", "weapon": "HuntingHorn", "weapon_id": 6,
+        "total_damage": 6000.0, "dps": 6000.0 / 180.0}]
     assert [m["player"] for m in duo["members"]] == ["Isi", "Pal"]
     assert duo["members"][0]["total_damage"] == 9000.0
     assert duo["members"][0]["dps"] == 50.0  # 9000 / 180s engagement
@@ -738,9 +754,12 @@ def test_high_scores():
     assert [s["hunt_id"] for s in scores] == [2, 1]
     assert [s["rank"] for s in scores] == [1, 2]
     top = scores[0]
-    assert top["monster"] == "Xu Wu" and top["player"] == "Isi"
+    assert top["monster"] == "Xu Wu" and top["monster_id"] == 31
+    assert top["player"] == "Isi"
     assert top["weapon"] == "HuntingHorn" and top["dps"] > 0
+    assert top["weapon_id"] == 6
     assert [m["player"] for m in top["party"]] == ["Pal"]
+    assert top["party"][0]["weapon_id"] == 1
     solo = scores[1]
     assert solo["party"] == []
 

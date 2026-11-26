@@ -110,12 +110,28 @@ def test_hunt_highlights_endpoint():
     client, s = make_client(seed_rich)
     hid = s.execute(select(Hunt.id)).scalar_one()
     body = client.get(f"/api/hunts/{hid}/highlights").json()
+    assert body["monster"] == "Arkveld" and body["monster_id"] == 27
     ids = {a["id"]: a["name"] for a in body["awards"]}
     assert ids.get(4) == "Established Hunter"
     shares = {p["player"]: p["damage_share"] for p in body["players"]}
     assert abs(sum(shares.values()) - 1.0) < 1e-9
     isi = next(p for p in body["players"] if p["player"] == "Isi")
     assert {a["id"] for a in isi["awards"]} == {0, 4, 9}
+
+
+def test_hunt_list_highlight_award_ids_parallel():
+    """hunt_list carries the award ids behind highlight_names so the client
+    can re-localize them: same order, same length."""
+    client, s = make_client(seed_rich)
+    hid = s.execute(select(Hunt.id)).scalar_one()
+    row = next(h for h in client.get("/api/hunts").json()["hunts"]
+               if h["id"] == hid)
+    assert row["monster_id"] == 27
+    assert len(row["highlight_award_ids"]) == len(row["highlight_names"])
+    meta = {a["name"]: a["id"]
+            for a in client.get("/api/filter-options").json()["awards"]}
+    assert [meta[n] for n in row["highlight_names"]] == row["highlight_award_ids"]
+    assert row["highlight_award_ids"] == [9, 0]
 
 
 def test_highlights_endpoint():

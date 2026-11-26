@@ -389,7 +389,8 @@ def hunt_list(session: Session, limit: int = 200,
         .distinct()
     ).scalars()) if hunt_ids else set()
     return {"hunts": [
-        {"id": h.id, "monster": m.name, "started_at": h.started_at.isoformat(),
+        {"id": h.id, "monster": m.name, "monster_id": m.id,
+         "started_at": h.started_at.isoformat(),
          "quest_id": h.quest_id, "quest_stars": h.quest_stars,
          "clear_s": hunt_duration_s(h), "cleared": bool(h.cleared),
          "carts": h.cart_count, "players": h.player_count,
@@ -400,7 +401,8 @@ def hunt_list(session: Session, limit: int = 200,
          "has_buffs": h.id in with_buffs,
          "has_health": h.id in with_health,
          "highlight_count": highlights.get(h.id, {}).get("count", 0),
-         "highlight_names": highlights.get(h.id, {}).get("names", [])}
+         "highlight_names": highlights.get(h.id, {}).get("names", []),
+         "highlight_award_ids": highlights.get(h.id, {}).get("award_ids", [])}
         for h, m in rows
     ]}
 
@@ -427,9 +429,12 @@ def _hunt_highlight_summary(session: Session, hunt_ids: list[int],
             best[hid][aid] = (count, name)
     out: dict[int, dict] = {}
     for hid, by_award in best.items():
-        ranked = sorted(by_award.values(), key=lambda t: (-t[0], t[1]))
+        # award id travels with its name so the client can re-localize it.
+        ranked = sorted(by_award.items(), key=lambda kv: (-kv[1][0], kv[1][1]))
+        top = ranked[:max_names]
         out[hid] = {"count": len(by_award),
-                    "names": [n for _c, n in ranked[:max_names]]}
+                    "names": [v[1] for _aid, v in top],
+                    "award_ids": [aid for aid, _v in top]}
     return out
 
 
@@ -517,10 +522,12 @@ def progress(session: Session, monster_id: int | None = None,
             "hunt_id": hunt.id,
             "started_at": hunt.started_at.isoformat(),
             "monster": monster.name,
+            "monster_id": monster.id,
             "quest_id": hunt.quest_id,
             "quest_stars": hunt.quest_stars,
             "monster_max_hp": hunt.monster_max_hp,
             "weapon": weapon.name if weapon else "Unknown",
+            "weapon_id": hp.weapon_id,
             "variant": gear_variant_label(
                 labels, weapon.name if weapon else None,
                 hp.gear_raw, hp.gear_element, hp.gear_affinity),
@@ -600,10 +607,11 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
     eng = _batch_engagement_s(
         session, hunts_by_id, [(h.id, hp.player_id) for _n, _w, h, hp in rows])
     by_weapon: dict[str, dict] = {}
-    for name, _wid, hunt, hp in rows:
+    for name, wid, hunt, hp in rows:
         dur = eng.get((hunt.id, hp.player_id))
-        agg = by_weapon.setdefault(name, {"hunts": set(), "dps": [], "peak": 0.0,
-                                           "clears": set()})
+        agg = by_weapon.setdefault(name, {"weapon_id": wid, "hunts": set(),
+                                          "dps": [], "peak": 0.0,
+                                          "clears": set()})
         agg["hunts"].add(hunt.id)
         eligible = include_failed or bool(hunt.cleared)
         if dur and eligible:
@@ -627,13 +635,15 @@ def weapon_matrix(session: Session, player_ids: list[int] | None = None,
     unknown_hunts = session.execute(unk_stmt).scalar_one()
     rows = [{
         "weapon": name,
+        "weapon_id": a["weapon_id"],
         "hunts": len(a["hunts"]),
         "avg_dps": sum(a["dps"]) / len(a["dps"]) if a["dps"] else 0.0,
         "peak_dps": a["peak"],
         "clear_rate": len(a["clears"]) / len(a["hunts"]) if a["hunts"] else 0.0,
     } for name, a in sorted(by_weapon.items())]
     if unknown_hunts:
-        rows.append({"weapon": "Unknown", "hunts": unknown_hunts,
+        rows.append({"weapon": "Unknown", "weapon_id": None,
+                     "hunts": unknown_hunts,
                      "avg_dps": 0.0, "peak_dps": 0.0, "clear_rate": 0.0})
     return {"weapons": rows}
 
@@ -716,15 +726,16 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
     hp_rows = session.execute(
         select(HuntPlayer.player_id, Weapon.name, HuntPlayer.gear_raw,
                HuntPlayer.gear_element, HuntPlayer.gear_affinity,
-               HuntPlayer.hunter_rank)
+               HuntPlayer.hunter_rank, HuntPlayer.weapon_id)
         .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
         .where(HuntPlayer.hunt_id == hunt_id)
     ).all()
     labels = identity_label_map(session)
     weapons: dict[int, dict] = {}
-    for pid, wname, raw, element, affinity, rank in hp_rows:
+    for pid, wname, raw, element, affinity, rank, wid in hp_rows:
         weapons[pid] = {
             "name": wname,
+            "weapon_id": wid,
             "variant": gear_variant_label(labels, wname, raw, element,
                                            affinity),
             "hunter_rank": rank,
@@ -734,6 +745,7 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
         w = weapons.get(snap.player_id, {})
         s = series.setdefault(snap.player_id,
                               {"player": name, "weapon": w.get("name"),
+                               "weapon_id": w.get("weapon_id"),
                                "variant": w.get("variant"),
                                "hunter_rank": w.get("hunter_rank"),
                                "points": []})
@@ -814,7 +826,7 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
                     e: MonsterEvent) -> dict:
         return {"type": e.event_type, "start": e.start_offset_seconds,
                 "end": e.end_offset_seconds, "monster": monster_name,
-                "hunt_id": hunt_id_val}
+                "monster_id": e.monster_id, "hunt_id": hunt_id_val}
 
     if quest_hp:
         quest_events = session.execute(
@@ -836,6 +848,7 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
     out = {
         "hunt_id": hunt.id,
         "monster": hunt.monster.name,
+        "monster_id": hunt.monster_id,
         "started_at": hunt.started_at.isoformat(),
         "clear_s": hunt_duration_s(hunt),
         "cleared": bool(hunt.cleared),
@@ -858,6 +871,7 @@ def hunt_curve(session: Session, hunt_id: int, max_points: int = 500,
             ).scalars().all()
             quest_curves.append({
                 "hunt_id": sib.id, "monster": sib.monster.name,
+                "monster_id": sib.monster_id,
                 "points": [{"t": s.ts_offset_seconds, "hp": s.hp_fraction}
                            for s in steps],
             })
@@ -937,6 +951,7 @@ def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
     return {
         "hunt_id": hunt_id,
         "monster": hunt.monster.name,
+        "monster_id": hunt.monster_id,
         "started_at": hunt.started_at.isoformat(),
         "clear_s": _buff_window_end(hunt, first_hit, last_hit),
         "first_hit_s": first_hit,
@@ -984,6 +999,7 @@ def hunt_monster_status(session: Session, hunt_id: int) -> dict:
     return {
         "hunt_id": hunt_id,
         "monster": hunt.monster.name,
+        "monster_id": hunt.monster_id,
         "started_at": hunt.started_at.isoformat(),
         "clear_s": _buff_window_end(hunt, first_hit, last_hit),
         "first_hit_s": first_hit,
@@ -1205,20 +1221,23 @@ def quest_hunts(session: Session, key: str,
     ).scalars().all()
     rows = session.execute(
         select(HuntPlayer.hunt_id, HuntPlayer.player_id,
-               Player.display_name, Weapon.name, HuntPlayer.total_damage)
+               Player.display_name, Weapon.name, HuntPlayer.total_damage,
+               HuntPlayer.weapon_id)
         .join(Player, Player.id == HuntPlayer.player_id)
         .join(Weapon, Weapon.id == HuntPlayer.weapon_id, isouter=True)
         .where(HuntPlayer.hunt_id.in_(hunt_ids))
     ).all()
     hunts_by_id = {h.id: h for h in hunts}
     eng = _batch_engagement_s(
-        session, hunts_by_id, [(hid, pid) for hid, pid, _n, _w, _d in rows])
+        session, hunts_by_id,
+        [(hid, pid) for hid, pid, _n, _w, _d, _wid in rows])
     by_hunt: dict[int, list] = {}
-    for hid, pid, name, weapon, damage in rows:
+    for hid, pid, name, weapon, damage, weapon_id in rows:
         dmg = damage or 0.0
         e = eng.get((hid, pid))
         by_hunt.setdefault(hid, []).append({
             "player": name, "weapon": weapon or "Unknown",
+            "weapon_id": weapon_id,
             "total_damage": dmg, "dps": (dmg / e) if e else None,
         })
     for members in by_hunt.values():
@@ -1234,7 +1253,8 @@ def records(session: Session, party: int | None = None) -> dict:
     """Personal bests per monster: fastest clear + highest single-hunt DPS."""
     rows = session.execute(
         filters.party(
-            select(Hunt, HuntPlayer, Player.display_name, Weapon.name, Monster.name)
+            select(Hunt, HuntPlayer, Player.display_name, Weapon.name,
+                   Monster.name, Monster.id)
             .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
             .join(Player, Player.id == HuntPlayer.player_id)
             .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
@@ -1242,34 +1262,37 @@ def records(session: Session, party: int | None = None) -> dict:
             .where(HuntPlayer.is_supporter.is_(False), filters.visible()),
             party)
     ).all()
-    by_monster: dict[str, dict] = {}
-    hunts_by_id = {h.id: h for h, _hp, _n, _w, _m in rows}
+    by_monster: dict[int, dict] = {}
+    hunts_by_id = {h.id: h for h, _hp, _n, _w, _m, _mid in rows}
     eng = _batch_engagement_s(
-        session, hunts_by_id, [(h.id, hp.player_id) for h, hp, _n, _w, _m in rows])
+        session, hunts_by_id,
+        [(h.id, hp.player_id) for h, hp, _n, _w, _m, _mid in rows])
     # Party members per hunt (single pass — was an O(n²) rescan per fastest).
     party_by_hunt: dict[int, set[str]] = {}
-    for h, _hp, pname, _w, mname in rows:
-        party_by_hunt.setdefault((h.id, mname), set()).add(pname)
-    for hunt, hp, pname, wname, mname in rows:
+    for h, _hp, pname, _w, _m, _mid in rows:
+        party_by_hunt.setdefault(h.id, set()).add(pname)
+    for hunt, hp, pname, wname, mname, mid in rows:
         dur = hunt_duration_s(hunt)
         e = eng.get((hunt.id, hp.player_id))
         dps = ((hp.total_damage or 0.0) / e) if e else 0.0
-        agg = by_monster.setdefault(mname, {"hunts": set(), "fastest": None,
-                                            "top_dps": None})
+        agg = by_monster.setdefault(mid, {"monster": mname, "hunts": set(),
+                                          "fastest": None, "top_dps": None})
         agg["hunts"].add(hunt.id)
         if hunt.cleared and dur and (agg["fastest"] is None or dur < agg["fastest"]["clear_s"]):
-            members = sorted(party_by_hunt.get((hunt.id, mname), set()))
+            members = sorted(party_by_hunt.get(hunt.id, set()))
             agg["fastest"] = {"hunt_id": hunt.id, "clear_s": dur,
                               "date": hunt.started_at.date().isoformat(),
                               "party": members, "carts": hunt.cart_count}
         if agg["top_dps"] is None or dps > agg["top_dps"]["dps"]:
             agg["top_dps"] = {"hunt_id": hunt.id, "player": pname,
-                              "weapon": wname or "Unknown", "dps": dps,
+                              "weapon": wname or "Unknown",
+                              "weapon_id": hp.weapon_id, "dps": dps,
                               "date": hunt.started_at.date().isoformat()}
     return {"records": [{
-        "monster": m, "hunts": len(a["hunts"]),
+        "monster": a["monster"], "monster_id": mid, "hunts": len(a["hunts"]),
         "fastest": a["fastest"], "top_dps": a["top_dps"],
-    } for m, a in sorted(by_monster.items())]}
+    } for mid, a in sorted(by_monster.items(),
+                           key=lambda kv: kv[1]["monster"])]}
 
 
 def high_scores(session: Session, player_ids: list[int] | None = None,
@@ -1296,7 +1319,7 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
     sort_by = "time" if sort_by == "time" else "dps"
     stmt = (
         select(Hunt, HuntPlayer, Player.display_name, Weapon.name, Weapon.id,
-               Monster.name)
+               Monster.name, Monster.id)
         .join(HuntPlayer, HuntPlayer.hunt_id == Hunt.id)
         .join(Player, Player.id == HuntPlayer.player_id)
         .outerjoin(Weapon, Weapon.id == HuntPlayer.weapon_id)
@@ -1316,14 +1339,15 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
 
     labels = identity_label_map(session)
     stmt_rows = list(session.execute(stmt))
-    hunts_by_id = {h.id: h for h, _hp, _n, _w, _wid, _m in stmt_rows}
+    hunts_by_id = {h.id: h for h, _hp, _n, _w, _wid, _m, _mid in stmt_rows}
     eng = _batch_engagement_s(
         session, hunts_by_id,
-        [(h.id, hp.player_id) for h, hp, _n, _w, _wid, _m in stmt_rows])
+        [(h.id, hp.player_id) for h, hp, _n, _w, _wid, _m, _mid in stmt_rows])
     by_hunt: dict[int, dict] = {}
-    for hunt, hp, pname, wname, wid, mname in stmt_rows:
+    for hunt, hp, pname, wname, wid, mname, mid in stmt_rows:
         e = eng.get((hunt.id, hp.player_id))
         h = by_hunt.setdefault(hunt.id, {"hunt": hunt, "monster": mname,
+                                         "monster_id": mid,
                                          "members": []})
         h["members"].append({
             "player_id": hp.player_id,
@@ -1357,14 +1381,17 @@ def high_scores(session: Session, player_ids: list[int] | None = None,
             "hunt_id": h["hunt"].id,
             "date": h["hunt"].started_at.date().isoformat(),
             "monster": h["monster"],
+            "monster_id": h["monster_id"],
             "stars": h["hunt"].quest_stars,
             "clear_s": clear_s,
             "player": featured["player"],
             "weapon": featured["weapon"],
+            "weapon_id": featured["weapon_id"],
             "variant": featured["variant"],
             "dps": featured["dps"],
             "ignored": bool(h["hunt"].ignored),
             "party": [{"player": m["player"], "weapon": m["weapon"],
+                       "weapon_id": m["weapon_id"],
                        "variant": m["variant"],
                        "dps": m["dps"]} for m in rest],
         })
@@ -1580,6 +1607,7 @@ def hunt_highlights(session: Session, hunt_id: int) -> dict:
     return {
         "hunt_id": hunt_id,
         "monster": monster.name if monster else None,
+        "monster_id": hunt.monster_id,
         "started_at": hunt.started_at.isoformat(),
         "cleared": bool(hunt.cleared),
         "awards": awards_meta,
