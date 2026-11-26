@@ -239,6 +239,48 @@ def test_buff_window_ends_at_last_hit():
     assert status["clear_s"] == 276.8
 
 
+def test_buff_window_covers_recorded_events():
+    """A buff that closed after the last damage snapshot keeps its window.
+
+    Snapshots and buff windows are sampled by different loops; cutting the
+    window at the last snapshot would count that activation with zero uptime.
+    """
+    from app.ingest import upsert_hunt
+    from app.models import Monster, Weapon
+
+    def seed(s):
+        s.add_all([Monster(id=31, name="Xu Wu"),
+                   Weapon(id=6, name="HuntingHorn", weapon_type="HuntingHorn")])
+        s.flush()
+        start = datetime(2026, 9, 12, 3, 0)
+        upsert_hunt(s, {
+            "monster_id": 31, "_monster_name": "Xu Wu",
+            "started_at": start, "ended_at": start + timedelta(seconds=400),
+            "quest_time_seconds": 400.0, "cleared": True,
+            "hunterpie_version": "t", "game_version": "g",
+            "players": [{"display_name": "Isi", "weapon_id": 6,
+                         "total_damage": 1000.0, "peak_dps": 50.0,
+                         "is_supporter": False}],
+            "snapshots": [{"display_name": "Isi", "ts_offset_seconds": t,
+                           "cumulative_damage": float(i * 500),
+                           "instant_dps": 40.0}
+                          for i, t in enumerate([15.3, 276.8])],
+            "abnormalities": [
+                {"display_name": "Isi", "abnormality_id": "Songs_Songs.12",
+                 "category": "Songs", "started_at_offset": 270.0,
+                 "finished_at_offset": 284.5},
+                {"display_name": "Isi", "abnormality_id": "Songs_Songs.20",
+                 "category": "Songs", "started_at_offset": 20.0,
+                 "finished_at_offset": None},
+            ],
+        })
+
+    client, _ = make_client(seed)
+    hunt = client.get("/api/hunts").json()["hunts"][0]
+    body = client.get(f"/api/hunts/{hunt['id']}/abnormalities").json()
+    assert body["clear_s"] == 284.5  # not the 276.8 last-hit trim
+
+
 def test_abnormalities_reports_enrage_windows():
     """`/hunts/{id}/abnormalities` carries the monster's enrage spans so the
     Buffs tab can derive Agitator uptime. Overlapping spans merge, and a

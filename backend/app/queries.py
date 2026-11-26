@@ -884,7 +884,8 @@ BUFF_TAIL_SLOP_S = 15.0
 
 
 def _buff_window_end(hunt: Hunt, first_hit: float | None,
-                     last_hit: float | None) -> float | None:
+                     last_hit: float | None,
+                     recorded_end: float | None = None) -> float | None:
     """End of the uptime/timeline window for the buff views.
 
     The companion writes its ``finished_at`` at the results screen, so its
@@ -894,13 +895,23 @@ def _buff_window_end(hunt: Hunt, first_hit: float | None,
     DPS window uses. Keep the stored duration when the tail is short, the
     hunt failed, or there is no damage data, and never extend it (a split
     quest can have a snapshot past the stored clear).
+
+    ``recorded_end`` is the latest stored buff/status event. Snapshots and
+    buffs are sampled by different loops, so an event can land a few seconds
+    after the last damage snapshot; cutting the window before it would count
+    an activation with zero uptime and push its timeline bar outside the
+    chart, so the window always covers what was recorded.
     """
     stored = hunt_duration_s(hunt)
     if (not stored or not hunt.cleared or first_hit is None or last_hit is None
             or last_hit <= 0 or last_hit <= first_hit
             or stored - last_hit <= BUFF_TAIL_SLOP_S):
-        return stored
-    return last_hit
+        end = stored
+    else:
+        end = last_hit
+    if end is not None and recorded_end is not None:
+        end = max(end, recorded_end)
+    return end
 
 
 def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
@@ -936,6 +947,11 @@ def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
                func.max(DpsSnapshot.ts_offset_seconds))
         .where(DpsSnapshot.hunt_id == hunt_id)
     ).one()
+    # Latest closed buff window: the window must cover what was recorded.
+    last_buff = session.execute(
+        select(func.max(PlayerAbnormality.finished_at_offset))
+        .where(PlayerAbnormality.hunt_id == hunt_id)
+    ).scalar()
     # Enrage spans of THIS hunt's monster. The buff tab derives Agitator
     # uptime from them (active while the monster is enraged), so they travel
     # with the buff payload instead of a second request. Overlaps are merged
@@ -953,7 +969,7 @@ def hunt_abnormalities(session: Session, hunt_id: int) -> dict:
         "monster": hunt.monster.name,
         "monster_id": hunt.monster_id,
         "started_at": hunt.started_at.isoformat(),
-        "clear_s": _buff_window_end(hunt, first_hit, last_hit),
+        "clear_s": _buff_window_end(hunt, first_hit, last_hit, last_buff),
         "first_hit_s": first_hit,
         "enrage": enrage,
         "players": list(players.values()),
@@ -985,6 +1001,11 @@ def hunt_monster_status(session: Session, hunt_id: int) -> dict:
                func.max(DpsSnapshot.ts_offset_seconds))
         .where(DpsSnapshot.hunt_id == hunt_id)
     ).one()
+    # Latest closed status window: the window must cover what was recorded.
+    last_event = session.execute(
+        select(func.max(MonsterEvent.end_offset_seconds))
+        .where(MonsterEvent.hunt_id == hunt_id)
+    ).scalar()
     statuses = [
         {
             "id": event_type,
@@ -1001,7 +1022,7 @@ def hunt_monster_status(session: Session, hunt_id: int) -> dict:
         "monster": hunt.monster.name,
         "monster_id": hunt.monster_id,
         "started_at": hunt.started_at.isoformat(),
-        "clear_s": _buff_window_end(hunt, first_hit, last_hit),
+        "clear_s": _buff_window_end(hunt, first_hit, last_hit, last_event),
         "first_hit_s": first_hit,
         "statuses": statuses,
     }
