@@ -9,7 +9,7 @@ Flag anything that reads unnaturally in the game's own vocabulary. Placeholders
 like `{n}` are filled by the app and must stay in the string.
 
 Terminology source for data names: the game's own text (monsters and skills) and
-kiranico (verification). Quest awards are hand-written and most need your review.
+kiranico (verification). Quest award names are a literal first pass and most need your review.
 
 ## App shell, top bar, data-source note, generic buttons
 <sub>locales/*/common.json · 24 strings</sub>
@@ -126,7 +126,7 @@ kiranico (verification). Quest awards are hand-written and most need your review
 | `changelog.1.2.6.3` | Bundles HuntDumper 0.12.7. If the mod pill asks you to reinstall, update the REFramework mod to match. | HuntDumper 0.12.7 を同梱しています。MOD ピルで再インストールを求められた場合は、REFramework MOD を更新してください。 |  |
 | `changelog.1.2.6.title` | Hunter rank & HP fixes | ハンターランクとHPの修正 |  |
 | `changelog.1.3.0.0` | The dashboard now speaks Japanese. Switch the language in Settings → Display; it defaults to your browser's language and the choice is remembered. | ダッシュボードが日本語に対応しました。設定 → 表示 から言語を切り替えられます。初期値はブラウザの言語で、選択は保存されます。 |  |
-| `changelog.1.3.0.1` | Monster and skill names come from the game's own Japanese text, so the app uses the same words as the quest results screen. Quest award names are still English until native review lands. | モンスター名とスキル名はゲーム本体の日本語テキストを使用しているため、クエスト結果画面と同じ表記になります。クエスト褒賞名はネイティブレビューまで英語のままです。 |  |
+| `changelog.1.3.0.1` | Monster and skill names come from the game's own Japanese text, so the app uses the same words as the quest results screen. Quest award names are a literal first pass, pending native review. | モンスター名とスキル名はゲーム本体の日本語テキストを使用しているため、クエスト結果画面と同じ表記になります。クエスト褒賞名は直訳による初版です（ネイティブレビュー待ち）。 |  |
 | `changelog.1.3.0.2` | Numbers, dates and durations follow the selected language, and charts/tables re-render on the fly when you switch. | 数値・日付・時間の表記も選択した言語に合わせて切り替わり、切り替えた瞬間にグラフや表も更新されます。 |  |
 | `changelog.1.3.0.title` | Japanese UI | 日本語UI |  |
 | `settings.checkUpdates` | Check for updates | アップデートを確認 |  |
@@ -693,3 +693,41 @@ kiranico (verification). Quest awards are hand-written and most need your review
 | `unit.raw` | raw | 物理 |  |
 | `unit.element` | el | 属性 |  |
 | `unit.affinity` | affinity | 会心率 |  |
+
+## Quest awards (literal first pass — needs review)
+
+Please replace the 日本語 column with the wording on the quest results screen.
+Award names are keyed by id, so a correction also applies to past hunts.
+
+| id | English (captured) | 日本語（初版） | your correction |
+| --- | --- | --- | --- |
+| 0 | Support All-Star | サポートオールスター |  |
+| 1 | Ailment Master | 状態異常マスター |  |
+| 2 | Dizzy Pro | スタンのプロ |  |
+| 3 | Target Destroyer | ターゲットデストロイヤー |  |
+| 4 | Established Hunter | 一流ハンター |  |
+| 5 | Master Mounter | 乗りマスター |  |
+| 6 | Treasure Hunter | トレジャーハンター |  |
+| 7 | Field Researcher | フィールドリサーチャー |  |
+| 8 | Slinger Sniper | スリンガースナイパー |  |
+| 9 | Survival Expert | サバイバルエキスパート |  |
+| 10 | Tool Specialist | ツールスペシャリスト |  |
+| 11 | BBQ King | BBQキング |  |
+| 12 | Master Angler | 釣りマスター |  |
+| 13 | Beast Master | ビーストマスター |  |
+| 14 | Stealth Hunter | ステルスハンター |  |
+| 15 | Gathering Maniac | 採取マニア |  |
+| 16 | Item Addict | アイテム中毒 |  |
+| 17 | Obsessed Observer | 執念の観察者 |  |
+| 18 | Hit 'Em Where It Hurts! | 弱点を突け！ |  |
+| 19 | Beautiful Bombardier | 美しき爆撃手 |  |
+| 20 | Social Butterfly | 社交界の蝶 |  |
+| 21 | Small Game Monster Hunter | 小物モンスターハンター |  |
+| 22 | Slinger Savant | スリンガーの天才 |  |
+| 23 | Seikret Sidestep | セクレトステップ |  |
+| 24 | Perfect Counters | パーフェクトカウンター |  |
+| 25 | Glide Master | 滑空マスター |  |
+| 26 | Dual Wielder | 二刀流 |  |
+| 27 | Assassination | 暗殺 |  |
+| 28 | Weak Point | 弱点 |  |
+| 29 | Clasher | 激突王 |  |

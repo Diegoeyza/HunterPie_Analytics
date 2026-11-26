@@ -63,7 +63,7 @@ md.push("Flag anything that reads unnaturally in the game's own vocabulary. Plac
 md.push("like `{n}` are filled by the app and must stay in the string.");
 md.push("");
 md.push("Terminology source for data names: the game's own text (monsters and skills) and");
-md.push("kiranico (verification). Quest awards are hand-written and most need your review.");
+md.push("kiranico (verification). Quest award names are a literal first pass and most need your review.");
 md.push("");
 
 const csv = [["area", "key", "english", "japanese", "source"].map(csvEsc).join(",")];
@@ -87,18 +87,37 @@ for (const name of areas) {
   md.push("");
 }
 
-// Checked-in hand-written data names (awards), if present yet.
+// Checked-in hand-written data names (awards). The English column is the name
+// the game wrote at capture time, so the reviewer sees what each translation
+// is meant to replace.
+const AWARD_EN = {
+  0: "Support All-Star", 1: "Ailment Master", 2: "Dizzy Pro",
+  3: "Target Destroyer", 4: "Established Hunter", 5: "Master Mounter",
+  6: "Treasure Hunter", 7: "Field Researcher", 8: "Slinger Sniper",
+  9: "Survival Expert", 10: "Tool Specialist", 11: "BBQ King",
+  12: "Master Angler", 13: "Beast Master", 14: "Stealth Hunter",
+  15: "Gathering Maniac", 16: "Item Addict", 17: "Obsessed Observer",
+  18: "Hit 'Em Where It Hurts!", 19: "Beautiful Bombardier",
+  20: "Social Butterfly", 21: "Small Game Monster Hunter",
+  22: "Slinger Savant", 23: "Seikret Sidestep", 24: "Perfect Counters",
+  25: "Glide Master", 26: "Dual Wielder", 27: "Assassination",
+  28: "Weak Point", 29: "Clasher",
+};
+
 try {
   const data = JSON.parse(readFileSync(join(dashboard, "locales", "ja", "data.json"), "utf8"));
   const awards = data.awards ?? {};
   if (Object.keys(awards).length > 0) {
-    md.push("## Quest awards (hand-written, needs review)");
+    md.push("## Quest awards (literal first pass — needs review)");
     md.push("");
-    md.push("| id | 日本語 |  |");
-    md.push("| --- | --- | --- |");
+    md.push("Please replace the 日本語 column with the wording on the quest results screen.");
+    md.push("Award names are keyed by id, so a correction also applies to past hunts.");
+    md.push("");
+    md.push("| id | English (captured) | 日本語（初版） | your correction |");
+    md.push("| --- | --- | --- | --- |");
     for (const [id, ja] of Object.entries(awards)) {
-      md.push(`| ${id} | ${esc(ja)} |  |`);
-      csv.push(["award", id, "", ja, "hand"].map(csvEsc).join(","));
+      md.push(`| ${id} | ${esc(AWARD_EN[id] ?? "")} | ${esc(ja)} |  |`);
+      csv.push(["award", id, AWARD_EN[id] ?? "", ja, "literal first pass"].map(csvEsc).join(","));
     }
     md.push("");
   }

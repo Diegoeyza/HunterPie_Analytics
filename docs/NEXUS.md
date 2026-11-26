@@ -11,8 +11,9 @@ a mod-only page keeps the Lua mod clean).
 
 The dashboard now ships a Japanese interface (standard ja-JP): switch it in
 Settings → Display, or open the app with `?lang=ja`. Monster and skill names use
-the game's own Japanese text. Quest-award names are still English pending a
-native review pass — the review sheet lives in `docs/i18n/japanese-review.md`.
+the game's own Japanese text. Quest-award names are a literal first pass
+pending native review — the review sheet lives in
+`docs/i18n/japanese-review.md`.
 
 ## Files to upload
 

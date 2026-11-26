@@ -83,40 +83,43 @@ Sources, in priority order:
 ## Quest awards — names needed
 
 The 30 results-screen awards are captured in the language the game was running
-in, so a Japanese game already produces Japanese names for new hunts. Hunts
-recorded on an English game keep English names. To translate that history the
-app needs an id → 日本語 table (`dashboard/locales/ja/data.json`, `awards`).
-Please fill the right-hand column with the in-game wording:
+in, so a Japanese game already produces Japanese names for new hunts, while
+hunts recorded on an English game keep English names. The right-hand column
+below is the checked-in table (`dashboard/locales/ja/data.json`, `awards`):
+**literal first-pass translations, not verified against the game.** Please
+correct any that differ from the in-game wording — replace the row's value in
+the JSON (all 30 at once, never partially) and re-run
+`python scripts/gen_names_ja.py`:
 
 | id | English (captured) | 日本語（ゲーム内表記） |
 | --- | --- | --- |
-| 0 | Support All-Star | |
-| 1 | Ailment Master | |
-| 2 | Dizzy Pro | |
-| 3 | Target Destroyer | |
-| 4 | Established Hunter | |
-| 5 | Master Mounter | |
-| 6 | Treasure Hunter | |
-| 7 | Field Researcher | |
-| 8 | Slinger Sniper | |
-| 9 | Survival Expert | |
-| 10 | Tool Specialist | |
-| 11 | BBQ King | |
-| 12 | Master Angler | |
-| 13 | Beast Master | |
-| 14 | Stealth Hunter | |
-| 15 | Gathering Maniac | |
-| 16 | Item Addict | |
-| 17 | Obsessed Observer | |
-| 18 | Hit 'Em Where It Hurts! | |
-| 19 | Beautiful Bombardier | |
-| 20 | Social Butterfly | |
-| 21 | Small Game Monster Hunter | |
-| 22 | Slinger Savant | |
-| 23 | Seikret Sidestep | |
-| 24 | Perfect Counters | |
-| 25 | Glide Master | |
-| 26 | Dual Wielder | |
-| 27 | Assassination | |
-| 28 | Weak Point | |
-| 29 | Clasher | |
+| 0 | Support All-Star | サポートオールスター |
+| 1 | Ailment Master | 状態異常マスター |
+| 2 | Dizzy Pro | スタンのプロ |
+| 3 | Target Destroyer | ターゲットデストロイヤー |
+| 4 | Established Hunter | 一流ハンター |
+| 5 | Master Mounter | 乗りマスター |
+| 6 | Treasure Hunter | トレジャーハンター |
+| 7 | Field Researcher | フィールドリサーチャー |
+| 8 | Slinger Sniper | スリンガースナイパー |
+| 9 | Survival Expert | サバイバルエキスパート |
+| 10 | Tool Specialist | ツールスペシャリスト |
+| 11 | BBQ King | BBQキング |
+| 12 | Master Angler | 釣りマスター |
+| 13 | Beast Master | ビーストマスター |
+| 14 | Stealth Hunter | ステルスハンター |
+| 15 | Gathering Maniac | 採取マニア |
+| 16 | Item Addict | アイテム中毒 |
+| 17 | Obsessed Observer | 執念の観察者 |
+| 18 | Hit 'Em Where It Hurts! | 弱点を突け！ |
+| 19 | Beautiful Bombardier | 美しき爆撃手 |
+| 20 | Social Butterfly | 社交界の蝶 |
+| 21 | Small Game Monster Hunter | 小物モンスターハンター |
+| 22 | Slinger Savant | スリンガーの天才 |
+| 23 | Seikret Sidestep | セクレトステップ |
+| 24 | Perfect Counters | パーフェクトカウンター |
+| 25 | Glide Master | 滑空マスター |
+| 26 | Dual Wielder | 二刀流 |
+| 27 | Assassination | 暗殺 |
+| 28 | Weak Point | 弱点 |
+| 29 | Clasher | 激突王 |
