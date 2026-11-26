@@ -1,0 +1,18 @@
+{
+  "highlights.player": "ハンター",
+  "highlights.total": "合計",
+  "highlights.best": "ベスト（単一ハント）",
+  "highlights.hunts": "ハント数",
+  "highlights.avgShare": "平均ダメージシェア",
+  "highlights.leaderboard": "褒賞ランキング",
+  "highlights.award": "褒賞",
+  "highlights.shareTitle": "平均ダメージシェア",
+  "highlights.all": "すべての褒賞",
+  "highlights.topHunter": "トップハンター",
+  "highlights.noAwards": "この条件の褒賞記録はありません。",
+  "highlights.noneSelected": "ハイライトが未選択です。「ハイライト」で選択してください。",
+  "highlights.noDamage": "この条件のダメージデータはありません。",
+  "highlights.tableNone": "ハイライトが未選択です。",
+  "highlights.empty.what": "この条件のハンター褒賞",
+  "highlights.empty.note": "褒賞は REFramework MOD から取得します。HunterPie 解析版のハントには褒賞がありません。"
+}

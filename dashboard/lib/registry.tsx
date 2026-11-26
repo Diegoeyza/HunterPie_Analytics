@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { MessageKey } from "../locales/en";
 import ProgressView from "../components/views/ProgressView";
 import GrowthView from "../components/views/GrowthView";
 import WeaponsView from "../components/views/WeaponsView";
@@ -34,8 +35,10 @@ export interface ViewCtx {
 
 export interface TabDef {
   id: string;
-  title: string;
-  blurb: string;
+  /** Translation key for the tab label (`tab.<id>`). */
+  title: MessageKey;
+  /** Translation key for the one-line description under the tab bar. */
+  blurb: MessageKey;
   render: (ctx: ViewCtx) => ReactNode;
 }
 
@@ -43,80 +46,80 @@ export interface TabDef {
 export const TABS: TabDef[] = [
   {
     id: "progress",
-    title: "Progress",
-    blurb: "FR-3.1 — rolling DPS and clear time per hunt, filterable by monster, quest, stars, weapon, hunter.",
+    title: "tab.progress",
+    blurb: "tab.progress.blurb",
     render: (ctx) => <ProgressView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "growth",
-    title: "Growth",
-    blurb: "Instance-weighted DPS change with per-group trends (median, best, slope, clear time). Single hunter drill-down, multi-hunter scope, monster/star/weapon/variant filters.",
+    title: "tab.growth",
+    blurb: "tab.growth.blurb",
     render: (ctx) => <GrowthView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} setScope={ctx.setScope} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "weapons",
-    title: "Weapons",
-    blurb: "FR-3.2 — avg/peak DPS, hunt count and clear rate by weapon type.",
+    title: "tab.weapons",
+    blurb: "tab.weapons.blurb",
     render: (ctx) => <WeaponsView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "highlights",
-    title: "Highlights",
-    blurb: "Quest-end hunter highlights (awards) and average damage share, per monster/weapon/hunter. REFramework hunts only.",
+    title: "tab.highlights",
+    blurb: "tab.highlights.blurb",
     render: (ctx) => <HighlightsView scope={ctx.scope} weaponName={ctx.weaponName} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "curves",
-    title: "Damage curves",
-    blurb: "FR-3.3 — per-hunt cumulative damage overlay for all party members, monster HP curve, enrage markers.",
+    title: "tab.curves",
+    blurb: "tab.curves.blurb",
     render: (ctx) => <CurveView scope={ctx.scope} partySize={ctx.partySize} />,
   },
   {
     id: "hunts",
-    title: "Hunts",
-    blurb: "Every run, latest first — click a row for party damage, DPS, hunter highlights and the damage curve.",
+    title: "tab.hunts",
+    blurb: "tab.hunts.blurb",
     render: (ctx) => <HuntsView scope={ctx.scope} weaponName={ctx.weaponName} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "survival",
-    title: "Survival",
-    blurb: "Per-hunter HP and DPS over time with time-in-danger summary. Requires HuntDumper 0.11+.",
+    title: "tab.survival",
+    blurb: "tab.survival.blurb",
     render: (ctx) => <SurvivalView scope={ctx.scope} partySize={ctx.partySize} />,
   },
   {
     id: "leaderboard",
-    title: "Leaderboard",
-    blurb: "Best players by DPS over cleared hunts — filterable by monster, stars, weapon and min hunts.",
+    title: "tab.leaderboard",
+    blurb: "tab.leaderboard.blurb",
     render: (ctx) => <LeaderboardView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "high-scores",
-    title: "High Scores",
-    blurb: "One row per cleared hunt, ranked by top DPS or fastest clear. Scoped to the hunters bar above; filterable by monster, weapon and stars.",
+    title: "tab.highscores",
+    blurb: "tab.highscores.blurb",
     render: (ctx) => <HighScoreView scope={ctx.scope} variantId={ctx.variantId} weaponName={ctx.weaponName} clearScope={ctx.clearScope} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "compare",
-    title: "Compare",
-    blurb: "Your scoped hunters vs the whole party, hunt by hunt. Star yourself in the hunters bar above.",
+    title: "tab.compare",
+    blurb: "tab.compare.blurb",
     render: (ctx) => <CompareView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "activity",
-    title: "Activity",
-    blurb: "Hunt volume, clear rate and damage output day by day.",
+    title: "tab.activity",
+    blurb: "tab.activity.blurb",
     render: (ctx) => <ActivityView partySize={ctx.partySize} />,
   },
   {
     id: "synergy",
-    title: "Synergy",
-    blurb: "FR-3.4 — clear time and damage share by teammate pairing (supporters excluded).",
+    title: "tab.synergy",
+    blurb: "tab.synergy.blurb",
     render: (ctx) => <SynergyView scope={ctx.scope} variantId={ctx.variantId} clearScope={ctx.clearScope} partySize={ctx.partySize} includeFailed={ctx.includeFailed} />,
   },
   {
     id: "buffs",
-    title: "Buffs",
-    blurb: "Consumable, skill, song and debuff uptime for the local player, plus the monster's enrage and ailment timeline. Recorded by the HunterPie Analytics companion.",
+    title: "tab.buffs",
+    blurb: "tab.buffs.blurb",
     render: (ctx) => <BuffsView scope={ctx.scope} partySize={ctx.partySize} />,
   },
 ];

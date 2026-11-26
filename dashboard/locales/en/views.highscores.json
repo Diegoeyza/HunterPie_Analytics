@@ -1,0 +1,20 @@
+{
+  "highscores.col.monster": "Monster",
+  "highscores.col.clear": "Clear",
+  "highscores.col.date": "Date",
+  "highscores.col.player": "Player",
+  "highscores.col.weapon": "Weapon",
+  "highscores.col.party": "Party",
+  "highscores.huntTitle": "hunt #{id}",
+  "highscores.solo": "solo",
+  "highscores.filter.top": "Top",
+  "highscores.sort.aria": "Sort leaderboard",
+  "highscores.sort.fastest": "Fastest clear",
+  "highscores.sort.dps": "Highest DPS",
+  "highscores.empty.scope": "Try a different filter combination or a hunt they joined.",
+  "highscores.empty.none": "Try a different filter combination or import more hunts.",
+  "highscores.empty.what": "cleared hunts match these filters",
+  "highscores.heading.dps": "Top {count} hunts by DPS{scoped} ({rows})",
+  "highscores.heading.time": "Top {count} hunts by clear time{scoped} ({rows})",
+  "highscores.scoped": " — scoped hunters"
+}

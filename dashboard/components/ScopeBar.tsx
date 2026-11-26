@@ -5,6 +5,8 @@ import {
   apiGetCached, apiInvalidate, apiSend, variantLabel, UNKNOWN_VARIANT_ID,
   type Pin, type PlayerVariants, type PlayerWeaponNames, type VariantOption,
 } from "../lib/api";
+import { t as translate, useT } from "@/lib/i18n";
+import { weaponTypeName } from "@/lib/names";
 import { useFilterOptions } from "./useFilterOptions";
 import SearchSelect from "./SearchSelect";
 import WeaponVariantManager from "./WeaponVariantManager";
@@ -110,8 +112,10 @@ function groupLabel(members: { weapon_type: string; raw: number; element: number
     ? ` / ${Math.round(affs[0])}%`
     : ` / ${Math.round(Math.min(...affs))}–${Math.round(Math.max(...affs))}%`;
   const hunts = members.reduce((a, m) => a + m.hunts, 0);
-  return `${lo.weapon_type} · ${r(lo.raw, hi.raw, "")} raw / ${r(Math.min(...eles), Math.max(...eles), "")} el${aff}` +
-    ` · ${members.length} builds · ${hunts} hunt${hunts === 1 ? "" : "s"}`;
+  const huntLabel = translate(hunts === 1 ? "scope.hunts.one" : "scope.hunts.other", { n: hunts });
+  return `${weaponTypeName(lo.weapon_type)} · ${r(lo.raw, hi.raw, "")} ${translate("unit.raw")} / ` +
+    `${r(Math.min(...eles), Math.max(...eles), "")} ${translate("unit.element")}${aff}` +
+    ` · ${translate("name.builds", { n: members.length })} · ${huntLabel}`;
 }
 
 /** Hunter scope bar: star (pin) hunters, toggle who's in scope. Persisted.
@@ -119,6 +123,7 @@ function groupLabel(members: { weapon_type: string; raw: number; element: number
  *  filter appears next to the hunter chips, with an edit button that
  *  opens the label-once naming menu. */
 export default function ScopeBar({ scope, onScope, variantId, onVariant, weaponName, onWeaponName, partySize, onParty }: Props) {
+  const { t } = useT();
   const opts = useFilterOptions();
   const players = opts?.players ?? [];
   const [pins, setPins] = useState<Pin[]>([]);
@@ -230,12 +235,12 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, weaponN
         ? { value: key, label: groupLabel(members) }
         : {
             value: String(members[0].id ?? `fp:${members[0].weapon_type}:${members[0].raw}:${members[0].element}:${members[0].affinity}`),
-            label: `${variantLabel(members[0])} · ${members[0].hunts} hunt${members[0].hunts === 1 ? "" : "s"}`,
+            label: `${variantLabel(members[0])} · ${t(members[0].hunts === 1 ? "scope.hunts.one" : "scope.hunts.other", { n: members[0].hunts })}`,
           }
     )),
     ...((variants?.unknown_hunts ?? 0) > 0 ? [{
       value: String(UNKNOWN_VARIANT_ID),
-      label: `Unknown (pre-gear hunts) · ${variants!.unknown_hunts} hunt${variants!.unknown_hunts === 1 ? "" : "s"}`,
+      label: `${t("name.unknownGear")} · ${t(variants!.unknown_hunts === 1 ? "scope.hunts.one" : "scope.hunts.other", { n: variants!.unknown_hunts })}`,
     }] : []),
   ];
 
@@ -244,7 +249,7 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, weaponN
   const hasWeaponNames = (weaponNames?.weapons.length ?? 0) > 0;
   const weaponNameOptions = (weaponNames?.weapons ?? []).map((w) => ({
     value: w.name,
-    label: `${w.name} · ${w.hunts} hunt${w.hunts === 1 ? "" : "s"}`,
+    label: `${w.name} · ${t(w.hunts === 1 ? "scope.hunts.one" : "scope.hunts.other", { n: w.hunts })}`,
   }));
 
   const row = (p: { id: number; name: string }) => (
@@ -257,7 +262,7 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, weaponN
       </button>
       <button
         className={pinnedIds.has(p.id) ? "star on" : "star"}
-        title={pinnedIds.has(p.id) ? "unpin" : "pin (star)"}
+        title={pinnedIds.has(p.id) ? t("scope.unpin") : t("scope.pin")}
         onClick={() => togglePin(p.id)}
       >
         {pinnedIds.has(p.id) ? "★" : "☆"}
@@ -267,47 +272,47 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, weaponN
 
   return (
     <div className="scopebar">
-      <span className="scope-label">Hunters:</span>
-      {scope.length === 0 && <span className="scope-hint">all hunters</span>}
+      <span className="scope-label">{t("scope.hunters")}</span>
+      {scope.length === 0 && <span className="scope-hint">{t("scope.allHunters")}</span>}
       {scope.map((id) => (
-        <button key={id} className="chip" onClick={() => toggleScope(id)} title="remove from scope">
+        <button key={id} className="chip" onClick={() => toggleScope(id)} title={t("scope.removeFromScope")}>
           {pinnedIds.has(id) ? "★ " : ""}{byId.get(id) ?? `#${id}`} ✕
         </button>
       ))}
       <div className="scope-picker">
-        <button onClick={() => setOpen(!open)}>+ hunters</button>
+        <button onClick={() => setOpen(!open)}>{t("scope.addHunters")}</button>
         {open && (
           <div className="scope-menu">
             <input
               className="scope-search"
-              placeholder="Search hunters…"
+              placeholder={t("scope.searchHunters")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
             {starred.length > 0 && (
               <>
-                <div className="scope-section">Starred</div>
+                <div className="scope-section">{t("scope.starred")}</div>
                 {starred.map(row)}
               </>
             )}
             {starred.length > 0 && shownRest.length > 0 && <div className="scope-div" />}
             {shownRest.map(row)}
-            {players.length === 0 && <span className="scope-hint">no hunters yet</span>}
-            {q && matchCount === 0 && <span className="scope-hint">no matches</span>}
+            {players.length === 0 && <span className="scope-hint">{t("scope.noHunters")}</span>}
+            {q && matchCount === 0 && <span className="scope-hint">{t("scope.search.noMatches")}</span>}
             {matchCount > starred.length + shownRest.length && (
-              <span className="scope-hint">{matchCount} matches — keep typing to narrow</span>
+              <span className="scope-hint">{t("scope.search.matches", { n: matchCount })}</span>
             )}
           </div>
         )}
       </div>
       {scope.length > 0 && (
-        <button className="scope-clear" onClick={() => onScope([])}>clear</button>
+        <button className="scope-clear" onClick={() => onScope([])}>{t("scope.clear")}</button>
       )}
-      <span className="scope-label">Party:</span>
-      <div className="seg" role="group" aria-label="Party size filter">
+      <span className="scope-label">{t("scope.party")}</span>
+      <div className="seg" role="group" aria-label={t("scope.partyFilter")}>
         <button type="button" className={partySize === null ? "on" : ""}
           aria-pressed={partySize === null}
-          onClick={() => onParty(null)}>All</button>
+          onClick={() => onParty(null)}>{t("common.all")}</button>
         {[1, 2, 3, 4].map((n) => (
           <button key={n} type="button" className={partySize === n ? "on" : ""}
             aria-pressed={partySize === n}
@@ -317,10 +322,10 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, weaponN
       {hasVariants && (
         <div className="scope-variant">
           <SearchSelect
-            label="Weapon"
+            label={t("scope.weapon")}
             value={variantId === null ? "" : String(variantId)}
             options={variantOptions}
-            placeholder="All weapons"
+            placeholder={t("scope.allWeapons")}
             onChange={(v) => {
               // Unlabeled fingerprints without an identity row (shouldn't
               // happen — ingest auto-creates them) can't filter server-side.
@@ -330,7 +335,7 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, weaponN
               onVariant(v === "" ? null : (v.startsWith("g:") ? v : Number(v)));
             }}
           />
-          <button className="scope-edit" title="Name your weapons"
+          <button className="scope-edit" title={t("scope.nameWeapons")}
             onClick={() => setVariantMenu(!variantMenu)}>✎</button>
           {variantMenu && (
             <div className="scope-variant-menu">
@@ -343,10 +348,10 @@ export default function ScopeBar({ scope, onScope, variantId, onVariant, weaponN
       {hasWeaponNames && (
         <div className="scope-variant">
           <SearchSelect
-            label="Weapon name"
+            label={t("scope.weaponName")}
             value={weaponName ?? ""}
             options={weaponNameOptions}
-            placeholder="All weapons"
+            placeholder={t("scope.allWeapons")}
             onChange={(v) => onWeaponName(v === "" ? null : v)}
           />
         </div>

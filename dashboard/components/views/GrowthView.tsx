@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { fmtClearTime, fmtDate } from "../../lib/format";
+import { fmtClearTime, fmtDate, fmtDps } from "../../lib/format";
 import { ApiState, useApi } from "../../lib/useApi";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
 import { useFilterOptions } from "../useFilterOptions";
 import { MonsterSelect, StarsSelect, WeaponSelect } from "../FilterBar";
+import { useT, type TFn } from "@/lib/i18n";
+import { monsterName } from "@/lib/names";
 
 interface HuntPoint {
   hunt_id: number;
@@ -56,26 +58,29 @@ type GrowthData = PlayerImprovementData | TopHunterData;
  *  they differ in how much one lucky or awful hunt can swing the answer. */
 type GrowthMode = "first_last" | "edge_medians" | "trend";
 
-const GROWTH_MODES: Record<GrowthMode, { label: string; note: string }> = {
-  first_last: {
-    label: "First → last",
-    note: "Compares the first and the newest hunt of each group — what the tab always showed, and the most sensitive to one lucky or one bad hunt.",
-  },
-  edge_medians: {
-    label: "First 3 vs last 3",
-    note: "Compares the first and last hunts of each group by median (up to three each, never the same hunt twice), so one outlier at either end is far less decisive than in first → last.",
-  },
-  trend: {
-    label: "Trend fit",
-    note: "Fits a straight line through every hunt in the group and reports the change across its span — uses all the evidence instead of two endpoints.",
-  },
-};
+function growthModes(t: TFn): Record<GrowthMode, { label: string; note: string }> {
+  return {
+    first_last: {
+      label: t("growth.mode.firstLast.label"),
+      note: t("growth.mode.firstLast.note"),
+    },
+    edge_medians: {
+      label: t("growth.mode.edgeMedians.label"),
+      note: t("growth.mode.edgeMedians.note"),
+    },
+    trend: {
+      label: t("growth.mode.trend.label"),
+      note: t("growth.mode.trend.note"),
+    },
+  };
+}
 
 function isPlayerData(d: GrowthData): d is PlayerImprovementData {
   return (d as PlayerImprovementData).groups !== undefined;
 }
 
 function Sparkline({ vals }: { vals: number[] }) {
+  const { t } = useT();
   if (vals.length < 2) return null;
   const w = 120;
   const h = 36;
@@ -87,7 +92,7 @@ function Sparkline({ vals }: { vals: number[] }) {
     .join(" ");
   const up = vals[vals.length - 1] >= vals[0];
   return (
-    <svg width={w} height={h} role="img" aria-label={`DPS trend ${up ? "up" : "down"}`}>
+    <svg width={w} height={h} role="img" aria-label={up ? t("growth.sparkline.up") : t("growth.sparkline.down")}>
       <polyline points={pts} fill="none" stroke="var(--accent)" strokeWidth="2" />
       <circle cx={w} cy={h - 4 - ((vals[vals.length - 1] - min) / span) * (h - 8)} r="3" fill="var(--accent)" />
     </svg>
@@ -105,6 +110,8 @@ function GrowthFilters({
   mode: GrowthMode; setMode: (v: GrowthMode) => void;
   minHunts: string; setMinHunts: (v: string) => void;
 }) {
+  const { t } = useT();
+  const GROWTH_MODES = growthModes(t);
   const opts = useFilterOptions();
   return (
     <div className="filters">
@@ -112,7 +119,7 @@ function GrowthFilters({
       <MonsterSelect value={monster} opts={opts}
         onChange={(v) => { setMonster(v); setStars(""); }} />
       <StarsSelect value={stars} onChange={setStars} monster={monster} opts={opts} />
-      <div className="seg" role="group" aria-label="Growth measure">
+      <div className="seg" role="group" aria-label={t("growth.measureAria")}>
         {(Object.keys(GROWTH_MODES) as GrowthMode[]).map((m) => (
           <button
             key={m} type="button"
@@ -125,7 +132,7 @@ function GrowthFilters({
           </button>
         ))}
       </div>
-      <label>Min hunts
+      <label>{t("growth.filter.minHunts")}
         <select value={minHunts} onChange={(e) => setMinHunts(e.target.value)}>
           <option value="2">2</option>
           <option value="3">3</option>
@@ -133,7 +140,7 @@ function GrowthFilters({
         </select>
       </label>
       {showTopN && (
-        <label>Top
+        <label>{t("growth.filter.top")}
           <select value={topN} onChange={(e) => setTopN(e.target.value)}>
             <option value="3">3</option>
             <option value="5">5</option>
@@ -146,6 +153,8 @@ function GrowthFilters({
 }
 
 export default function GrowthView({ scope, variantId, weaponName, clearScope, setScope, partySize, includeFailed }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; setScope: (ids: number[]) => void; partySize: number | null; includeFailed: boolean }) {
+  const { t } = useT();
+  const GROWTH_MODES = growthModes(t);
   const opts = useFilterOptions();
   const [weapon, setWeapon] = useState("");
   const [monster, setMonster] = useState("");
@@ -193,7 +202,7 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
     return (
       <div className="card">
         {filterBar}
-        <p>Loading growth analytics…</p>
+        <p>{t("growth.loading")}</p>
       </div>
     );
   }
@@ -209,7 +218,7 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
         <div className="card">
           {filterBar}
           <ScopeEmpty names={scopeNames(scope, opts?.players)} onClear={clearScope}>
-            <p>No monster/star groups with at least {minHunts} hunts found for this hunter with these filters.</p>
+            <p>{t("growth.empty.player", { min: minHunts })}</p>
           </ScopeEmpty>
         </div>
       );
@@ -223,10 +232,9 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
           {filterBar}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "24px 24px 8px", gap: "16px", flexWrap: "wrap" }}>
             <div>
-              <h2 style={{ margin: 0, fontSize: "1.5rem" }}>{pData.player_name}&apos;s Growth &amp; Improvement</h2>
+              <h2 style={{ margin: 0, fontSize: "1.5rem" }}>{t("growth.player.heading", { name: pData.player_name })}</h2>
               <p style={{ margin: "6px 0 0", color: "var(--muted)", maxWidth: "70ch" }}>
-                Instance-weighted growth across {pData.qualifying_groups_count} monster &amp; star
-                group{pData.qualifying_groups_count === 1 ? "" : "s"} (≥{shownMin} hunts each).{" "}
+                {t(pData.qualifying_groups_count === 1 ? "growth.summary.one" : "growth.summary.other", { n: pData.qualifying_groups_count, min: shownMin })}{" "}
                 {GROWTH_MODES[shownMode].note}
               </p>
             </div>
@@ -235,14 +243,14 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
                 {overallPositive ? "+" : ""}{pData.overall_pct_improvement}%
               </div>
               <div style={{ fontSize: "0.85rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                Weighted growth
+                {t("growth.weighted")}
               </div>
             </div>
           </div>
         </div>
 
         <div className="card">
-          <h3 style={{ marginTop: 0, marginBottom: "16px" }}>Monster &amp; Star Groups (≥{shownMin} hunts)</h3>
+          <h3 style={{ marginTop: 0, marginBottom: "16px" }}>{t("growth.groups.heading", { min: shownMin })}</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             {pData.groups.map((g, idx) => {
               const positive = g.pct_improvement >= 0;
@@ -251,9 +259,9 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
                 <div key={`${g.monster_id}-${g.stars ?? "na"}-${idx}`} style={{ background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: "8px", padding: "16px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "12px", flexWrap: "wrap" }}>
                     <div>
-                      <span style={{ fontSize: "1.1rem", fontWeight: "600", color: "var(--text)" }}>{g.monster_name}</span>
+                      <span style={{ fontSize: "1.1rem", fontWeight: "600", color: "var(--text)" }}>{monsterName(g.monster_name, g.monster_id)}</span>
                       {g.stars != null && <span style={{ marginLeft: "8px", background: "var(--panel)", border: "1px solid var(--border)", padding: "2px 8px", borderRadius: "4px", fontSize: "0.85rem" }}>{g.stars}★</span>}
-                      <span style={{ marginLeft: "12px", fontSize: "0.85rem", color: "var(--muted)" }}>{g.instances} hunts</span>
+                      <span style={{ marginLeft: "12px", fontSize: "0.85rem", color: "var(--muted)" }}>{t("name.hunts", { n: g.instances })}</span>
                     </div>
                     <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                       <Sparkline vals={g.hunts.map((h) => h.dps)} />
@@ -266,26 +274,27 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.9rem", color: "var(--muted)", marginBottom: "10px", gap: "12px", flexWrap: "wrap" }}>
                     <div>
                       {shownMode === "edge_medians"
-                        ? <>First 3: <strong style={{ color: "var(--text)" }}>{g.early_dps ?? "—"}</strong> → Last 3: <strong style={{ color: "var(--text)" }}>{g.late_dps ?? "—"}</strong></>
+                        ? <>{t("growth.group.first3")} <strong style={{ color: "var(--text)" }}>{g.early_dps ?? "—"}</strong> → {t("growth.group.last3")} <strong style={{ color: "var(--text)" }}>{g.late_dps ?? "—"}</strong></>
                         : shownMode === "trend"
-                          ? <>Fit: <strong style={{ color: "var(--text)" }}>{g.slope_pct_per_hunt != null ? `${g.slope_pct_per_hunt >= 0 ? "+" : ""}${g.slope_pct_per_hunt}%/hunt` : "—"}</strong> · {g.instances} hunts</>
-                          : <>First: <strong style={{ color: "var(--text)" }}>{g.first_dps}</strong> → Latest: <strong style={{ color: "var(--text)" }}>{g.latest_dps}</strong></>}
+                          ? <>{t("growth.group.fit")} <strong style={{ color: "var(--text)" }}>{g.slope_pct_per_hunt != null ? `${g.slope_pct_per_hunt >= 0 ? "+" : ""}${g.slope_pct_per_hunt}${t("growth.group.perHuntPct")}` : "—"}</strong> · {t("name.hunts", { n: g.instances })}</>
+                          : <>{t("growth.group.first")} <strong style={{ color: "var(--text)" }}>{g.first_dps}</strong> → {t("growth.group.latest")} <strong style={{ color: "var(--text)" }}>{g.latest_dps}</strong></>}
                     </div>
-                    <div>Median: <strong style={{ color: "var(--text)" }}>{g.median_dps ?? "—"}</strong> · Best: <strong style={{ color: "var(--text)" }}>{g.best_dps ?? "—"}</strong></div>
-                    <div>Slope: <strong style={{ color: "var(--text)" }}>{g.slope_per_hunt != null ? `${g.slope_per_hunt >= 0 ? "+" : ""}${g.slope_per_hunt}/hunt` : "—"}</strong></div>
-                    <div>Clear: <strong style={{ color: "var(--text)" }}>{g.first_clear_s != null ? `${fmtClearTime(g.first_clear_s)} → ${fmtClearTime(g.latest_clear_s)}` : "—"}</strong>
+                    <div>{t("growth.group.median")} <strong style={{ color: "var(--text)" }}>{g.median_dps ?? "—"}</strong> · {t("growth.group.best")} <strong style={{ color: "var(--text)" }}>{g.best_dps ?? "—"}</strong></div>
+                    <div>{t("growth.group.slope")} <strong style={{ color: "var(--text)" }}>{g.slope_per_hunt != null ? `${g.slope_per_hunt >= 0 ? "+" : ""}${g.slope_per_hunt}${t("growth.group.perHunt")}` : "—"}</strong></div>
+                    <div>{t("growth.group.clear")} <strong style={{ color: "var(--text)" }}>{g.first_clear_s != null ? `${fmtClearTime(g.first_clear_s)} → ${fmtClearTime(g.latest_clear_s)}` : "—"}</strong>
                       {g.clear_pct_improvement != null && g.first_clear_s ? (
-                        <span style={{ color: clearPositive ? "var(--good)" : "var(--bad)" }}> ({clearPositive ? "+" : ""}{g.clear_pct_improvement}% faster)</span>
+                        <span style={{ color: clearPositive ? "var(--good)" : "var(--bad)" }}>{t("growth.group.faster", { pct: `${clearPositive ? "+" : ""}${g.clear_pct_improvement}` })}</span>
                       ) : null}
                     </div>
                   </div>
 
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", overflowX: "auto", paddingBottom: "4px" }}>
                     {g.hunts.map((h, hIdx) => (
-                      <div key={h.hunt_id} title={`Hunt #${h.hunt_id} (${fmtDate(h.started_at)}): ${Math.round(h.dps * 10) / 10} DPS${h.clear_s ? `, ${fmtClearTime(h.clear_s)}` : ""}`}
+                      <div key={h.hunt_id} title={t("growth.group.huntTitle", { id: h.hunt_id, date: fmtDate(h.started_at), dps: fmtDps(h.dps) })
+                        + (h.clear_s ? t("growth.group.huntTitleClear", { time: fmtClearTime(h.clear_s) }) : "")}
                         style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: "60px", background: "var(--panel)", padding: "6px 8px", borderRadius: "6px", border: "1px solid var(--border)" }}>
-                        <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>#{h.hunt_id}{hIdx === 0 ? " ·1st" : hIdx === g.hunts.length - 1 ? " ·new" : ""}</span>
-                        <span style={{ fontSize: "0.9rem", fontWeight: "600", color: "var(--accent)" }}>{Math.round(h.dps * 10) / 10}</span>
+                        <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>#{h.hunt_id}{hIdx === 0 ? t("growth.group.firstTag") : hIdx === g.hunts.length - 1 ? t("growth.group.newTag") : ""}</span>
+                        <span style={{ fontSize: "0.9rem", fontWeight: "600", color: "var(--accent)" }}>{fmtDps(h.dps)}</span>
                       </div>
                     ))}
                   </div>
@@ -307,7 +316,7 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
         <div className="card">
           {filterBar}
           <ScopeEmpty names={scopeNames(scope, opts?.players)} onClear={clearScope}>
-            <p>No multi-hunt monster/star groups for these hunters with these filters.</p>
+            <p>{t("growth.empty.scope")}</p>
           </ScopeEmpty>
         </div>
       );
@@ -315,8 +324,8 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
     return (
       <div className="card">
         {filterBar}
-        <EmptyState what="hunter improvement data">
-          <p>No multi-instance monster/star hunt records found across players.</p>
+        <EmptyState what={t("growth.empty.none")}>
+          <p>{t("growth.empty.hint")}</p>
         </EmptyState>
       </div>
     );
@@ -325,12 +334,12 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
   return (
     <div className="card">
       {filterBar}
-      <h2 style={{ marginTop: 0, marginBottom: "8px" }}>Top Hunters by Growth</h2>
+      <h2 style={{ marginTop: 0, marginBottom: "8px" }}>{t("growth.top.heading")}</h2>
       <p style={{ color: "var(--muted)", marginTop: 0, marginBottom: "20px" }}>
-        Instance-weighted growth across monster &amp; star groups with ≥{shownMin} hunts.{" "}
+        {t("growth.top.blurb", { min: shownMin })}{" "}
         {GROWTH_MODES[shownMode].note}{" "}
-        {scope.length > 1 ? ` Scoped to ${scope.length} hunters — ` : " "}
-        {scope.length > 1 ? <button type="button" className="scope-clear" onClick={clearScope}>Clear hunter scope</button> : "Select a hunter for the full breakdown."}
+        {scope.length > 1 ? ` ${t("growth.top.scoped", { n: scope.length })}` : " "}
+        {scope.length > 1 ? <button type="button" className="scope-clear" onClick={clearScope}>{t("table.empty.clearScope")}</button> : t("growth.top.select")}
       </p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -341,7 +350,7 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
               key={hunter.player_id}
               type="button"
               onClick={() => setScope([hunter.player_id])}
-              aria-label={`View ${hunter.player_name} growth`}
+              aria-label={t("growth.top.view", { name: hunter.player_name })}
               style={{ background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: "8px", padding: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", textAlign: "left", width: "100%", color: "inherit", font: "inherit" }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--accent)"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)"; }}
@@ -353,7 +362,7 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
                 <span>
                   <span style={{ margin: 0, fontSize: "1.2rem", color: "var(--text)", fontWeight: 600, display: "block" }}>{hunter.player_name}</span>
                   <span style={{ margin: "4px 0 0", color: "var(--muted)", fontSize: "0.9rem", display: "block" }}>
-                    {hunter.qualifying_groups_count} monster/star groups (≥{shownMin} hunts)
+                    {t(hunter.qualifying_groups_count === 1 ? "growth.top.groups.one" : "growth.top.groups.other", { n: hunter.qualifying_groups_count, min: shownMin })}
                   </span>
                 </span>
               </span>
@@ -363,7 +372,7 @@ export default function GrowthView({ scope, variantId, weaponName, clearScope, s
                   {positive ? "+" : ""}{hunter.overall_pct_improvement}%
                 </span>
                 <span style={{ fontSize: "0.8rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", display: "block" }}>
-                  Weighted growth
+                  {t("growth.weighted")}
                 </span>
               </span>
             </button>

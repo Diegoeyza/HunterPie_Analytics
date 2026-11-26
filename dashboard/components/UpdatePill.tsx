@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiSend, type UpdateInfo } from "../lib/api";
 import { useToast } from "./Toast";
+import { useT } from "../lib/i18n";
 
 /** Header pill: shows when a newer release exists and installs it in place.
  *  The backend downloads + verifies the installer, launches it silently and
@@ -11,6 +12,7 @@ export default function UpdatePill({ enabled }: { enabled: boolean }) {
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
+  const { t } = useT();
 
   useEffect(() => {
     if (!enabled) {
@@ -32,22 +34,24 @@ export default function UpdatePill({ enabled }: { enabled: boolean }) {
       // download to the system browser.
       try {
         await apiSend<{ status: string }>("POST", "/update/open");
-        toast.push(`Opening the v${info.latest} download in your browser.`);
+        toast.push(t("settings.update.opening", { version: info.latest }));
       } catch (e) {
-        toast.push(e instanceof Error ? e.message : "Could not open the download", true);
+        toast.push(e instanceof Error ? e.message : t("settings.update.openFailed"), true);
       } finally {
         setBusy(false);
       }
       return;
     }
     const mb = info.size ? Math.round(info.size / 1048576) : null;
-    toast.push(`Downloading v${info.latest}${mb ? ` (~${mb} MB)` : ""}…`);
+    toast.push(mb
+      ? t("settings.update.downloadingSize", { version: info.latest, mb })
+      : t("settings.update.downloading", { version: info.latest }));
     try {
       await apiSend<{ status: string }>("POST", "/update/run");
-      toast.push("Installing — the app will close and reopen updated.");
+      toast.push(t("settings.update.installing"));
     } catch (e) {
       setBusy(false);
-      toast.push(e instanceof Error ? e.message : "Update failed", true);
+      toast.push(e instanceof Error ? e.message : t("settings.update.failed"), true);
     }
   }, [info, toast]);
 
@@ -55,11 +59,11 @@ export default function UpdatePill({ enabled }: { enabled: boolean }) {
   return (
     <button type="button" className="update-pill" onClick={install} disabled={busy}
       title={info.installable
-        ? `Update to v${info.latest}`
-        : `Download v${info.latest} in your browser`}>
-      {busy ? "Updating…" : info.installable
-        ? `↑ v${info.latest} available`
-        : `↓ v${info.latest} available`}
+        ? t("settings.update.titleInstall", { version: info.latest })
+        : t("settings.update.titleDownload", { version: info.latest })}>
+      {busy ? t("settings.update.updating") : info.installable
+        ? t("settings.update.availableInstall", { version: info.latest })
+        : t("settings.update.availableDownload", { version: info.latest })}
     </button>
   );
 }

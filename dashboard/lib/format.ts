@@ -1,5 +1,7 @@
 /** Shared number/time formatting. Use these instead of per-view copies. */
 
+import { currentLocale, localeTag } from "./i18n";
+
 /** Hunt durations as minutes:seconds ("9:07"). Rounding happens on the total
  *  so 539.7 s reads 9:00, never 8:60. */
 export const fmtTime = (s: number | null | undefined): string => {
@@ -24,7 +26,7 @@ export const fmtPct = (f: number | null | undefined, digits = 0): string =>
   f === null || f === undefined ? "—" : `${(f * 100).toFixed(digits)}%`;
 
 export const fmtInt = (n: number | null | undefined): string =>
-  n === null || n === undefined ? "—" : Math.round(n).toLocaleString();
+  n === null || n === undefined ? "—" : Math.round(n).toLocaleString(localeTag());
 
 /** Backend timestamps are naive UTC (game dumps end in Z); a bare string
  *  would otherwise be parsed as local time and shift the date. */
@@ -35,12 +37,14 @@ const parseUtc = (iso: string): Date => {
 
 const pad2 = (n: number): string => String(n).padStart(2, "0");
 
-/** Local calendar date (YYYY-MM-DD). */
+/** Local calendar date: YYYY-MM-DD (ISO order sorts well); Japanese keeps the
+ *  same order with slashes, which is how dates read there. */
 export const fmtDate = (iso: string | null | undefined): string => {
   if (!iso) return "—";
   const d = parseUtc(iso);
   if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const sep = currentLocale() === "ja" ? "/" : "-";
+  return `${d.getFullYear()}${sep}${pad2(d.getMonth() + 1)}${sep}${pad2(d.getDate())}`;
 };
 
 /** Local date + time (YYYY-MM-DD HH:mm). */

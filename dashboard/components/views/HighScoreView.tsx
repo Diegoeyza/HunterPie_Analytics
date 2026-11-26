@@ -8,6 +8,8 @@ import DataTable from "../DataTable";
 import { MonsterSelect, StarsSelect, WeaponSelect } from "../FilterBar";
 import { useFilterOptions } from "../useFilterOptions";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
+import { useT, type TFn } from "@/lib/i18n";
+import { monsterName, weaponTypeName } from "@/lib/names";
 
 interface PartyMember {
   player: string;
@@ -21,6 +23,7 @@ interface HighScore {
   hunt_id: number;
   date: string;
   monster: string;
+  monster_id?: number | null;
   stars: number | null;
   clear_s: number | null;
   player: string;
@@ -30,15 +33,15 @@ interface HighScore {
   party: PartyMember[];
 }
 
-const columns: ColumnDef<HighScore>[] = [
+const columnsFor = (t: TFn): ColumnDef<HighScore>[] => [
   { id: "rank", accessorKey: "rank", header: "#", enableSorting: false, meta: { cls: "num" } },
   {
     id: "monster",
     accessorFn: (r) => r.monster,
-    header: "Monster",
+    header: t("highscores.col.monster"),
     cell: ({ row }) => (
-      <>{row.original.monster}{" "}
-        <span className="num" title={`hunt #${row.original.hunt_id}`}>#{row.original.hunt_id}</span>
+      <>{monsterName(row.original.monster, row.original.monster_id)}{" "}
+        <span className="num" title={t("highscores.huntTitle", { id: row.original.hunt_id })}>#{row.original.hunt_id}</span>
       </>
     ),
   },
@@ -52,18 +55,18 @@ const columns: ColumnDef<HighScore>[] = [
   {
     id: "clear_s",
     accessorFn: (r) => r.clear_s ?? -1,
-    header: "Clear",
+    header: t("highscores.col.clear"),
     meta: { cls: "num" },
     cell: ({ row }) => fmtClearTime(row.original.clear_s),
   },
-  { id: "date", accessorKey: "date", header: "Date" },
-  { id: "player", accessorKey: "player", header: "Player" },
+  { id: "date", accessorKey: "date", header: t("highscores.col.date") },
+  { id: "player", accessorKey: "player", header: t("highscores.col.player") },
   {
     id: "weapon",
     accessorFn: (r) => r.variant ?? r.weapon,
-    header: "Weapon",
+    header: t("highscores.col.weapon"),
     cell: ({ row }) => (
-      <>{row.original.weapon}
+      <>{weaponTypeName(row.original.weapon)}
         {row.original.variant ? ` · ${row.original.variant}` : ""}
       </>
     ),
@@ -78,12 +81,12 @@ const columns: ColumnDef<HighScore>[] = [
   {
     id: "party",
     accessorFn: (r) => r.party.length,
-    header: "Party",
+    header: t("highscores.col.party"),
     enableSorting: false,
     cell: ({ row }) => (
-      row.original.party.length === 0 ? "solo" : row.original.party.map((m) => (
+      row.original.party.length === 0 ? t("highscores.solo") : row.original.party.map((m) => (
         <span key={m.player} className="party">
-          {m.player} ({m.weapon}{m.variant ? ` · ${m.variant}` : ""}) {fmtDps(m.dps)}
+          {m.player} ({weaponTypeName(m.weapon)}{m.variant ? ` · ${m.variant}` : ""}) {fmtDps(m.dps)}
         </span>
       ))
     ),
@@ -91,6 +94,7 @@ const columns: ColumnDef<HighScore>[] = [
 ];
 
 export default function HighScoreView({ scope, variantId, weaponName, clearScope, partySize, includeFailed }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; partySize: number | null; includeFailed: boolean }) {
+  const { t } = useT();
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -117,22 +121,22 @@ export default function HighScoreView({ scope, variantId, weaponName, clearScope
         onChange={(v) => { setMonster(v); setStars(""); }} />
       <WeaponSelect value={weapon} onChange={setWeapon} opts={opts} />
       <StarsSelect value={stars} onChange={setStars} monster={monster} opts={opts} />
-      <label>Top
+      <label>{t("highscores.filter.top")}
         <select value={topN} onChange={(e) => setTopN(e.target.value)}>
           <option value="3">3</option>
           <option value="5">5</option>
           <option value="10">10</option>
           <option value="25">25</option>
-          <option value="">All</option>
+          <option value="">{t("common.all")}</option>
         </select>
       </label>
-      <div className="seg" role="group" aria-label="Sort leaderboard">
+      <div className="seg" role="group" aria-label={t("highscores.sort.aria")}>
         <button type="button" className={sortBy === "time" ? "on" : ""}
           aria-pressed={sortBy === "time"}
-          onClick={() => setSortBy("time")}>Fastest clear</button>
+          onClick={() => setSortBy("time")}>{t("highscores.sort.fastest")}</button>
         <button type="button" className={sortBy === "dps" ? "on" : ""}
           aria-pressed={sortBy === "dps"}
-          onClick={() => setSortBy("dps")}>Highest DPS</button>
+          onClick={() => setSortBy("dps")}>{t("highscores.sort.dps")}</button>
       </div>
     </div>
   );
@@ -152,7 +156,7 @@ export default function HighScoreView({ scope, variantId, weaponName, clearScope
         <div className="card">
           {filters}
           <ScopeEmpty names={scopeNames(scope, opts?.players)} onClear={clearScope}>
-            <p>Try a different filter combination or a hunt they joined.</p>
+            <p>{t("highscores.empty.scope")}</p>
           </ScopeEmpty>
         </div>
       );
@@ -160,8 +164,8 @@ export default function HighScoreView({ scope, variantId, weaponName, clearScope
     return (
       <div className="card">
         {filters}
-        <EmptyState what="cleared hunts match these filters">
-          <p>Try a different filter combination or import more hunts.</p>
+        <EmptyState what={t("highscores.empty.what")}>
+          <p>{t("highscores.empty.none")}</p>
         </EmptyState>
       </div>
     );
@@ -170,10 +174,14 @@ export default function HighScoreView({ scope, variantId, weaponName, clearScope
   return (
     <div className="card">
       {filters}
-      <h2>Top {topN || rows.length} hunts by {sortBy === "dps" ? "DPS" : "clear time"}{scope.length > 0 ? " — scoped hunters" : ""} ({rows.length})</h2>
+      <h2>{t(sortBy === "dps" ? "highscores.heading.dps" : "highscores.heading.time", {
+        count: topN || rows.length,
+        rows: rows.length,
+        scoped: scope.length > 0 ? t("highscores.scoped") : "",
+      })}</h2>
       <DataTable
         data={rows}
-        columns={columns}
+        columns={columnsFor(t)}
         getRowId={(r) => `${r.hunt_id}-${r.player}`}
       />
     </div>

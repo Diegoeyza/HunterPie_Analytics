@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ModStatus } from "../lib/api";
 import Modal from "./Modal";
 import { useToast } from "./Toast";
+import { useT } from "../lib/i18n";
 
 const SEEN_KEY = "hp.modNoticeSeen";
 
@@ -12,6 +13,7 @@ const SEEN_KEY = "hp.modNoticeSeen";
 export default function ModPill({ mod }: { mod?: ModStatus }) {
   const [open, setOpen] = useState(false);
   const toast = useToast();
+  const { t } = useT();
 
   useEffect(() => {
     if (!mod?.outdated || !mod.expected || !mod.installed) return;
@@ -20,7 +22,7 @@ export default function ModPill({ mod }: { mod?: ModStatus }) {
     try { seen = localStorage.getItem(SEEN_KEY) ?? ""; } catch { /* private mode */ }
     if (seen === key) return;
     try { localStorage.setItem(SEEN_KEY, key); } catch { /* ignore */ }
-    toast.push(`App updated — reinstall HuntDumper v${mod.expected} to enable party HP and quest results.`);
+    toast.push(t("settings.mod.toast", { version: mod.expected }));
   }, [mod, toast]);
 
   if (!mod?.outdated || !mod.expected || !mod.installed) return null;
@@ -28,32 +30,31 @@ export default function ModPill({ mod }: { mod?: ModStatus }) {
   return (
     <>
       <button type="button" className="mod-pill" onClick={() => setOpen(true)}
-        title={`The app ships HuntDumper v${mod.expected}; your newest mod dump came from v${mod.installed}.`}>
-        Mod v{mod.installed} → reinstall
+        title={t("settings.mod.title", { expected: mod.expected, installed: mod.installed })}>
+        {t("settings.mod.pill", { installed: mod.installed })}
       </button>
       {open && (
-        <Modal label="Update the REFramework mod" onClose={() => setOpen(false)}>
+        <Modal label={t("settings.mod.modalLabel")} onClose={() => setOpen(false)}>
           <div className="modal-head">
-            <h2>Update the REFramework mod</h2>
-            <button type="button" className="modal-close" aria-label="Close"
+            <h2>{t("settings.mod.heading")}</h2>
+            <button type="button" className="modal-close" aria-label={t("common.close")}
               onClick={() => setOpen(false)}>✕</button>
           </div>
           <p>
-            This app ships HuntDumper <strong>v{mod.expected}</strong>, but the
-            newest mod dump came from <strong>v{mod.installed}</strong>.
+            {t("settings.mod.bodyBefore")} <strong>v{mod.expected}</strong>
+            {t("settings.mod.bodyMiddle")} <strong>v{mod.installed}</strong>{t("settings.mod.bodyEnd")}
           </p>
           <p>
-            Copy <code>HuntDumper\hunt_dumper.lua</code> from the app&apos;s install
-            folder to:
+            {t("settings.mod.copyBefore")} <code>HuntDumper\hunt_dumper.lua</code>
+            {" "}{t("settings.mod.copyAfter")}
           </p>
           <pre>&lt;game&gt;\reframework\autorun\hunt_dumper.lua</pre>
           <p>
-            Overwrite the old file, then restart the game. Party HP (Survival)
-            and time-up failure detection need the newer mod.
+            {t("settings.mod.overwrite")}
           </p>
           <p>
             <a href="https://github.com/Diegoeyza/HunterPie_Analytics/releases/latest"
-              target="_blank" rel="noreferrer">Download the latest mod</a>
+              target="_blank" rel="noreferrer">{t("settings.mod.download")}</a>
           </p>
         </Modal>
       )}

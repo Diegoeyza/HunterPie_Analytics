@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { apiGet, apiInvalidate, apiPut, apiSend, type AppSettings, type ImportJobStatus } from "../lib/api";
 import Modal from "./Modal";
 import { useToast } from "./Toast";
+import { LOCALES, tDynamic, useT } from "../lib/i18n";
 
 const THEME_KEY = "hp.theme";
 type Theme = "dark" | "light";
@@ -38,6 +39,7 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
   const [questTargetsOnly, setQuestTargetsOnly] = useState(false);
   const [saving, setSaving] = useState(false);
   const toast = useToast();
+  const { locale, setLocale, t } = useT();
 
   useEffect(() => {
     setTheme(loadTheme());
@@ -79,7 +81,7 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
       apiInvalidate();
       return s;
     } catch (e) {
-      toast.push(e instanceof Error ? e.message : "Could not save settings", true);
+      toast.push(e instanceof Error ? e.message : t("settings.toast.saveFailed"), true);
       return null;
     } finally {
       setSaving(false);
@@ -89,8 +91,8 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
   const saveDirs = async (dirs: string[]) => {
     const saved = await saveSettings(dirs, dpsWindow, questTargetsOnly);
     if (saved) toast.push(missing.length > 0
-      ? "Saved. That folder doesn't exist yet — it will be scanned once it does."
-      : "Hunt exports folder saved");
+      ? t("settings.toast.savedMissing")
+      : t("settings.toast.saved"));
     return saved !== null;
   };
 
@@ -98,8 +100,8 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
     setDpsWindow(window);
     const saved = await saveSettings(exportDirs, window, questTargetsOnly);
     if (saved) toast.push(window === "quest"
-      ? "DPS now divides by own first hit → quest end"
-      : "DPS now divides by first → last hit");
+      ? t("settings.toast.dpsQuest")
+      : t("settings.toast.dpsEngagement"));
     return saved !== null;
   };
 
@@ -111,20 +113,22 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
     const saved = await saveSettings(exportDirs, dpsWindow, next);
     if (!saved) return;
     if (!next) {
-      toast.push("Quest-objective filter off — auto-hidden hunts restored");
+      toast.push(t("settings.toast.filterOff"));
       return;
     }
     const hidden = saved.filter_applied ?? 0;
     const unknown = saved.unknown_targets ?? 0;
     if (unknown === 0) {
       toast.push(hidden > 0
-        ? `Filter on — ${hidden} hunt${hidden === 1 ? "" : "s"} hidden`
-        : "Quest-objective filter on");
+        ? t(hidden === 1
+          ? "settings.toast.huntsHidden.one"
+          : "settings.toast.huntsHidden.other", { n: hidden })
+        : t("settings.toast.filterOn"));
       return;
     }
     try {
       const job = await apiSend<{ job_id: string }>("POST", "/import?force=1");
-      toast.push(`Filter on — rechecking exports to cover ${unknown} older hunt(s)…`);
+      toast.push(t("settings.toast.rechecking", { n: unknown }));
       for (;;) {
         await new Promise((r) => setTimeout(r, 1000));
         try {
@@ -132,7 +136,7 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
           if (st.state === "running") continue;
           apiInvalidate();
           if (st.state === "done") {
-            toast.push(`Quest-objective filter applied — ${st.scanned} export(s) rechecked`);
+            toast.push(t("settings.toast.rechecked", { n: st.scanned }));
           }
           break;
         } catch {
@@ -140,8 +144,7 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
         }
       }
     } catch {
-      toast.push("Filter applied to known hunts; older hunts need Full recheck "
-        + "(another import may be running)", true);
+      toast.push(t("settings.toast.filterPartial"), true);
     }
   };
 
@@ -153,64 +156,72 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
 
   return (
     <>
-      <button type="button" className="settings-open" title="Settings"
-        aria-label="Settings" aria-haspopup="dialog"
+      <button type="button" className="settings-open" title={t("settings.title")}
+        aria-label={t("settings.title")} aria-haspopup="dialog"
         onClick={() => setOpen(true)}>⚙</button>
       {open && (
-        <Modal label="Settings" onClose={() => setOpen(false)}>
+        <Modal label={t("settings.title")} onClose={() => setOpen(false)}>
           <div className="modal-head">
-            <h2>Settings</h2>
+            <h2>{t("settings.title")}</h2>
             <button type="button" className="row-action"
-              onClick={() => setOpen(false)}>Close</button>
+              onClick={() => setOpen(false)}>{t("common.close")}</button>
           </div>
           <div className="settings-page">
-            <section aria-label="Display">
-              <h3>Display</h3>
+            <section aria-label={t("settings.display")}>
+              <h3>{t("settings.display")}</h3>
               <div className="settings-row">
-                <span>Theme</span>
-                <div className="seg" role="group" aria-label="Theme">
+                <span>{t("settings.theme")}</span>
+                <div className="seg" role="group" aria-label={t("settings.theme")}>
                   <button type="button" className={theme === "dark" ? "on" : ""}
                     aria-pressed={theme === "dark"}
-                    onClick={() => setTheme("dark")}>Dark</button>
+                    onClick={() => setTheme("dark")}>{t("settings.themeDark")}</button>
                   <button type="button" className={theme === "light" ? "on" : ""}
                     aria-pressed={theme === "light"}
-                    onClick={() => setTheme("light")}>Light</button>
+                    onClick={() => setTheme("light")}>{t("settings.themeLight")}</button>
+                </div>
+              </div>
+              <div className="settings-row">
+                <span>{t("settings.language")}</span>
+                <div className="seg" role="group" aria-label={t("settings.language")}>
+                  {LOCALES.map((l) => (
+                    <button key={l.id} type="button" className={locale === l.id ? "on" : ""}
+                      aria-pressed={locale === l.id}
+                      onClick={() => setLocale(l.id)}>{l.label}</button>
+                  ))}
                 </div>
               </div>
             </section>
 
-            <section aria-label="DPS window">
-              <h3>DPS window</h3>
-              <div className="settings-choices" role="radiogroup" aria-label="DPS window">
+            <section aria-label={t("settings.dpsWindow")}>
+              <h3>{t("settings.dpsWindow")}</h3>
+              <div className="settings-choices" role="radiogroup" aria-label={t("settings.dpsWindow")}>
                 <button type="button" role="radio"
                   aria-checked={dpsWindow === "engagement"}
                   className={dpsWindow === "engagement" ? "on" : ""}
                   disabled={saving}
                   onClick={() => saveDpsWindow("engagement")}>
-                  <b>First → last hit</b>
-                  <span>Your active fighting time. Late joiners are divided
-                  by their own time in the fight.</span>
+                  <b>{t("settings.dpsEngagementTitle")}</b>
+                  <span>{t("settings.dpsEngagementBody")}</span>
                 </button>
                 <button type="button" role="radio"
                   aria-checked={dpsWindow === "quest"}
                   className={dpsWindow === "quest" ? "on" : ""}
                   disabled={saving}
                   onClick={() => saveDpsWindow("quest")}>
-                  <b>First hit → kill</b>
-                  <span>Freezes when the monster goes down (quest end if
-                  nothing did), matching the in-game meter.</span>
+                  <b>{t("settings.dpsQuestTitle")}</b>
+                  <span>{t("settings.dpsQuestBody")}</span>
                 </button>
               </div>
             </section>
 
-            <section aria-label="Hunt exports folders">
-              <h3>Hunt exports folders</h3>
+            <section aria-label={t("settings.exports")}>
+              <h3>{t("settings.exports")}</h3>
               {exportDirs.length > 0 && (
                 <ul className="settings-dirs">
                   {exportDirs.map((dir) => (
                     <li key={dir}>
                       <span title={dir}>{dir}</span>
-                      <button type="button" aria-label={`Remove ${dir}`}
+                      <button type="button" aria-label={t("settings.exportsRemove", { dir })}
                         disabled={saving}
                         onClick={() => saveDirs(exportDirs.filter((d) => d !== dir))}>
                         ✕
@@ -220,68 +231,65 @@ export default function SettingsMenu({ includeFailed, onIncludeFailed,
                 </ul>
               )}
               <div className="settings-add">
-                <input type="text" value={newDir} aria-label="Hunt exports folder"
+                <input type="text" value={newDir} aria-label={t("settings.exportsFolder")}
                   placeholder="C:\...\reframework\data\HuntExports"
                   disabled={saving}
                   onChange={(e) => setNewDir(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") addDir(); }} />
                 <button type="button" onClick={addDir}
-                  disabled={saving || !newDir.trim()}>Add</button>
+                  disabled={saving || !newDir.trim()}>{t("common.add")}</button>
               </div>
               <p className="settings-hint">
-                Extra folders to scan, e.g. a Mod Organizer 2 instance:
-                {" "}<code>&lt;instance&gt;\overwrite\reframework\data\HuntExports</code>.
-                {envOverride && <> <b>$HUNT_EXPORTS</b> is set and overrides this list.</>}
+                {t("settings.exportsHintLead")}
+                {" "}<code>&lt;instance&gt;\overwrite\reframework\data\HuntExports</code>{t("settings.exportsHintTail")}
+                {envOverride && <> <b>$HUNT_EXPORTS</b>{t("settings.exportsEnvSuffix")}</>}
               </p>
               {missing.length > 0 && (
                 <p className="settings-hint warn">
-                  Not found yet: {missing.join(", ")}
+                  {t("settings.exportsMissing", { dirs: missing.join(", ") })}
                 </p>
               )}
               {detected.length > 0 && (
                 <p className="settings-hint" title={detected.map((s) => s.path).join("\n")}>
-                  Active sources: {detected.map((s) => s.kind).join(" + ")}.
+                  {t("settings.exportsActive", {
+                    kinds: detected
+                      .map((s) => tDynamic(`settings.source.${s.kind}`))
+                      .join(" + "),
+                  })}
                 </p>
               )}
             </section>
 
-            <section aria-label="Data">
-              <h3>Data</h3>
+            <section aria-label={t("settings.data")}>
+              <h3>{t("settings.data")}</h3>
               <label className="settings-row settings-check">
                 <input type="checkbox" checked={includeFailed}
                   onChange={(e) => onIncludeFailed(e.target.checked)} />
-                <span>Include failed hunts</span>
+                <span>{t("settings.includeFailed")}</span>
               </label>
               <p className="settings-hint">
-                Counts carted-out quests in performance stats. Clear rates always
-                count failures, and hunts that never engaged a target aren&apos;t
-                recorded at all.
+                {t("settings.includeFailedHint")}
               </p>
               <label className="settings-row settings-check">
                 <input type="checkbox" checked={questTargetsOnly} disabled={saving}
                   onChange={(e) => saveQuestTargetsOnly(e.target.checked)} />
-                <span>Only quest objectives</span>
+                <span>{t("settings.questTargetsOnly")}</span>
               </label>
               <p className="settings-hint">
-                Hides hunts whose monster was not the quest objective — an
-                invading Guardian Rathalos, for example — exactly like pressing
-                Ignore. Applies to older hunts too when the companion recorded
-                which monsters were targets; turning it off restores them. Your
-                own ignores are always kept.
+                {t("settings.questTargetsOnlyHint")}
               </p>
               <label className="settings-row settings-check">
                 <input type="checkbox" checked={checkUpdates}
                   onChange={(e) => onCheckUpdates(e.target.checked)} />
-                <span>Check for updates</span>
+                <span>{t("settings.checkUpdates")}</span>
               </label>
               <p className="settings-hint">
-                Asks GitHub for the latest release so the app can update itself in
-                place. Off = no network requests at all.
-                {appVersion ? <> · you have <b>v{appVersion}</b></> : null}
+                {t("settings.checkUpdatesHint")}
+                {appVersion ? <> · {t("settings.versionLabel")} <b>v{appVersion}</b></> : null}
                 {onWhatsNew ? (
                   <> · <button type="button" className="link-button"
                     onClick={() => { setOpen(false); onWhatsNew(); }}>
-                    What&apos;s new
+                    {t("settings.whatsNew")}
                   </button></>
                 ) : null}
               </p>

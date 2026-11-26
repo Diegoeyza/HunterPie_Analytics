@@ -1,0 +1,14 @@
+{
+  "activity.empty.what": "activity",
+  "activity.empty.hint": "Hunt something first.",
+  "activity.summary.one": "{hunts} hunts · {damage} total damage · {days} active day",
+  "activity.summary.other": "{hunts} hunts · {damage} total damage · {days} active days",
+  "activity.chart.hunts": "hunts",
+  "activity.chart.clearRate": "clear rate",
+  "activity.table.title": "By day — click a header to sort",
+  "activity.table.date": "Date",
+  "activity.table.hunts": "Hunts",
+  "activity.table.clearPct": "Clear %",
+  "activity.table.avgDps": "Avg DPS",
+  "activity.table.damage": "Damage"
+}

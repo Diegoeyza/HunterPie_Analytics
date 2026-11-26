@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { useT } from "@/lib/i18n";
 
 export interface ComboOption {
   value: string;
@@ -23,6 +24,7 @@ interface Props {
 /** Searchable combobox: substring filter, keyboard navigable, safe with
  *  thousands of options (renders at most RENDER_CAP rows). Empty value = All. */
 export default function SearchSelect({ label, value, options, placeholder, showAll = true, onChange }: Props) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(-1);
@@ -87,14 +89,14 @@ export default function SearchSelect({ label, value, options, placeholder, showA
           aria-expanded={open}
           aria-controls={listId}
           aria-autocomplete="list"
-          placeholder={placeholder ?? "All — type to search"}
+          placeholder={placeholder ?? t("scope.search.placeholder")}
           value={open ? query : (selected?.label ?? "")}
           onFocus={() => { setOpen(true); setQuery(""); }}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onKeyDown={onKey}
         />
         {!open && value !== "" && (
-          <button type="button" className="combo-clear" aria-label={`Clear ${label}`}
+          <button type="button" className="combo-clear" aria-label={t("scope.search.clear", { label })}
             onMouseDown={(e) => { e.preventDefault(); onChange(""); }}>
             ✕
           </button>
@@ -108,7 +110,7 @@ export default function SearchSelect({ label, value, options, placeholder, showA
               onMouseDown={(e) => { e.preventDefault(); commit(""); }}
               onMouseEnter={() => setHighlight(-1)}
             >
-              All
+              {t("common.all")}
             </li>
             )}
             {capped.map((o, i) => (
@@ -124,11 +126,11 @@ export default function SearchSelect({ label, value, options, placeholder, showA
             ))}
             {matches.length > RENDER_CAP && (
               <li className="combo-count" aria-hidden="true">
-                {matches.length} matches — keep typing to narrow
+                {t("scope.search.matches", { n: matches.length })}
               </li>
             )}
             {q && matches.length === 0 && (
-              <li className="combo-count" aria-hidden="true">no matches</li>
+              <li className="combo-count" aria-hidden="true">{t("scope.search.noMatches")}</li>
             )}
           </ul>
         )}

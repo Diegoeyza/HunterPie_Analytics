@@ -4,6 +4,9 @@
  *  the UI and /api on one origin — works with zero config. Dev/Docker set
  *  NEXT_PUBLIC_API_URL (e.g. http://localhost:8000) to target a separate port.
  */
+import { t } from "./i18n";
+import { weaponTypeName } from "./names";
+
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 
 export type Params = Record<string, string | number | boolean | null | undefined>;
@@ -215,7 +218,8 @@ export interface HuntHighlightPlayer {
   awards: HuntHighlightAward[];
 }
 export interface HuntHighlights {
-  hunt_id: number; monster: string | null; started_at: string; cleared: boolean;
+  hunt_id: number; monster: string | null; monster_id?: number | null;
+  started_at: string; cleared: boolean;
   awards: AwardMeta[]; players: HuntHighlightPlayer[];
 }
 export interface HighlightLeader {
@@ -244,9 +248,9 @@ export const UNKNOWN_VARIANT_ID = 0;
 
 /** Display label: user name when labeled, else compact fingerprint. */
 export const variantLabel = (v: VariantOption): string =>
-  v.label ?? `${v.weapon_type} · ${Math.round(v.raw)} raw / ${Math.round(v.element)} el / ${Math.round(v.affinity)}%`;
+  v.label ?? `${weaponTypeName(v.weapon_type)} · ${Math.round(v.raw)} ${t("unit.raw")} / ${Math.round(v.element)} ${t("unit.element")} / ${Math.round(v.affinity)}%`;
 export interface HuntSummary {
-  id: number; monster: string; started_at: string;
+  id: number; monster: string; monster_id?: number | null; started_at: string;
   quest_id: number | null; quest_stars: number | null;
   clear_s: number | null; cleared: boolean; carts: number; players: number;
   /** Non-supporter party, for the Hunters cell tooltip (name + rank). */
@@ -263,6 +267,8 @@ export interface HuntSummary {
   /** Distinct non-damage awards scored by anyone in the hunt (REFramework). */
   highlight_count?: number;
   highlight_names?: string[];
+  /** Award ids, parallel to `highlight_names` (for localized labels). */
+  highlight_award_ids?: number[];
 }
 
 export const PALETTE = [

@@ -3,43 +3,57 @@
  *  Kept in the bundle (not fetched) so the popup works offline and when the
  *  update check is off; it links to GitHub for the full notes. Add one entry
  *  per release worth announcing — the popup opens once per version, the first
- *  time the app runs it (Settings → Data also re-opens it on demand). */
+ *  time the app runs it (Settings → Data also re-opens it on demand).
+ *
+ *  `title` and `bullets` hold translation keys (area `changelog.<version>`);
+ *  the caller translates them so this file stays pure data. */
+
+import type { MessageKey } from "../locales/en";
 
 export type ReleaseNote = {
   version: string;
-  title: string;
-  bullets: string[];
+  title: MessageKey;
+  bullets: MessageKey[];
 };
 
 export const RELEASES_URL = "https://github.com/Diegoeyza/HunterPie_Analytics/releases";
 
 export const RELEASES: ReleaseNote[] = [
   {
-    version: "1.2.6",
-    title: "Hunter rank & HP fixes",
+    version: "1.3.0",
+    title: "changelog.1.3.0.title",
     bullets: [
-      "Each hunter’s rank is now shown next to their name in a hunt’s party cards and in the Hunters tooltip — read from the HunterPie companion’s party export.",
-      "Party HP curves are now keyed by the game’s network member index, so a hunter’s near-death curve can no longer be assigned to another player.",
-      "A companion restarted mid-hunt is now merged back into the same hunt instead of creating a duplicate with no HP.",
-      "Bundles HuntDumper 0.12.7. If the mod pill asks you to reinstall, update the REFramework mod to match.",
+      "changelog.1.3.0.0",
+      "changelog.1.3.0.1",
+      "changelog.1.3.0.2",
+    ],
+  },
+  {
+    version: "1.2.6",
+    title: "changelog.1.2.6.title",
+    bullets: [
+      "changelog.1.2.6.0",
+      "changelog.1.2.6.1",
+      "changelog.1.2.6.2",
+      "changelog.1.2.6.3",
     ],
   },
   {
     version: "1.2.5",
-    title: "Fixes",
+    title: "changelog.1.2.5.title",
     bullets: [
-      "The \u201cWhat's new\u201d note now stays closed after you close it. It used to come back on every launch because the desktop app picked a new local port each time, which reset the browser storage that remembered it.",
-      "The app now keeps a stable local port, so your last tab, hunter scope, filters and party size are remembered across launches too.",
+      "changelog.1.2.5.0",
+      "changelog.1.2.5.1",
     ],
   },
   {
     version: "1.2.4",
-    title: "Only quest objectives",
+    title: "changelog.1.2.4.title",
     bullets: [
-      "Hunts for a monster that only invaded the quest — a Guardian Rathalos in an Arkveld quest, for example — are now hidden automatically, exactly like pressing Ignore.",
-      "Settings → Data → \u201cOnly quest objectives\u201d turns it on or off. Older hunts are re-read from your export files, so the filter covers past quests too.",
-      "Ignores you made yourself are always kept. Turning the filter off restores only the hunts it hid. No mod update needed.",
-      "Hunts → All hunts now has Delete as well as Ignore: Delete removes a hunt from every stat and from the list for good (a re-import won't bring it back), and \u201cShow deleted\u201d lets you restore one.",
+      "changelog.1.2.4.0",
+      "changelog.1.2.4.1",
+      "changelog.1.2.4.2",
+      "changelog.1.2.4.3",
     ],
   },
 ];

@@ -14,6 +14,8 @@ import EmptyState from "../EmptyState";
 import ChartTooltip from "../ChartTooltip";
 import { GRID_STROKE, TICK } from "../ChartKit";
 import { useFilterOptions } from "../useFilterOptions";
+import { useT } from "@/lib/i18n";
+import { monsterName } from "@/lib/names";
 
 interface DpsPoint { t: number; dmg: number; }
 interface SurvivalCurvePlayer {
@@ -27,9 +29,12 @@ interface SurvivalRow {
   time_below_50: number; time_below_25: number; time_full: number;
   samples: number;
 }
-interface SurvivalEvent { type: string; start: number; end: number | null; monster?: string | null; hunt_id?: number | null; }
+interface SurvivalEvent {
+  type: string; start: number; end: number | null;
+  monster?: string | null; monster_id?: number | null; hunt_id?: number | null;
+}
 interface SurvivalData {
-  hunt_id: number; monster: string; started_at: string;
+  hunt_id: number; monster: string; monster_id?: number | null; started_at: string;
   clear_s: number | null;
   quest: { quest_id: number | null; stars: number | null; max_hp: number | null };
   players: SurvivalCurvePlayer[]; events: SurvivalEvent[];
@@ -89,6 +94,7 @@ function mergeSurvival(
 }
 
 export default function SurvivalView({ scope, partySize }: { scope: number[]; partySize: number | null }) {
+  const { t } = useT();
   const opts = useFilterOptions();
   const [huntId, setHuntId] = useState<number | null>(null);
   const [showMonsterHp, setShowMonsterHp] = useState(false);
@@ -123,7 +129,9 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
   }, [hunts]);
 
   const fetchId = huntId ?? hunts?.[0]?.id ?? null;
-  const curveQ = useApi<SurvivalData>(fetchId === null ? "" : `/hunts/${fetchId}/curve`);
+  // `null` params skip the request: an empty path would hit `GET /api` (404).
+  const curveQ = useApi<SurvivalData>(
+    `/hunts/${fetchId ?? 0}/curve`, fetchId === null ? null : undefined);
   const curve = curveQ.data && curveQ.data.hunt_id === fetchId ? curveQ.data : null;
   const error = huntsQ.error ?? curveQ.error;
 
@@ -184,23 +192,20 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
   const selectHunt = (v: string) => setHuntId(v ? Number(v) : null);
 
   if (error) return <ApiState error={error} loading={false} />;
-  if (huntsQ.loading || !hunts) return <p>Loading…</p>;
+  if (huntsQ.loading || !hunts) return <p>{t("common.loading")}</p>;
   if (hunts.length === 0) {
     return (
-      <EmptyState what="hunts">
-        <p>Import hunts first — survival data appears once dumps carry hunter HP.</p>
+      <EmptyState what={t("survival.empty.what")}>
+        <p>{t("survival.empty.import")}</p>
       </EmptyState>
     );
   }
   if (!latestWithHealth) {
     return (
       <div className="card">
-        <h2>Survival — no hunter HP yet</h2>
+        <h2>{t("survival.noHp.title")}</h2>
         <p className="blurb">
-          None of these hunts carry per-hunter HP. Enable <b>HuntDumper 0.11+</b>
-          before a quest (it polls party HP once a second); reloading scripts
-          mid-hunt skips that hunt. Older hunts keep their damage curves, but
-          have no survival data.
+          {t("survival.noHp.before")}<b>HuntDumper 0.11+</b>{t("survival.noHp.after")}
         </p>
       </div>
     );
@@ -212,26 +217,32 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
     <div className="card">
       <div className="filters">
         <SearchSelect
-          label="Hunt"
+          label={t("survival.filter.hunt")}
           value={huntId === null ? "" : String(huntId)}
           options={(hunts ?? []).map((h) => ({
             value: String(h.id),
-            label: `#${h.id} ${h.monster} · ${fmtDate(h.started_at)} · ${h.players}p`,
+            label: t("survival.option", {
+              id: h.id,
+              monster: monsterName(h.monster, h.monster_id),
+              date: fmtDate(h.started_at),
+              players: h.players,
+            }),
           }))}
           onChange={selectHunt}
         />
         <label>
           <input type="checkbox" checked={showMonsterHp} onChange={(e) => setShowMonsterHp(e.target.checked)} />
-          Monster HP
+          {t("survival.filter.monsterHp")}
         </label>
       </div>
       {curve && (
         <>
           <h2>
-            #{curve.hunt_id} {curve.monster}
+            #{curve.hunt_id} {monsterName(curve.monster, curve.monster_id)}
             {curve.quest.stars ? ` · ${curve.quest.stars}★` : ""}
             {curve.clear_s
-              ? ` · ${curve.cleared === false ? "failed after" : "cleared in"} ${fmtClearTime(curve.clear_s)}`
+              ? ` · ${t(curve.cleared === false ? "survival.failedLine" : "survival.clearedLine",
+                { time: fmtClearTime(curve.clear_s) })}`
               : ""}
           </h2>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "4px 0 8px" }}>
@@ -245,7 +256,7 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
                   type="button"
                   onClick={() => togglePlayer(p.player)}
                   aria-pressed={!off}
-                  title={off ? `Show ${p.player}` : `Hide ${p.player}`}
+                  title={off ? t("survival.toggle.show", { name: p.player }) : t("survival.toggle.hide", { name: p.player })}
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 6,
                     opacity: off || dimmed ? 0.45 : 1,
@@ -263,12 +274,10 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
           </div>
           {!selectedHasHealth ? (
             <p className="blurb">
-              This hunt has no hunter HP — it predates HP tracking or was
-              captured by an older mod build. Install the current HuntDumper
-              (Settings → Mod) and reload the in-game script.{" "}
+              {t("survival.noHp.thisHunt")}{" "}
               {latestWithHealth && latestWithHealth.id !== huntId && (
                 <button type="button" onClick={() => setHuntId(latestWithHealth.id)}>
-                  Open the latest hunt with HP
+                  {t("survival.noHp.openLatest")}
                 </button>
               )}
             </p>
@@ -279,15 +288,15 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
                   <CartesianGrid stroke={GRID_STROKE} />
                   <XAxis dataKey="t" tick={TICK} minTickGap={40}
                     tickFormatter={(v: number) => fmtTime(v)}
-                    label={{ value: "time since quest start", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, position: "insideBottom", offset: -2 }} />
+                    label={{ value: t("survival.axis.time"), fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, position: "insideBottom", offset: -2 }} />
                   {hasDps && (
                     <YAxis tick={TICK}
-                      label={{ value: "DPS (5s rolling avg)", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: -90, position: "insideLeft" }} />
+                      label={{ value: t("survival.axis.dps"), fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: -90, position: "insideLeft" }} />
                   )}
                   <YAxis yAxisId="hp" orientation="right" domain={[0, 1]}
                     tick={{ fill: "var(--bad, #e05c5c)", fontSize: 11 }}
                     tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
-                    label={{ value: "hunter HP", fill: "var(--bad, #e05c5c)", fontSize: 11, angle: 90, position: "insideRight" }} />
+                    label={{ value: t("survival.axis.hp"), fill: "var(--bad, #e05c5c)", fontSize: 11, angle: 90, position: "insideRight" }} />
                   <Tooltip content={<ChartTooltip metric="dps" events={curve.events} colorOf={() => "var(--bad, #e05c5c)"} />} />
                   <Legend />
                   {curve.events.map((e, i) => (
@@ -303,12 +312,12 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
                       !scope.includes(nameToId.get(p.player) ?? -1);
                     return [
                       <Line key={`${p.player}-hp`} type="monotone" dataKey={`${p.player}__hp`}
-                        yAxisId="hp" name={`${p.player} HP`} stroke={c}
+                        yAxisId="hp" name={t("survival.series.hp", { name: p.player })} stroke={c}
                         dot={false} strokeWidth={dimmed ? 1 : 2.5}
                         strokeOpacity={dimmed ? 0.3 : 1} connectNulls />,
                       hasDps && (
                         <Line key={`${p.player}-dps`} type="monotone" dataKey={`${p.player}__dps`}
-                          name={`${p.player} DPS`} stroke={c}
+                          name={t("survival.series.dps", { name: p.player })} stroke={c}
                           strokeDasharray="3 3" dot={false} strokeWidth={1.25}
                           strokeOpacity={dimmed ? 0.2 : 0.7} connectNulls />
                       ),
@@ -316,7 +325,7 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
                   })}
                   {showMonsterHp && (
                     <Line type="monotone" dataKey="monster_hp"
-                      yAxisId="hp" name={`${curve.monster} HP`} stroke="#e05c5c"
+                      yAxisId="hp" name={t("survival.series.monsterHp", { monster: monsterName(curve.monster, curve.monster_id) })} stroke="#e05c5c"
                       strokeDasharray="6 3" dot={false} strokeWidth={1.5} connectNulls />
                   )}
                 </LineChart>
@@ -324,22 +333,22 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
               {missingHp > 0 && (
                 <p className="blurb">
                   {missingHp === curve.players.length
-                    ? "No hunter HP captured for this hunt."
-                    : `${missingHp} hunter${missingHp === 1 ? "" : "s"} without HP data in this capture.`}
+                    ? t("survival.missing.all")
+                    : t(missingHp === 1 ? "survival.missing.one" : "survival.missing.other", { count: missingHp })}
                 </p>
               )}
-              <h3 className="chart-title">Time in danger</h3>
+              <h3 className="chart-title">{t("survival.danger.title")}</h3>
               <div className="table-wrap">
                 <table className="grid">
                   <thead>
                     <tr>
-                      <th>Hunter</th>
-                      <th className="num">Min HP</th>
-                      <th className="num">Avg HP</th>
-                      <th className="num">&lt; 50%</th>
-                      <th className="num">&lt; 25%</th>
-                      <th className="num">Full HP</th>
-                      <th className="num">Samples</th>
+                      <th>{t("survival.col.hunter")}</th>
+                      <th className="num">{t("survival.col.minHp")}</th>
+                      <th className="num">{t("survival.col.avgHp")}</th>
+                      <th className="num">{t("survival.col.below50")}</th>
+                      <th className="num">{t("survival.col.below25")}</th>
+                      <th className="num">{t("survival.col.fullHp")}</th>
+                      <th className="num">{t("survival.col.samples")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -358,13 +367,11 @@ export default function SurvivalView({ scope, partySize }: { scope: number[]; pa
                 </table>
               </div>
               <p className="blurb">
-                Solid lines: hunter HP (right axis).
+                {t("survival.legend.hp")}
                 {hasDps
-                  ? " Dashed lines: DPS (left axis)."
-                  : " No DPS for this hunt: the companion wasn\u2019t running, and only the companion records damage over time."}
-                {" "}Averages and time-in-danger ignore gaps over 6 s
-                (loading screens/alt-tabs). HP is sampled ~1 Hz by
-                HuntDumper 0.11+.
+                  ? ` ${t("survival.legend.dps")}`
+                  : ` ${t("survival.legend.noDps")}`}
+                {" "}{t("survival.legend.note")}
               </p>
             </>
           )}

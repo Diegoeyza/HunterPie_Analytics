@@ -1,0 +1,22 @@
+{
+  "weapon.Greatsword": "大剣",
+  "weapon.SwordAndShield": "片手剣",
+  "weapon.DualBlades": "双剣",
+  "weapon.Longsword": "太刀",
+  "weapon.Hammer": "ハンマー",
+  "weapon.HuntingHorn": "狩猟笛",
+  "weapon.Lance": "ランス",
+  "weapon.GunLance": "ガンランス",
+  "weapon.SwitchAxe": "スラッシュアックス",
+  "weapon.ChargeBlade": "チャージアックス",
+  "weapon.InsectGlaive": "操虫棍",
+  "weapon.Bow": "弓",
+  "weapon.HeavyBowgun": "ヘビィボウガン",
+  "weapon.LightBowgun": "ライトボウガン",
+  "name.unknownGear": "不明（装備情報なしのハント）",
+  "name.builds": "{n} ビルド",
+  "name.hunts": "{n} ハント",
+  "unit.raw": "物理",
+  "unit.element": "属性",
+  "unit.affinity": "会心率"
+}

@@ -1,0 +1,22 @@
+{
+  "weapon.Greatsword": "Greatsword",
+  "weapon.SwordAndShield": "Sword & Shield",
+  "weapon.DualBlades": "Dual Blades",
+  "weapon.Longsword": "Long Sword",
+  "weapon.Hammer": "Hammer",
+  "weapon.HuntingHorn": "Hunting Horn",
+  "weapon.Lance": "Lance",
+  "weapon.GunLance": "Gunlance",
+  "weapon.SwitchAxe": "Switch Axe",
+  "weapon.ChargeBlade": "Charge Blade",
+  "weapon.InsectGlaive": "Insect Glaive",
+  "weapon.Bow": "Bow",
+  "weapon.HeavyBowgun": "Heavy Bowgun",
+  "weapon.LightBowgun": "Light Bowgun",
+  "name.unknownGear": "Unknown (pre-gear hunts)",
+  "name.builds": "{n} builds",
+  "name.hunts": "{n} hunts",
+  "unit.raw": "raw",
+  "unit.element": "el",
+  "unit.affinity": "affinity"
+}

@@ -1,0 +1,14 @@
+{
+  "weapons.column.weapon": "Weapon",
+  "weapons.column.hunts": "Hunts",
+  "weapons.column.avgDps": "Avg DPS",
+  "weapons.column.peak": "Peak hit*",
+  "weapons.column.clearPct": "Clear %",
+  "weapons.chart.heading": "Average DPS by weapon",
+  "weapons.chart.xAxis": "average DPS",
+  "weapons.chart.series": "avg DPS",
+  "weapons.table.heading": "Weapon performance matrix (click a header to sort)",
+  "weapons.table.note": "* Peak hit = biggest single damage frame, not sustained DPS.",
+  "weapons.empty.none": "weapon data for these filters",
+  "weapons.empty.hint": "Try a different filter combination."
+}

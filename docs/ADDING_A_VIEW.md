@@ -48,14 +48,43 @@ Two registries, two one-line additions. Nothing else to touch.
    hunters) — pass it as `player_ids` to scope-aware endpoints, or dim
    out-of-scope series. Global state (tab/scope/party) syncs to the URL
    automatically via `lib/url.ts` — no per-view work needed.
-2. Register it with one entry in `dashboard/lib/registry.tsx`:
+2. Register it with one entry in `dashboard/lib/registry.tsx` (`title`/`blurb`
+   are translation keys, not text):
 
    ```tsx
-   { id: "mine", title: "Mine", blurb: "What this shows.", render: () => <MyView /> },
+   { id: "mine", title: "tab.mine", blurb: "tab.mine.blurb", render: () => <MyView /> },
    ```
 
-   Tabs, nav, and header update automatically — `app/page.tsx` renders
-   everything from `TABS`.
+   `app/page.tsx` renders everything from `TABS`, so tabs, nav, blurbs and
+   `<html lang>` update automatically.
+
+## Translations (en + ja)
+
+Every user-facing string lives in `dashboard/locales/<locale>/`, one JSON file
+per screen area (`common`, `table`, `views.mine`, …), composed by
+`locales/<locale>/index.ts`. There are no keys in code paths other than `t()`.
+
+1. `const { t } = useT();` from `@/lib/i18n` — `t("mine.title", { n })`
+   interpolates `{n}`. In non-component helpers call the exported plain `t`
+   (it reads the active locale).
+2. Add the key to `locales/en/views.mine.json` **and**
+   `locales/ja/views.mine.json` (or add a new area: one JSON pair + one import
+   + one spread in both index files).
+3. Plurals: two keys chosen in code (`"mine.hunts.one"` / `"mine.hunts.other"`);
+   Japanese uses the same wording for both.
+4. Data names never go in the dictionary — use `lib/names.ts`:
+   `monsterName(name, monster_id)`, `abnormalityName(id, name)`,
+   `awardName(id, name)`, `weaponTypeName(type)`. They fall back to the stored
+   English name, so payloads must carry the id (see `queries.py`).
+5. Numbers/dates: `lib/format.ts` (`fmtInt`, `fmtDate`, …) already use the
+   active locale — never hand-build `toLocaleString()` strings. Decimals and
+   percentages (`fmtDps`, `fmtPct`) are locale-neutral by design.
+6. Verify: `npm run check:i18n` (key parity + `{placeholder}` drift, runs in
+   CI) and `npx tsc --noEmit`. Visual check: `python scripts/check_ja_ui.py
+   --base <url>` sweeps every tab in Japanese for leftover English.
+7. Reviewer hand-off: `npm run i18n:sheet` regenerates
+   `docs/i18n/japanese-review.md` + `.csv`; terminology rules are in
+   `docs/i18n-glossary-ja.md`.
 
 ## Conventions
 

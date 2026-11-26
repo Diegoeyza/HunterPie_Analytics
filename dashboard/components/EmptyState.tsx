@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
+import { useT } from "@/lib/i18n";
 
 export default function EmptyState({ what, children }: { what: string; children: ReactNode }) {
+  const { t } = useT();
   return (
     <div className="empty">
-      <p>No {what} yet.</p>
+      <p>{t("table.empty.none", { what })}</p>
       <div>{children}</div>
     </div>
   );
@@ -19,12 +21,13 @@ export function scopeNames(scope: number[], players?: { id: number; name: string
 export function ScopeEmpty({ names, onClear, children }: {
   names: string[]; onClear: () => void; children?: ReactNode;
 }) {
+  const { t } = useT();
   return (
     <div className="empty">
-      <p>No hunts for {names.join(" + ")} match these filters.</p>
+      <p>{t("table.empty.scope", { names: names.join(" + ") })}</p>
       <div>
         {children}
-        <p><button type="button" onClick={onClear}>Clear hunter scope</button></p>
+        <p><button type="button" onClick={onClear}>{t("table.empty.clearScope")}</button></p>
       </div>
     </div>
   );

@@ -10,32 +10,39 @@ import { MonsterSelect, StarsSelect } from "../FilterBar";
 import { useFilterOptions } from "../useFilterOptions";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
 import { ChartTip, GRID_STROKE, TICK } from "../ChartKit";
+import { useT, type TFn } from "@/lib/i18n";
+import { weaponTypeName } from "@/lib/names";
 
 interface WeaponRow {
   weapon: string; hunts: number; avg_dps: number;
   peak_dps: number; clear_rate: number;
 }
 
-const columns: ColumnDef<WeaponRow>[] = [
-  { id: "weapon", accessorKey: "weapon", header: "Weapon" },
-  { id: "hunts", accessorKey: "hunts", header: "Hunts", meta: { cls: "num" } },
-  {
-    id: "avg_dps", accessorKey: "avg_dps", header: "Avg DPS", meta: { cls: "num" },
-    cell: ({ row }) => fmtDps(row.original.avg_dps),
-  },
-  {
-    id: "peak_dps", accessorKey: "peak_dps", header: "Peak hit*",
-    meta: { cls: "num" },
-    cell: ({ row }) => fmtDps(row.original.peak_dps),
-  },
-  {
-    id: "clear_rate", accessorKey: "clear_rate", header: "Clear %",
-    meta: { cls: "num" },
-    cell: ({ row }) => fmtPct(row.original.clear_rate),
-  },
-];
+function columnsFor(t: TFn): ColumnDef<WeaponRow>[] {
+  return [
+    { id: "weapon", accessorKey: "weapon", header: t("weapons.column.weapon"),
+      cell: ({ row }) => weaponTypeName(row.original.weapon) },
+    { id: "hunts", accessorKey: "hunts", header: t("weapons.column.hunts"), meta: { cls: "num" } },
+    {
+      id: "avg_dps", accessorKey: "avg_dps", header: t("weapons.column.avgDps"), meta: { cls: "num" },
+      cell: ({ row }) => fmtDps(row.original.avg_dps),
+    },
+    {
+      id: "peak_dps", accessorKey: "peak_dps", header: t("weapons.column.peak"),
+      meta: { cls: "num" },
+      cell: ({ row }) => fmtDps(row.original.peak_dps),
+    },
+    {
+      id: "clear_rate", accessorKey: "clear_rate", header: t("weapons.column.clearPct"),
+      meta: { cls: "num" },
+      cell: ({ row }) => fmtPct(row.original.clear_rate),
+    },
+  ];
+}
 
 export default function WeaponsView({ scope, variantId, weaponName, clearScope, partySize, includeFailed }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; partySize: number | null; includeFailed: boolean }) {
+  const { t } = useT();
+  const columns = columnsFor(t);
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [stars, setStars] = useState("");
@@ -80,7 +87,7 @@ export default function WeaponsView({ scope, variantId, weaponName, clearScope, 
     return (
       <div className="card">
         {filters}
-        <EmptyState what="weapon data for these filters"><p>Try a different filter combination.</p></EmptyState>
+        <EmptyState what={t("weapons.empty.none")}><p>{t("weapons.empty.hint")}</p></EmptyState>
       </div>
     );
   }
@@ -91,27 +98,28 @@ export default function WeaponsView({ scope, variantId, weaponName, clearScope, 
     <div className="cards-2">
       <div className="card">
         {filters}
-        <h2>Average DPS by weapon</h2>
+        <h2>{t("weapons.chart.heading")}</h2>
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={chartData} layout="vertical">
             <CartesianGrid stroke={GRID_STROKE} />
             <XAxis type="number" tick={TICK}
-              label={{ value: "average DPS", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, position: "insideBottom", offset: -2 }} />
-            <YAxis type="category" dataKey="weapon" width={110} tick={{ ...TICK, fontSize: 12 }} />
+              label={{ value: t("weapons.chart.xAxis"), fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, position: "insideBottom", offset: -2 }} />
+            <YAxis type="category" dataKey="weapon" width={110} tick={{ ...TICK, fontSize: 12 }}
+              tickFormatter={(v: string) => weaponTypeName(v)} />
             <ChartTip />
-            <Bar dataKey="avg_dps" name="avg DPS" fill="#5aa9e6" />
+            <Bar dataKey="avg_dps" name={t("weapons.chart.series")} fill="#5aa9e6" />
           </BarChart>
         </ResponsiveContainer>
       </div>
       <div className="card">
-        <h2>Weapon performance matrix (click a header to sort)</h2>
+        <h2>{t("weapons.table.heading")}</h2>
         <DataTable
           data={rows}
           columns={columns}
           initialSort={[{ id: "avg_dps", desc: true }]}
           getRowId={(r) => r.weapon}
         />
-        <p className="blurb">* Peak hit = biggest single damage frame, not sustained DPS.</p>
+        <p className="blurb">{t("weapons.table.note")}</p>
       </div>
     </div>
   );

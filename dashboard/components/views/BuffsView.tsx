@@ -8,6 +8,8 @@ import { ApiState, useApi } from "../../lib/useApi";
 import DataTable from "../DataTable";
 import SearchSelect from "../SearchSelect";
 import { useFilterOptions } from "../useFilterOptions";
+import { tDynamic, useT, type TFn } from "@/lib/i18n";
+import { abnormalityName, monsterName } from "@/lib/names";
 
 interface AbnormalityEntry {
   id: string; name: string; category: string; start: number; end: number | null;
@@ -17,6 +19,7 @@ interface PlayerAbnormalities {
 }
 interface EnrageWindow { start: number; end: number | null; }
 interface BuffsData {
+  monster_id?: number | null;
   hunt_id: number; monster: string; started_at: string;
   clear_s: number | null; first_hit_s: number | null;
   enrage: EnrageWindow[];
@@ -26,6 +29,7 @@ interface MonsterStatusWindow {
   id: string; name: string; kind: string; start: number; end: number | null;
 }
 interface MonsterStatusData {
+  monster_id?: number | null;
   hunt_id: number; monster: string; started_at: string;
   clear_s: number | null; first_hit_s: number | null;
   statuses: MonsterStatusWindow[];
@@ -77,39 +81,62 @@ const STATUS_COLORS: Record<string, string> = {
 };
 const statusColor = (id: string) => STATUS_COLORS[id] ?? "#9aa1b2";
 
-const columns: ColumnDef<UptimeRow>[] = [
-  { id: "player", accessorKey: "player", header: "Hunter" },
-  {
-    id: "category", accessorKey: "category", header: "Category",
-    cell: ({ row }) => (
-      <span style={{ color: CATEGORY_COLORS[row.original.category] ?? "#9aa1b2" }}>
-        {row.original.category}
-      </span>
-    ),
-  },
-  {
-    id: "name", accessorKey: "name", header: "Abnormality",
-    cell: ({ row }) => <span title={row.original.id}>{row.original.name}</span>,
-  },
-  {
-    id: "uptime_s", accessorKey: "uptime_s", header: "Uptime",
-    meta: { cls: "num" },
-    cell: ({ row }) => fmtTime(row.original.uptime_s),
-  },
-  {
-    id: "pct", accessorKey: "pct", header: "%",
-    meta: { cls: "num" },
-    cell: ({ row }) => `${row.original.pct.toFixed(1)}%`,
-  },
-  {
-    id: "activations", accessorKey: "activations", header: "Activations",
-    meta: { cls: "num" },
-  },
-];
+/** Category enum from the API (`Consumables`, `Skills`, …) -> display label. */
+function categoryName(t: TFn, category: string): string {
+  const key = `buffs.category.${category.toLowerCase()}`;
+  const label = tDynamic(key);
+  return label === key ? category : label;
+}
+
+/** Monster status event id (`enrage`, `ailment.poison`, …) -> display label. */
+function monsterStatusName(t: TFn, id: string, name: string): string {
+  const key = `buffs.status.${id}`;
+  const label = tDynamic(key);
+  return label === key ? abnormalityName(id, name) : label;
+}
+
+function buildColumns(
+  t: TFn,
+  nameOf: (id: string, name: string) => string,
+): ColumnDef<UptimeRow>[] {
+  return [
+    { id: "player", accessorKey: "player", header: t("buffs.table.hunter") },
+    {
+      id: "category", accessorKey: "category", header: t("buffs.table.category"),
+      cell: ({ row }) => (
+        <span style={{ color: CATEGORY_COLORS[row.original.category] ?? "#9aa1b2" }}>
+          {categoryName(t, row.original.category)}
+        </span>
+      ),
+    },
+    {
+      id: "name", accessorKey: "name", header: t("buffs.table.abnormality"),
+      cell: ({ row }) => <span title={row.original.id}>{nameOf(row.original.id, row.original.name)}</span>,
+    },
+    {
+      id: "uptime_s", accessorKey: "uptime_s", header: t("buffs.table.uptime"),
+      meta: { cls: "num" },
+      cell: ({ row }) => fmtTime(row.original.uptime_s),
+    },
+    {
+      id: "pct", accessorKey: "pct", header: t("buffs.table.pct"),
+      meta: { cls: "num" },
+      cell: ({ row }) => `${row.original.pct.toFixed(1)}%`,
+    },
+    {
+      id: "activations", accessorKey: "activations", header: t("buffs.table.activations"),
+      meta: { cls: "num" },
+    },
+  ];
+}
 /** Swimlane chart: one lane per hunter × buff, one shaded block per
  *  active window over fight time. Overlaps stack (no merging) so true
  *  uptime stays visible. */
-function BuffTimeline({ lanes, domain, t0 }: { lanes: BuffLane[]; domain: number; t0: number }) {
+function BuffTimeline({ lanes, domain, t0, t, nameOf }: {
+  lanes: BuffLane[]; domain: number; t0: number;
+  t: TFn;
+  nameOf: (id: string, name: string) => string;
+}) {
   const span = Math.max(domain - t0, 0.001);
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(t0 + f * span));
   return (
@@ -118,11 +145,12 @@ function BuffTimeline({ lanes, domain, t0 }: { lanes: BuffLane[]; domain: number
         const color = lane.color ?? CATEGORY_COLORS[lane.category] ?? "#9aa1b2";
         const caption = lane.sublabel
           ?? `${lane.player ? `${lane.player} · ` : ""}${lane.pct.toFixed(0)}%`;
+        const laneName = nameOf(lane.id, lane.name);
         return (
           <div className="buff-lane" key={`${lane.player}|${lane.id}|${lane.category}`}>
             <div className="buff-lane-label" title={`${lane.player ? `${lane.player} · ` : ""}${lane.id}`}>
               <span className="buff-dot" style={{ background: color }} />
-              <span className="buff-lane-name">{lane.name}</span>
+              <span className="buff-lane-name">{laneName}</span>
               <span className="buff-lane-player">{caption}</span>
             </div>
             <div className="buff-track">
@@ -130,13 +158,17 @@ function BuffTimeline({ lanes, domain, t0 }: { lanes: BuffLane[]; domain: number
                 const end = w.end ?? domain;
                 const left = Math.max(0, Math.min(100, ((w.start - t0) / span) * 100));
                 const width = end <= t0 ? 0 : Math.max(0.5, Math.min(100 - left, ((end - Math.max(w.start, t0)) / span) * 100));
+                const vars = {
+                  player: lane.player, name: laneName,
+                  start: Math.round(w.start), end: Math.round(end),
+                  duration: Math.round(end - w.start),
+                };
                 return (
                   <div
                     key={i}
                     className="buff-window"
                     style={{ left: `${left}%`, width: `${width}%`, background: color }}
-                    title={`${lane.player} · ${lane.name} · ${Math.round(w.start)}s–${Math.round(end)}s` +
-                      ` (${Math.round(end - w.start)}s)${w.open ? " · active at quest end" : ""}`}
+                    title={t(w.open ? "buffs.timeline.windowOpen" : "buffs.timeline.window", vars)}
                   />
                 );
               })}
@@ -147,9 +179,9 @@ function BuffTimeline({ lanes, domain, t0 }: { lanes: BuffLane[]; domain: number
       <div className="buff-lane buff-axis">
         <div className="buff-lane-label" />
         <div className="buff-track buff-axis-track">
-          {ticks.map((t) => (
-            <span key={t} className="buff-tick" style={{ left: `${((t - t0) / span) * 100}%` }}>
-              {fmtTime(t)}
+          {ticks.map((tick) => (
+            <span key={tick} className="buff-tick" style={{ left: `${((tick - t0) / span) * 100}%` }}>
+              {fmtTime(tick)}
             </span>
           ))}
         </div>
@@ -158,6 +190,7 @@ function BuffTimeline({ lanes, domain, t0 }: { lanes: BuffLane[]; domain: number
   );
 }
 export default function BuffsView({ scope, partySize }: { scope: number[]; partySize: number | null }) {
+  const { t } = useT();
   const opts = useFilterOptions();
   const [huntId, setHuntId] = useState<number | null>(null);
   const [catFilter, setCatFilter] = useState<string>("");
@@ -202,10 +235,10 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
       return "hunters";
     }
   });
-  const setBuffsTabPersist = (t: "hunters" | "monster") => {
-    setBuffsTab(t);
+  const setBuffsTabPersist = (tab: "hunters" | "monster") => {
+    setBuffsTab(tab);
     try {
-      localStorage.setItem(BUFFS_TAB_KEY, t);
+      localStorage.setItem(BUFFS_TAB_KEY, tab);
     } catch { /* private mode: tab just won't persist */ }
   };
   // One list for every hunt. Buffs are stored per hunt and never merged across
@@ -417,145 +450,152 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
   const activeFirstHit = buffsTab === "monster"
     ? (statusData?.first_hit_s ?? null)
     : (data?.first_hit_s ?? null);
-  const isModHunt = (hunts?.find((h) => h.id === huntId)?.source ?? "") === "reframework";
+  const selectedHunt = hunts?.find((h) => h.id === huntId) ?? null;
+  const isModHunt = (selectedHunt?.source ?? "") === "reframework";
 
   const categories = useMemo(() => [...new Set(rows.map((r) => r.category))].sort(), [rows]);
 
+  /** Resolve a buff/skill label: the derived Agitator row is UI-only. */
+  const nameOf = (id: string, name: string) => id === AGITATOR_ID
+    ? t("buffs.agitator.name")
+    : abnormalityName(id, name);
+  const monsterStatusOf = (id: string, name: string) => monsterStatusName(t, id, name);
+
   if (error) return <ApiState error={error} loading={false} />;
-  if (loadingList || !hunts) return <p>Loading…</p>;
+  if (loadingList || !hunts) return <p>{t("common.loading")}</p>;
 
   return (
     <div className="card">
-      <nav className="subtabs" role="tablist" aria-label="Buffs">
+      <nav className="subtabs" role="tablist" aria-label={t("buffs.tablist")}>
         <button type="button" role="tab" aria-selected={buffsTab === "hunters"}
           className={buffsTab === "hunters" ? "active" : ""}
-          onClick={() => setBuffsTabPersist("hunters")}>Hunters</button>
+          onClick={() => setBuffsTabPersist("hunters")}>{t("buffs.tabs.hunters")}</button>
         <button type="button" role="tab" aria-selected={buffsTab === "monster"}
           className={buffsTab === "monster" ? "active" : ""}
-          onClick={() => setBuffsTabPersist("monster")}>Monster</button>
+          onClick={() => setBuffsTabPersist("monster")}>{t("buffs.tabs.monster")}</button>
       </nav>
       <div className="filters">
         <SearchSelect
-          label="Hunt"
+          label={t("buffs.hunt.label")}
           value={huntId === null ? "" : String(huntId)}
           showAll={false}
           options={(hunts ?? []).map((h) => ({
             value: String(h.id),
-            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${fmtDate(h.started_at)} · ${h.players}p · ${h.source === "reframework" ? "mod" : "companion"}${h.has_buffs ? "" : " · no buffs"}`,
+            label: t(h.has_buffs ? "buffs.hunt.option" : "buffs.hunt.optionNoBuffs", {
+              id: h.id,
+              monster: `${monsterName(h.monster, h.monster_id)}${h.quest_stars ? ` ${h.quest_stars}★` : ""}`,
+              date: fmtDate(h.started_at),
+              players: h.players,
+              source: h.source === "reframework" ? t("buffs.source.mod") : t("buffs.source.companion"),
+            }),
           }))}
           onChange={(v) => { if (v) setHuntId(Number(v)); }}
         />
         {buffsTab === "hunters" && (
           <>
-            <label>Category
+            <label>{t("buffs.category.label")}
               <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)}>
-                <option value="">All</option>
+                <option value="">{t("common.all")}</option>
                 {categories.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                  <option key={c} value={c}>{categoryName(t, c)}</option>
                 ))}
               </select>
             </label>
-            <div className="seg" role="group" aria-label="Derived buffs">
+            <div className="seg" role="group" aria-label={t("buffs.agitator.group")}>
               <button
                 type="button"
                 className={showAgitator ? "on" : ""}
                 aria-pressed={showAgitator}
                 onClick={() => setAgitatorPersist(!showAgitator)}
-                title="Show Agitator uptime, derived from the monster's enrage windows"
+                title={t("buffs.agitator.title")}
               >
-                Agitator
+                {t("buffs.agitator.name")}
               </button>
             </div>
-            <div className="seg" role="group" aria-label="Buffs view">
+            <div className="seg" role="group" aria-label={t("buffs.view.group")}>
               <button type="button" className={view === "table" ? "on" : ""}
                 aria-pressed={view === "table"}
-                onClick={() => setView("table")}>Table</button>
+                onClick={() => setView("table")}>{t("buffs.view.table")}</button>
               <button type="button" className={view === "timeline" ? "on" : ""}
                 aria-pressed={view === "timeline"}
-                onClick={() => setView("timeline")}>Timeline</button>
+                onClick={() => setView("timeline")}>{t("buffs.view.timeline")}</button>
             </div>
           </>
         )}
-        <div className="seg" role="group" aria-label="Uptime basis">
+        <div className="seg" role="group" aria-label={t("buffs.basis.group")}>
           <button type="button" className={basis === "hunt" ? "on" : ""}
             aria-pressed={basis === "hunt"}
-            onClick={() => setBasisPersist("hunt")}>Hunt start</button>
+            onClick={() => setBasisPersist("hunt")}>{t("buffs.basis.hunt")}</button>
           <button type="button" className={basis === "firstHit" ? "on" : ""}
             aria-pressed={basis === "firstHit"}
             onClick={() => setBasisPersist("firstHit")}
             disabled={activeFirstHit === null}
             title={activeFirstHit === null
-              ? "No damage data for this hunt"
-              : `Measure uptime from first hit (${Math.round(activeFirstHit)}s)`}>First hit</button>
+              ? t("buffs.basis.noDamage")
+              : t("buffs.basis.firstHitTitle", { seconds: Math.round(activeFirstHit) })}>{t("buffs.basis.firstHit")}</button>
         </div>
       </div>
       {hunts.length === 0 && (
         <p className="blurb">
-          No hunts imported yet. Use the <b>HunterPie Analytics companion</b>
-          (its own shortcut) before a quest, then Import.
+          {t("buffs.noHunts.before")}<b>HunterPie Analytics companion</b>{t("buffs.noHunts.after")}
         </p>
       )}
       {buffsTab === "hunters" ? (
         data && (
           <>
             <h2>
-              #{data.hunt_id} {data.monster}
-              {data.clear_s ? ` · cleared in ${fmtClearTime(data.clear_s)}` : ""}
+              {data.clear_s
+                ? t("buffs.heading.cleared", {
+                    id: data.hunt_id,
+                    monster: monsterName(data.monster, data.monster_id ?? selectedHunt?.monster_id),
+                    time: fmtClearTime(data.clear_s),
+                  })
+                : t("buffs.heading", {
+                    id: data.hunt_id,
+                    monster: monsterName(data.monster, data.monster_id ?? selectedHunt?.monster_id),
+                  })}
             </h2>
             {showAgitator && data.enrage.length === 0 && (
               <p className="blurb">
-                No enrage windows recorded for this hunt, so Agitator cannot be
-                derived. Enrage is recorded by the <b>HunterPie Analytics
-                companion</b>.
+                {t("buffs.noEnrage.before")}<b>HunterPie Analytics companion</b>{t("buffs.noEnrage.after")}
               </p>
             )}
             {filtered.length === 0 ? (
               catFilter ? (
-                <p className="blurb">No {catFilter} data in this hunt.</p>
+                <p className="blurb">{t("buffs.empty.category", { category: categoryName(t, catFilter) })}</p>
               ) : (rawData?.players.length ?? 0) > 0 ? (
                 <p className="blurb">
-                  Buff data is only recorded for the local player. Clear the
-                  hunter filter (or select the player who hosted the quest).
+                  {t("buffs.empty.localPlayer")}
                 </p>
               ) : latestWithBuffs && latestWithBuffs.id !== huntId ? (
                 <p className="blurb">
-                  The companion recorded no buffs for this hunt.{" "}
+                  {t("buffs.empty.noBuffs")}{" "}
                   <button type="button" onClick={() => setHuntId(latestWithBuffs.id)}>
-                    Open the latest hunt with buffs
+                    {t("buffs.empty.openLatest")}
                   </button>
                 </p>
               ) : (
                 <p className="blurb">
-                  No buff/debuff data yet. Run the <b>HunterPie Analytics
-                  companion</b> (its own shortcut) before a quest.
+                  {t("buffs.empty.none.before")}<b>HunterPie Analytics companion</b>{t("buffs.empty.none.after")}
                 </p>
               )
             ) : view === "table" ? (
               <>
                 <DataTable
                   data={filtered}
-                  columns={columns}
+                  columns={buildColumns(t, nameOf)}
                   initialSort={[{ id: "pct", desc: true }]}
                   getRowId={(r) => `${r.player}|${r.id}|${r.category}`}
                 />
                 <p className="blurb">
-                  Recorded by the HunterPie Analytics companion for the local player.
-                  Uptime ends at the party&apos;s last hit, not at the results screen.
-                  {agitator
-                    ? " Agitator is derived from this hunt's monster enrage windows, not from your build."
-                    : ""}
+                  {t("buffs.note.table")}{agitator ? t("buffs.note.tableAgitator") : ""}
                 </p>
               </>
             ) : (
               <>
-                <BuffTimeline lanes={lanes} domain={domain} t0={t0} />
+                <BuffTimeline lanes={lanes} domain={domain} t0={t0} t={t} nameOf={nameOf} />
                 <p className="blurb">
-                  Shaded = active. Hover a block for exact times. Open-ended
-                  blocks ran to quest end, and the window ends at the party&apos;s
-                  last hit rather than at the results screen.
-                  {agitator
-                    ? " The Agitator lane is derived from the monster's enrage windows."
-                    : ""}
+                  {t("buffs.note.timeline")}{agitator ? t("buffs.note.timelineAgitator") : ""}
                 </p>
               </>
             )}
@@ -564,44 +604,44 @@ export default function BuffsView({ scope, partySize }: { scope: number[]; party
       ) : statusData ? (
         <>
           <h2>
-            #{statusData.hunt_id} {statusData.monster}
-            {statusData.clear_s ? ` · cleared in ${fmtClearTime(statusData.clear_s)}` : ""}
+            {statusData.clear_s
+              ? t("buffs.heading.cleared", {
+                  id: statusData.hunt_id,
+                  monster: monsterName(statusData.monster, statusData.monster_id ?? selectedHunt?.monster_id),
+                  time: fmtClearTime(statusData.clear_s),
+                })
+              : t("buffs.heading", {
+                  id: statusData.hunt_id,
+                  monster: monsterName(statusData.monster, statusData.monster_id ?? selectedHunt?.monster_id),
+                })}
           </h2>
           {monsterLanes.length === 0 ? (
             isModHunt ? (
               <p className="blurb">
-                Monster statuses are recorded by the <b>HunterPie Analytics
-                companion</b>. This hunt was captured by the REFramework mod
-                only, which does not track monster statuses.
+                {t("buffs.monster.modOnly.before")}<b>HunterPie Analytics companion</b>{t("buffs.monster.modOnly.after")}
               </p>
             ) : (
               <p className="blurb">
-                No monster status windows recorded for this hunt. The companion
-                records enrage and ailment activations; older dumps may predate
-                this.
+                {t("buffs.monster.none")}
               </p>
             )
           ) : (
             <>
-              <BuffTimeline lanes={monsterLanes} domain={monsterDomain} t0={statusT0} />
+              <BuffTimeline lanes={monsterLanes} domain={monsterDomain} t0={statusT0} t={t} nameOf={monsterStatusOf} />
               <p className="blurb">
-                Shaded = status active. Hover a block for exact times and
-                duration (for example, how long a poison lasted). One lane per
-                status, including enrage.
+                {t("buffs.monster.note")}
               </p>
               {statusData.statuses.length > 0 &&
                 !statusData.statuses.some((s) => s.id.startsWith("ailment.")) && (
                   <p className="blurb">
-                    This hunt only has enrage. Poison, stun, mount and the other
-                    ailments start with hunts captured by the updated companion
-                    build.
+                    {t("buffs.monster.enrageOnly")}
                   </p>
                 )}
             </>
           )}
         </>
       ) : statusQ.loading ? (
-        <p>Loading…</p>
+        <p>{t("common.loading")}</p>
       ) : null}
     </div>
   );

@@ -30,6 +30,9 @@ jobs:
         working-directory: dashboard
       - run: npx tsc --noEmit
         working-directory: dashboard
+      # Every key must exist in every locale, with its {placeholders} intact.
+      - run: npm run check:i18n
+        working-directory: dashboard
       # Ensure the static export the packaged app depends on still builds.
       - run: npm run build
         working-directory: dashboard

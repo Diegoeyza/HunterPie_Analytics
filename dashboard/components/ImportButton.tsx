@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { apiGet, apiInvalidate, apiSend, type ImportJobStatus } from "../lib/api";
 import { useToast } from "./Toast";
+import { useT } from "@/lib/i18n";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -16,6 +17,7 @@ export default function ImportButton({ onImported }: { onImported: () => void })
   const [progress, setProgress] = useState<ImportJobStatus | null>(null);
   const cancelled = useRef(false);
   const toast = useToast();
+  const { t } = useT();
 
   useEffect(() => () => { cancelled.current = true; }, []);
 
@@ -23,20 +25,34 @@ export default function ImportButton({ onImported }: { onImported: () => void })
     apiInvalidate();
     onImported();
     if (st.state === "cancelled") {
-      toast.push(`Import cancelled — ${st.imported} new hunt(s) kept`, true);
+      toast.push(t(st.imported === 1 ? "table.import.cancelled.one" : "table.import.cancelled.other", {
+        count: st.imported,
+      }), true);
     } else if (st.state === "error") {
-      toast.push(`Import failed: ${st.error ?? "unknown error"}`, true);
+      toast.push(t("table.import.failed", {
+        error: st.error ?? t("table.import.unknownError"),
+      }), true);
     } else if (st.errors.length > 0) {
-      toast.push(`${st.errors.length} file(s) failed (first: ${st.errors[0].file}) — ${st.imported} new`, true);
+      toast.push(t(st.errors.length === 1 ? "table.import.failedFiles.one" : "table.import.failedFiles.other", {
+        count: st.errors.length, file: st.errors[0].file, imported: st.imported,
+      }), true);
     } else if (st.imported === 0) {
-      toast.push(`Up to date — ${st.scanned} files (${st.skipped_manifest} skipped), nothing new`);
+      toast.push(t("table.import.upToDate", {
+        scanned: st.scanned, skipped: st.skipped_manifest,
+      }));
     } else if (st.warnings.length > 0) {
       const notes = st.warnings.reduce((a, w) => a + w.warnings.length, 0);
-      toast.push(`Imported ${st.imported} new hunt(s) · ${notes} import note(s)`);
+      toast.push(t(st.imported === 1 ? "table.import.importedNotes.one" : "table.import.importedNotes.other", {
+        count: st.imported, notes,
+      }));
     } else if (st.imported > 0) {
-      toast.push(`Imported ${st.imported} new hunt${st.imported === 1 ? "" : "s"}`);
+      toast.push(t(st.imported === 1 ? "table.import.imported.one" : "table.import.imported.other", {
+        count: st.imported,
+      }));
     } else {
-      toast.push(`Up to date — ${st.scanned} files (${st.skipped_manifest} skipped), nothing new`);
+      toast.push(t("table.import.upToDate", {
+        scanned: st.scanned, skipped: st.skipped_manifest,
+      }));
     }
   };
 
@@ -65,9 +81,9 @@ export default function ImportButton({ onImported }: { onImported: () => void })
         }
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Import failed";
+      const msg = e instanceof Error ? e.message : t("table.import.failedDefault");
       // 409 = another import already running (single-flight).
-      toast.push(msg.includes("409") ? "An import is already running" : msg, true);
+      toast.push(msg.includes("409") ? t("table.import.alreadyRunning") : msg, true);
     } finally {
       setBusy(false);
       setJobId(null);
@@ -90,29 +106,31 @@ export default function ImportButton({ onImported }: { onImported: () => void })
   return (
     <span className="import-wrap">
       <button type="button" className="import-button" onClick={() => run(false)} disabled={busy}>
-        {busy ? "Importing…" : "Import hunts"}
+        {busy ? t("table.import.busy") : t("table.import.button")}
       </button>
       <button
         type="button"
         className="import-button import-button--ghost"
-        title="Ignore the skip manifest and recheck every file (e.g. after deleting hunts)"
+        title={t("table.import.fullRecheckTitle")}
         onClick={() => run(true)}
         disabled={busy}
       >
-        Full recheck
+        {t("table.import.fullRecheck")}
       </button>
       {busy && (
         <button type="button" className="import-button import-button--ghost"
-          onClick={cancel} title="Stop after the current file">
-          Cancel
+          onClick={cancel} title={t("table.import.cancelTitle")}>
+          {t("common.cancel")}
         </button>
       )}
       {busy && progress && (
-        <span className="import-progress" role="status" aria-label="Import progress">
+        <span className="import-progress" role="status" aria-label={t("table.import.progress")}>
           <progress value={progress.scanned} max={Math.max(progress.total, 1)} />
           <span className="status-text">
             {progress.scanned}/{progress.total}{pct !== null ? ` (${pct}%)` : ""}
-            {` · ${progress.imported} new · ${progress.duplicates} dupes`}
+            {` · ${t("table.import.progressDetail", {
+              imported: progress.imported, duplicates: progress.duplicates,
+            })}`}
           </span>
         </span>
       )}

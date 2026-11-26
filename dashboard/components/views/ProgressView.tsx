@@ -8,12 +8,14 @@ import { HunterSelect, MonsterSelect, StarsSelect, WeaponSelect, splitQuestValue
 import { useFilterOptions } from "../useFilterOptions";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
 import { GRID_STROKE, TICK, TIP_STYLE } from "../ChartKit";
-import { fmtClearTime, fmtTime } from "../../lib/format";
+import { fmtClearTime, fmtDps, fmtTime } from "../../lib/format";
+import { useT, type TFn } from "@/lib/i18n";
+import { monsterName, weaponTypeName } from "@/lib/names";
 
 interface Point {
-  hunt_id: number; started_at: string; monster: string;
+  hunt_id: number; started_at: string; monster: string; monster_id: number;
   quest_id: number | null; quest_stars: number | null; monster_max_hp: number | null;
-  weapon: string; variant: string | null; player: string; dps: number;
+  weapon: string; weapon_id: number | null; variant: string | null; player: string; dps: number;
   share: number; index: number;
   clear_s: number | null; cleared: boolean;
 }
@@ -27,30 +29,45 @@ interface ProgressData { points: Point[]; rolling: Rolling[]; window: number; }
  *  clear speed; the two relative measures hold those still. */
 type ProgressMetric = "dps" | "index" | "share" | "clear";
 
-const METRICS: Record<ProgressMetric, {
+function metricSpec(t: TFn): Record<ProgressMetric, {
   label: string; title: string; axis: string; note: string; unit: "%" | "s" | "";
-}> = {
-  dps: {
-    label: "DPS", title: "DPS per hunt", axis: "DPS", unit: "",
-    note: "Raw damage per second over your active window — sensitive to which monster you fought and how long the fight lasted.",
-  },
-  index: {
-    label: "vs usual", title: "DPS vs your usual on that monster",
-    axis: "% of usual", unit: "%",
-    note: "100% = your median DPS on the same monster across these hunts, so switching to a harder or easier fight stops reading as a slump or a spike.",
-  },
-  share: {
-    label: "Damage share", title: "Damage share per hunt",
-    axis: "% of party", unit: "%",
-    note: "Your part of the party's total damage — roughly flat when the whole party (or the monster's HP) changes, so it tracks your relative contribution.",
-  },
-  clear: {
-    label: "Clear time", title: "Clear time per hunt", axis: "clear time",
-    unit: "s", note: "Finish time per quest (m:ss) — lower is better; mixes in damage, routing and monster uptime.",
-  },
-};
+}> {
+  return {
+    dps: {
+      label: t("progress.metric.dps.label"),
+      title: t("progress.metric.dps.title"),
+      axis: t("progress.metric.dps.axis"),
+      unit: "",
+      note: t("progress.metric.dps.note"),
+    },
+    index: {
+      label: t("progress.metric.index.label"),
+      title: t("progress.metric.index.title"),
+      axis: t("progress.metric.index.axis"),
+      unit: "%",
+      note: t("progress.metric.index.note"),
+    },
+    share: {
+      label: t("progress.metric.share.label"),
+      title: t("progress.metric.share.title"),
+      axis: t("progress.metric.share.axis"),
+      unit: "%",
+      note: t("progress.metric.share.note"),
+    },
+    clear: {
+      label: t("progress.metric.clear.label"),
+      title: t("progress.metric.clear.title"),
+      axis: t("progress.metric.clear.axis"),
+      unit: "s",
+      note: t("progress.metric.clear.note"),
+    },
+  };
+}
 
 export default function ProgressView({ scope, variantId, weaponName, clearScope, partySize, includeFailed }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; partySize: number | null; includeFailed: boolean }) {
+  const { t } = useT();
+  const METRICS = metricSpec(t);
+  const clearLabel = t("progress.series.clearTime");
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -89,7 +106,7 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
       <MonsterSelect value={monster} opts={opts}
         onChange={(v) => { setMonster(v); setStars(""); }} />
       <SearchSelect
-        label="Quest"
+        label={t("progress.filter.quest")}
         value={quest}
         options={questOptions}
         onChange={setQuest}
@@ -97,16 +114,16 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
       <StarsSelect value={stars} onChange={setStars} monster={monster} opts={opts} />
       <WeaponSelect value={weapon} onChange={setWeapon} opts={opts} />
       <HunterSelect value={player} onChange={setPlayer} opts={opts} />
-      <label>Rolling window
+      <label>{t("progress.filter.rollingWindow")}
         <input type="number" min={1} max={50} value={windowSize}
           onChange={(e) => setWindowSize(Number(e.target.value) || 5)} />
       </label>
-      <label>Hunts
+      <label>{t("progress.filter.hunts")}
         <select value={huntLimit} onChange={(e) => setHuntLimit(e.target.value)}>
-          <option value="50">Last 50</option>
-          <option value="100">Last 100</option>
-          <option value="200">Last 200</option>
-          <option value="all">All</option>
+          <option value="50">{t("progress.filter.last50")}</option>
+          <option value="100">{t("progress.filter.last100")}</option>
+          <option value="200">{t("progress.filter.last200")}</option>
+          <option value="all">{t("common.all")}</option>
         </select>
       </label>
     </div>
@@ -124,13 +141,13 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
     if (scope.length > 0) {
       return (
         <ScopeEmpty names={scopeNames(scope, opts?.players)} onClear={clearScope}>
-          <p>They aren't in these hunts — pick something they joined.</p>
+          <p>{t("progress.empty.scope")}</p>
         </ScopeEmpty>
       );
     }
     return (
-      <EmptyState what="hunts match these filters">
-        <p>Import one with <code>python -m app.import_hunt --db hunts.db --file hunt.json</code></p>
+      <EmptyState what={t("progress.empty.none")}>
+        <p>{t("progress.empty.import")} <code>python -m app.import_hunt --db hunts.db --file hunt.json</code></p>
       </EmptyState>
     );
   }
@@ -151,12 +168,12 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
           : roll?.avg_dps ?? null;
     const round = (v: number | null) => (v == null ? null : Math.round(v * 10) / 10);
     return {
-      x: `#${p.hunt_id} ${p.monster}${p.quest_stars ? ` ${p.quest_stars}★` : ""}`,
+      x: `#${p.hunt_id} ${monsterName(p.monster, p.monster_id)}${p.quest_stars ? ` ${p.quest_stars}★` : ""}`,
       value: round(value),
       avg: round(avg),
       clear_s: p.clear_s,
       player: p.player,
-      weapon: p.variant ? `${p.weapon} · ${p.variant}` : p.weapon,
+      weapon: p.variant ? `${weaponTypeName(p.weapon)} · ${p.variant}` : weaponTypeName(p.weapon),
     };
   });
 
@@ -168,8 +185,8 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
     <div className="card">
       {filters}
       <div className="filters">
-        <span className="scope-label">Measure</span>
-        <div className="seg" role="group" aria-label="Progress measure">
+        <span className="scope-label">{t("progress.measure")}</span>
+        <div className="seg" role="group" aria-label={t("progress.measureAria")}>
           {(Object.keys(METRICS) as ProgressMetric[]).map((m) => (
             <button
               key={m} type="button"
@@ -182,7 +199,7 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
           ))}
         </div>
       </div>
-      <h2>{METRICS[metric].title} + {data.window}-hunt rolling average</h2>
+      <h2>{t("progress.heading", { title: METRICS[metric].title, window: data.window })}</h2>
       <p className="blurb">{METRICS[metric].note}</p>
       <ResponsiveContainer width="100%" height={340}>
         <ComposedChart data={rows}>
@@ -195,16 +212,16 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
           {metric !== "clear" && (
             <YAxis yAxisId="time" orientation="right" tick={TICK}
               tickFormatter={(v: number) => fmtClearTime(v)}
-              label={{ value: "clear time", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: 90, position: "insideRight" }} />
+              label={{ value: clearLabel, fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: 90, position: "insideRight" }} />
           )}
           <Tooltip contentStyle={TIP_STYLE} formatter={(value, name) => {
             const v = Number(value);
             // Durations read as m:ss everywhere; only this chart mixes one
             // with percentages, so pick by series name.
-            if (String(name) === "clear time" || metric === "clear")
+            if (String(name) === clearLabel || metric === "clear")
               return [fmtClearTime(v), name];
             const unit = METRICS[metric].unit;
-            return [`${Math.round(v * 10) / 10}${unit}`, name];
+            return [`${fmtDps(v)}${unit}`, name];
           }} />
           {dense ? (
             <Line yAxisId="value" type="monotone" dataKey="value"
@@ -214,13 +231,13 @@ export default function ProgressView({ scope, variantId, weaponName, clearScope,
             <Bar yAxisId="value" dataKey="value" name={METRICS[metric].label}
               fill="#e8b64c" isAnimationActive={false} />
           )}
-          <Line yAxisId="value" type="monotone" dataKey="avg" name="rolling avg" stroke="#5aa9e6" dot={false} isAnimationActive={false} />
+          <Line yAxisId="value" type="monotone" dataKey="avg" name={t("progress.series.avg")} stroke="#5aa9e6" dot={false} isAnimationActive={false} />
           {metric === "index" && (
             <ReferenceLine yAxisId="value" y={100} stroke="var(--muted)" strokeDasharray="4 4"
-              label={{ value: "usual", fill: "var(--chart-tick, #9aa1b2)", fontSize: 10, position: "insideTopRight" }} />
+              label={{ value: t("progress.axis.usual"), fill: "var(--chart-tick, #9aa1b2)", fontSize: 10, position: "insideTopRight" }} />
           )}
           {metric !== "clear" && (
-            <Line yAxisId="time" type="monotone" dataKey="clear_s" name="clear time" stroke="#58b368" dot={false} isAnimationActive={false} />
+            <Line yAxisId="time" type="monotone" dataKey="clear_s" name={clearLabel} stroke="#58b368" dot={false} isAnimationActive={false} />
           )}
         </ComposedChart>
       </ResponsiveContainer>

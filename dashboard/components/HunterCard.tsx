@@ -1,6 +1,7 @@
 "use client";
 
 import { fmtDps, fmtInt, fmtPct } from "../lib/format";
+import { useT } from "@/lib/i18n";
 
 export interface HunterCardData {
   player: string;
@@ -19,8 +20,9 @@ export interface HunterCardData {
 /** Party-member stat card: name + caption, big damage, DPS + share, bar.
  *  Shared by the Quests and Hunts popups. */
 export default function HunterCard({ m, mvp }: { m: HunterCardData; mvp: boolean }) {
+  const { t } = useT();
   const nameTitle = m.hunter_rank != null
-    ? `${m.player} · Hunter Rank ${m.hunter_rank}`
+    ? `${m.player} · ${t("table.card.hunterRank", { rank: m.hunter_rank })}`
     : m.player;
   return (
     <div className={`member-card${mvp ? " mvp" : ""}`}>

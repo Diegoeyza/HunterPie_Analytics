@@ -15,6 +15,7 @@ import UpdatePill from "../components/UpdatePill";
 import { loadSeenVersion, noteFor, storeSeenVersion } from "../lib/changelog";
 import ModPill from "../components/ModPill";
 import { ToastProvider } from "../components/Toast";
+import { I18nProvider, useT } from "../lib/i18n";
 
 const TAB_IDS = new Set(TABS.map((t) => t.id));
 const FAILED_KEY = "hp.includeFailed";
@@ -73,7 +74,7 @@ function initialCheckUpdates(): boolean {
   }
 }
 
-export default function Home() {
+function Dashboard() {
   // Defaults first (server prerender); URL/localStorage sync in the
   // mount effect below — reading window.location during render would
   // hydrate-mismatch on shared links (?tab=hunts prerenders as tab=0).
@@ -88,6 +89,7 @@ export default function Home() {
   const [sourceOpen, setSourceOpen] = useState(false);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   const healthQ = useApi<Health>("/health");
+  const { t } = useT();
 
   useEffect(() => {
     setTab(initialTab());
@@ -183,7 +185,10 @@ export default function Home() {
   };
 
   const versions = health?.hunterpie_version ?? health?.game_version
-    ? `HunterPie ${health?.hunterpie_version ?? "?"} · game ${health?.game_version ?? "?"}`
+    ? t("app.versions", {
+        hunterpie: health?.hunterpie_version ?? "?",
+        game: health?.game_version ?? "?",
+      })
     : undefined;
 
   // First-run source note: which capture tools were found, and what each one
@@ -194,11 +199,11 @@ export default function Home() {
     const hp = sources.some((s) => s.kind === "hunterpie");
     const rf = sources.some((s) => s.kind === "reframework");
     if (!hp && !rf) {
-      return { warn: true, text: "No capture source found — install the REFramework mod and/or the HunterPie analytics fork, then Import." };
+      return { warn: true, text: t("app.sourceNone") };
     }
-    if (hp && rf) return { warn: false, text: "Sources: HunterPie + REFramework (full data)." };
-    if (hp) return { warn: false, text: "Source: HunterPie — damage & curves. Quest awards need the REFramework mod." };
-    return { warn: false, text: "Source: REFramework — awards & HP curves. DPS curves need HunterPie." };
+    if (hp && rf) return { warn: false, text: t("app.sourceBoth") };
+    if (hp) return { warn: false, text: t("app.sourceHunterpie") };
+    return { warn: false, text: t("app.sourceReframework") };
   })();
 
   // A missing capture source is not something to hide behind a remembered
@@ -214,8 +219,8 @@ export default function Home() {
         <span className={`status-dot ${health ? "on" : ""}`} />
         <span className="status-text" title={versions}>
           {health
-            ? `ingestion online · ${health.hunts} hunts`
-            : (healthQ.error ?? "connecting…")}
+            ? t("app.ingestOnline", { hunts: health.hunts })
+            : (healthQ.error ?? t("app.connecting"))}
         </span>
         {sourceNote && (
           <button
@@ -223,7 +228,7 @@ export default function Home() {
             className={`source-pill${sourceNote.warn ? " warn" : ""}`}
             aria-expanded={sourceOpen}
             aria-controls={sourceOpen ? "source-note" : undefined}
-            aria-label="Data source"
+            aria-label={t("app.dataSource")}
             title={sourceNote.text}
             onClick={() => changeSourceOpen(!sourceOpen)}
           >
@@ -245,8 +250,8 @@ export default function Home() {
           <button
             type="button"
             className="source-note-close"
-            title="Hide"
-            aria-label="Hide data source note"
+            title={t("app.hide")}
+            aria-label={t("app.hideSourceNote")}
             onClick={() => changeSourceOpen(false)}
           >
             ▴
@@ -262,18 +267,28 @@ export default function Home() {
           partySize={partySize} onParty={changeParty} />
       )}
       <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t.id} className={t.id === tab ? "active" : ""} onClick={() => changeTab(t.id)}>
-            {t.title}
+        {TABS.map((tabDef) => (
+          <button key={tabDef.id} className={tabDef.id === tab ? "active" : ""} onClick={() => changeTab(tabDef.id)}>
+            {t(tabDef.title)}
           </button>
         ))}
       </nav>
       <main>
-        <p className="blurb">{active.blurb}</p>
+        <p className="blurb">{t(active.blurb)}</p>
         {active.render(ctx)}
       </main>
       <WhatsNew appVersion={appVersion} open={whatsNewOpen} onClose={closeWhatsNew} />
     </ToastProvider>
+  );
+}
+
+/** Locale provider sits outside the app so `useT()` is available everywhere,
+ *  exactly like ToastProvider. */
+export default function Home() {
+  return (
+    <I18nProvider>
+      <Dashboard />
+    </I18nProvider>
   );
 }
 

@@ -1,0 +1,18 @@
+{
+  "highlights.player": "Player",
+  "highlights.total": "Total",
+  "highlights.best": "Best (single hunt)",
+  "highlights.hunts": "Hunts",
+  "highlights.avgShare": "Avg damage share",
+  "highlights.leaderboard": "Highlight leaderboard",
+  "highlights.award": "Award",
+  "highlights.shareTitle": "Average damage share",
+  "highlights.all": "All highlights",
+  "highlights.topHunter": "Top hunter",
+  "highlights.noAwards": "No awards recorded for these filters.",
+  "highlights.noneSelected": "No highlights selected — pick some under “Highlights”.",
+  "highlights.noDamage": "No damage data for these filters.",
+  "highlights.tableNone": "No highlights selected.",
+  "highlights.empty.what": "hunter highlights for these filters",
+  "highlights.empty.note": "Awards come from the REFramework mod. HunterPie-fork hunts have no awards."
+}

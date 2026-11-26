@@ -1,0 +1,10 @@
+{
+  "synergy.table.pairing": "Pairing",
+  "synergy.table.hunts": "Hunts",
+  "synergy.table.clearPct": "Clear %",
+  "synergy.table.avgClear": "Avg clear",
+  "synergy.table.avgShare": "Avg damage share",
+  "synergy.empty.what": "pairing data for these filters",
+  "synergy.empty.hint": "Try a different filter combination.",
+  "synergy.title": "Teammate pairings ({count}) — click a header to sort"
+}

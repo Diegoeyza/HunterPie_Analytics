@@ -77,12 +77,19 @@ data, and they merge per hunt (never double-counted):
   breakdowns, per-hunter HP and time-in-danger, you-vs-party comparisons,
   teammate pairings, daily activity, buff uptime, and hunter-name cleanup.
 
+**Japanese UI (ja-JP)** — Settings → Display switches the interface language;
+it defaults to the browser's language and is remembered. Monster and skill
+names come from the game's own Japanese text, so they match the quest results
+screen; the translation is a first pass awaiting native review (see
+`docs/i18n-glossary-ja.md`).
+
 Every tab shares a **filter bar** (monster, quest, stars, weapon, hunter) and a
 **hunter scope bar** — star yourself or teammates to focus the whole dashboard.
 Scope, party size and the active tab sync to the URL, so views are shareable
 and back-button safe.
 
-**Settings (gear icon)** — switch light/dark theme, choose whether **failed
+**Settings (gear icon)** — switch the interface language (English / 日本語),
+light/dark theme, choose whether **failed
 (carted-out) quests count in the stats**, hide hunts for monsters that were
 **not the quest objective**, and toggle **Check for updates**. By default only
 cleared hunts feed DPS and rankings; clear-rate columns always count failures.
@@ -349,6 +356,9 @@ only the JSON files your capture tools write. See [PRIVACY.md](PRIVACY.md).
   scripting framework the mod runs on.
 - [HunterPie](https://github.com/HunterPie/HunterPie) by the **HunterPie team**
   (Apache-2.0) — the companion is built from a fork with local hunt export.
+- Japanese monster, skill and item terms are taken from the game's own text via
+  HunterPie's [localization files](https://github.com/HunterPie/Localization)
+  (MIT); [kiranico](https://mhwilds.kiranico.com/) was used to cross-check terms.
 - This project is **Apache-2.0** — see [LICENSE](LICENSE).
 
 ---

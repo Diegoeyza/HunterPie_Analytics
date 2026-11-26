@@ -1,0 +1,12 @@
+{
+  "compare.empty.scope.what": "比較対象",
+  "compare.empty.scope.hint": "上のハンターバーで自分（と一緒に狩る仲間）に★を付けて、スコープに追加してください。",
+  "compare.empty.hunts.what": "このスコープのハント",
+  "compare.empty.hunts.none": "{names} を含むハントはまだありません。",
+  "compare.empty.hunts.fallback": "これらのハンター",
+  "compare.heading": "{label} 対 パーティ（{hunts} ハント、{window} ハント移動平均）",
+  "compare.scopeFallback": "スコープ",
+  "compare.series.partyAvg": "パーティ平均",
+  "compare.series.youRolling": "{label} 移動平均",
+  "compare.series.partyRolling": "パーティ移動平均"
+}

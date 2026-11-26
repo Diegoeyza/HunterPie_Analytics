@@ -8,6 +8,7 @@ import DataTable from "../DataTable";
 import { MonsterSelect, StarsSelect, WeaponSelect } from "../FilterBar";
 import { useFilterOptions } from "../useFilterOptions";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
+import { useT, type TFn } from "@/lib/i18n";
 
 interface Leader {
   player_id: number;
@@ -17,26 +18,27 @@ interface Leader {
   best_dps: number;
 }
 
-const columns: ColumnDef<Leader>[] = [
-  { id: "player", accessorKey: "player", header: "Player" },
-  { id: "hunts", accessorKey: "hunts", header: "Hunts", meta: { cls: "num" } },
+const columnsFor = (t: TFn): ColumnDef<Leader>[] => [
+  { id: "player", accessorKey: "player", header: t("leaderboard.col.player") },
+  { id: "hunts", accessorKey: "hunts", header: t("leaderboard.col.hunts"), meta: { cls: "num" } },
   {
     id: "avg_dps",
     accessorKey: "avg_dps",
-    header: "Avg DPS",
+    header: t("leaderboard.col.avgDps"),
     meta: { cls: "num" },
     cell: ({ row }) => fmtDps(row.original.avg_dps),
   },
   {
     id: "best_dps",
     accessorKey: "best_dps",
-    header: "Best DPS",
+    header: t("leaderboard.col.bestDps"),
     meta: { cls: "num" },
     cell: ({ row }) => fmtDps(row.original.best_dps),
   },
 ];
 
 export default function LeaderboardView({ scope, variantId, weaponName, clearScope, partySize, includeFailed }: { scope: number[]; variantId: number | string | null; weaponName: string | null; clearScope: () => void; partySize: number | null; includeFailed: boolean }) {
+  const { t } = useT();
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -61,7 +63,7 @@ export default function LeaderboardView({ scope, variantId, weaponName, clearSco
         onChange={(v) => { setMonster(v); setStars(""); }} />
       <WeaponSelect value={weapon} onChange={setWeapon} opts={opts} />
       <StarsSelect value={stars} onChange={setStars} monster={monster} opts={opts} />
-      <label>Min hunts
+      <label>{t("leaderboard.filter.minHunts")}
         <input type="number" min={1} value={minHunts}
           onChange={(e) => setMinHunts(Math.max(1, Number(e.target.value) || 1))} />
       </label>
@@ -83,7 +85,7 @@ export default function LeaderboardView({ scope, variantId, weaponName, clearSco
         <div className="card">
           {filters}
           <ScopeEmpty names={scopeNames(scope, opts?.players)} onClear={clearScope}>
-            <p>Try a lower min-hunts gate or a different filter combination.</p>
+            <p>{t("leaderboard.empty.scope")}</p>
           </ScopeEmpty>
         </div>
       );
@@ -91,8 +93,8 @@ export default function LeaderboardView({ scope, variantId, weaponName, clearSco
     return (
       <div className="card">
         {filters}
-        <EmptyState what="hunters match these filters">
-          <p>Try a lower min-hunts gate or import more hunts.</p>
+        <EmptyState what={t("leaderboard.empty.what")}>
+          <p>{t("leaderboard.empty.none")}</p>
         </EmptyState>
       </div>
     );
@@ -101,10 +103,10 @@ export default function LeaderboardView({ scope, variantId, weaponName, clearSco
   return (
     <div className="card">
       {filters}
-      <h2>Best players by DPS — click a header to sort ({rows.length})</h2>
+      <h2>{t("leaderboard.heading", { count: rows.length })}</h2>
       <DataTable
         data={rows}
-        columns={columns}
+        columns={columnsFor(t)}
         initialSort={[{ id: "avg_dps", desc: true }]}
         getRowId={(r) => String(r.player_id)}
       />

@@ -6,6 +6,8 @@ import { fmtClearTime, fmtDate, fmtDateTime } from "../lib/format";
 import { ApiState, useApi } from "../lib/useApi";
 import Modal from "./Modal";
 import { useToast } from "./Toast";
+import { useT } from "@/lib/i18n";
+import { monsterName } from "@/lib/names";
 
 /** Header-level hunt manager: searchable list of every hunt with
  *  ignore/restore, delete (soft, restorable via "show deleted") and a
@@ -19,6 +21,7 @@ export default function HuntsManager() {
   const [showDeleted, setShowDeleted] = useState(false);
   const [overrides, setOverrides] = useState<Map<number, boolean>>(new Map());
   const toast = useToast();
+  const { t, locale } = useT();
 
   const { data, error, loading, refetch } = useApi<{ hunts: HuntSummary[] }>(
     "/hunts", open ? {
@@ -54,8 +57,9 @@ export default function HuntsManager() {
     return (hunts ?? []).filter((h) =>
       String(h.id).includes(needle) ||
       h.monster.toLowerCase().includes(needle) ||
+      monsterName(h.monster, h.monster_id).toLowerCase().includes(needle) ||
       fmtDate(h.started_at).includes(needle));
-  }, [hunts, q]);
+  }, [hunts, q, locale]);
 
   const confirmHunt = confirmId != null
     ? hunts?.find((h) => h.id === confirmId) ?? null
@@ -69,7 +73,7 @@ export default function HuntsManager() {
       setOverrides((m) => new Map(m).set(h.id, res.ignored));
       apiInvalidate();
     } catch (e) {
-      toast.push(e instanceof Error ? e.message : "Toggle failed", true);
+      toast.push(e instanceof Error ? e.message : t("table.hunts.toggleFailed"), true);
     } finally {
       setBusyId(null);
     }
@@ -80,11 +84,11 @@ export default function HuntsManager() {
     setConfirmId(null);
     try {
       await apiSend<{ id: number; deleted: boolean }>("DELETE", `/hunts/${h.id}`);
-      toast.push(`Hunt #${h.id} deleted.`);
+      toast.push(t("table.hunts.deletedToast", { id: h.id }));
       apiInvalidate();
       refetch();
     } catch (e) {
-      toast.push(e instanceof Error ? e.message : "Delete failed", true);
+      toast.push(e instanceof Error ? e.message : t("table.hunts.deleteFailed"), true);
     } finally {
       setBusyId(null);
     }
@@ -94,11 +98,11 @@ export default function HuntsManager() {
     setBusyId(h.id);
     try {
       await apiSend<{ id: number; deleted: boolean }>("POST", `/hunts/${h.id}/restore`);
-      toast.push(`Hunt #${h.id} restored.`);
+      toast.push(t("table.hunts.restoredToast", { id: h.id }));
       apiInvalidate();
       refetch();
     } catch (e) {
-      toast.push(e instanceof Error ? e.message : "Restore failed", true);
+      toast.push(e instanceof Error ? e.message : t("table.hunts.restoreFailed"), true);
     } finally {
       setBusyId(null);
     }
@@ -107,43 +111,43 @@ export default function HuntsManager() {
   return (
     <>
       <button type="button" className="import-button" onClick={() => setOpen(true)}>
-        Hunts
+        {t("table.hunts.open")}
       </button>
       {open && (
-        <Modal label="Manage hunts" onClose={() => setOpen(false)}>
+        <Modal label={t("table.hunts.manageLabel")} onClose={() => setOpen(false)}>
           <div className="modal-head">
-            <h2>All hunts{hunts ? ` (${hunts.length})` : ""}</h2>
+            <h2>{t("table.hunts.title")}{hunts ? ` (${hunts.length})` : ""}</h2>
             <button type="button" className="import-button" onClick={() => { setOpen(false); refetch(); }}>
-              Close
+              {t("common.close")}
             </button>
           </div>
           <input
             className="modal-search"
             autoFocus
-            placeholder="Search by monster, #id, or date…"
+            placeholder={t("table.hunts.search")}
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
           <label className="hunt-filter">
             <input type="checkbox" checked={showDeleted}
               onChange={(e) => setShowDeleted(e.target.checked)} />
-            <span>Show deleted</span>
+            <span>{t("table.hunts.showDeleted")}</span>
           </label>
           {confirmHunt && (
-            <div className="confirm-bar" role="alertdialog" aria-label="Confirm delete">
+            <div className="confirm-bar" role="alertdialog" aria-label={t("table.hunts.confirmLabel")}>
               <span>
-                Delete hunt <b>#{confirmHunt.id} {confirmHunt.monster}</b>? It is
-                removed from every stat and from this list, and a re-import
-                won&apos;t bring it back.
+                {t("table.hunts.confirmBefore")}{" "}
+                <b>#{confirmHunt.id} {monsterName(confirmHunt.monster, confirmHunt.monster_id)}</b>
+                {t("table.hunts.confirmAfter")}
               </span>
               <button type="button" className="row-action"
                 onClick={() => setConfirmId(null)}>
-                Cancel
+                {t("common.cancel")}
               </button>
               <button type="button" className="row-action danger"
                 disabled={busyId === confirmHunt.id}
                 onClick={() => remove(confirmHunt)}>
-                {busyId === confirmHunt.id ? "…" : "Delete"}
+                {busyId === confirmHunt.id ? "…" : t("table.hunts.delete")}
               </button>
             </div>
           )}
@@ -155,13 +159,13 @@ export default function HuntsManager() {
                   className={`hunt-row${h.ignored ? " is-ignored" : ""}${h.deleted ? " is-deleted" : ""}`}>
                   <span className="hunt-id">#{h.id}</span>
                   <span className="hunt-main">
-                    <strong>{h.monster}</strong>
+                    <strong>{monsterName(h.monster, h.monster_id)}</strong>
                     {h.quest_stars != null && <span> {h.quest_stars}★</span>}
                     <span className="hunt-sub">
-                      {fmtDateTime(h.started_at)} · {h.players}p ·{" "}
+                      {fmtDateTime(h.started_at)} · {t("table.hunts.players", { count: h.players })} ·{" "}
                       {h.clear_s != null ? fmtClearTime(h.clear_s) : "—"}{" "}
-                      · {h.cleared ? "cleared" : "failed"}
-                      {h.deleted ? " · deleted" : ""}
+                      · {h.cleared ? t("table.hunts.cleared") : t("table.hunts.failed")}
+                      {h.deleted ? ` · ${t("table.hunts.deleted")}` : ""}
                     </span>
                   </span>
                   {h.deleted ? (
@@ -169,10 +173,10 @@ export default function HuntsManager() {
                       type="button"
                       className="row-action"
                       disabled={busyId === h.id}
-                      title={`Restore deleted hunt #${h.id}`}
+                      title={t("table.hunts.restoreTitle", { id: h.id })}
                       onClick={() => restore(h)}
                     >
-                      {busyId === h.id ? "…" : "Restore"}
+                      {busyId === h.id ? "…" : t("table.hunts.restore")}
                     </button>
                   ) : (
                     <>
@@ -180,25 +184,27 @@ export default function HuntsManager() {
                         type="button"
                         className="row-action"
                         disabled={busyId === h.id}
-                        title={h.ignored ? `Restore hunt #${h.id} to stats` : `Ignore hunt #${h.id} in stats`}
+                        title={h.ignored
+                          ? t("table.hunts.restoreIgnoredTitle", { id: h.id })
+                          : t("table.hunts.ignoreTitle", { id: h.id })}
                         onClick={() => toggle(h)}
                       >
-                        {busyId === h.id ? "…" : h.ignored ? "Restore" : "Ignore"}
+                        {busyId === h.id ? "…" : h.ignored ? t("table.hunts.restore") : t("table.hunts.ignore")}
                       </button>
                       <button
                         type="button"
                         className="row-action danger"
                         disabled={busyId === h.id}
-                        title={`Delete hunt #${h.id} permanently`}
+                        title={t("table.hunts.deleteTitle", { id: h.id })}
                         onClick={() => setConfirmId(h.id)}
                       >
-                        Delete
+                        {t("table.hunts.delete")}
                       </button>
                     </>
                   )}
                 </div>
               ))}
-              {filtered.length === 0 && <p className="hunt-empty">No hunts match.</p>}
+              {filtered.length === 0 && <p className="hunt-empty">{t("table.hunts.noMatch")}</p>}
             </div>
           )}
         </Modal>

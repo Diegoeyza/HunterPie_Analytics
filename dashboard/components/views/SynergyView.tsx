@@ -8,39 +8,43 @@ import DataTable from "../DataTable";
 import { MonsterSelect, StarsSelect } from "../FilterBar";
 import { useFilterOptions } from "../useFilterOptions";
 import EmptyState, { ScopeEmpty, scopeNames } from "../EmptyState";
+import { useT, type TFn } from "@/lib/i18n";
 
 interface Pairing {
   pairing: string; hunts: number; clear_rate: number;
   avg_clear_s: number | null; avg_share: Record<string, number>;
 }
 
-const columns: ColumnDef<Pairing>[] = [
-  { id: "pairing", accessorKey: "pairing", header: "Pairing" },
-  { id: "hunts", accessorKey: "hunts", header: "Hunts", meta: { cls: "num" } },
-  {
-    id: "clear_rate", accessorKey: "clear_rate", header: "Clear %",
-    meta: { cls: "num" },
-    cell: ({ row }) => fmtPct(row.original.clear_rate),
-  },
-  {
-    id: "avg_clear_s", accessorFn: (r) => r.avg_clear_s ?? -1, header: "Avg clear",
-    meta: { cls: "num" },
-    cell: ({ row }) => fmtClearTime(row.original.avg_clear_s),
-  },
-  {
-    id: "avg_share",
-    accessorFn: (r) => Object.keys(r.avg_share).length,
-    header: "Avg damage share",
-    enableSorting: false,
-    cell: ({ row }) => (
-      Object.entries(row.original.avg_share)
-        .map(([n, s]) => `${n} ${fmtPct(s)}`)
-        .join(" · ")
-    ),
-  },
-];
+function buildColumns(t: TFn): ColumnDef<Pairing>[] {
+  return [
+    { id: "pairing", accessorKey: "pairing", header: t("synergy.table.pairing") },
+    { id: "hunts", accessorKey: "hunts", header: t("synergy.table.hunts"), meta: { cls: "num" } },
+    {
+      id: "clear_rate", accessorKey: "clear_rate", header: t("synergy.table.clearPct"),
+      meta: { cls: "num" },
+      cell: ({ row }) => fmtPct(row.original.clear_rate),
+    },
+    {
+      id: "avg_clear_s", accessorFn: (r) => r.avg_clear_s ?? -1, header: t("synergy.table.avgClear"),
+      meta: { cls: "num" },
+      cell: ({ row }) => fmtClearTime(row.original.avg_clear_s),
+    },
+    {
+      id: "avg_share",
+      accessorFn: (r) => Object.keys(r.avg_share).length,
+      header: t("synergy.table.avgShare"),
+      enableSorting: false,
+      cell: ({ row }) => (
+        Object.entries(row.original.avg_share)
+          .map(([n, s]) => `${n} ${fmtPct(s)}`)
+          .join(" · ")
+      ),
+    },
+  ];
+}
 
 export default function SynergyView({ scope, variantId, clearScope, partySize, includeFailed }: { scope: number[]; variantId: number | string | null; clearScope: () => void; partySize: number | null; includeFailed: boolean }) {
+  const { t } = useT();
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [stars, setStars] = useState("");
@@ -84,7 +88,7 @@ export default function SynergyView({ scope, variantId, clearScope, partySize, i
     return (
       <div className="card">
         {filters}
-        <EmptyState what="pairing data for these filters"><p>Try a different filter combination.</p></EmptyState>
+        <EmptyState what={t("synergy.empty.what")}><p>{t("synergy.empty.hint")}</p></EmptyState>
       </div>
     );
   }
@@ -92,10 +96,10 @@ export default function SynergyView({ scope, variantId, clearScope, partySize, i
   return (
     <div className="card">
       {filters}
-      <h2>Teammate pairings ({rows.length}) — click a header to sort</h2>
+      <h2>{t("synergy.title", { count: rows.length })}</h2>
       <DataTable
         data={rows}
-        columns={columns}
+        columns={buildColumns(t)}
         initialSort={[{ id: "hunts", desc: true }]}
         getRowId={(r) => r.pairing}
       />

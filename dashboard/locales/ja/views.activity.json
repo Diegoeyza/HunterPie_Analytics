@@ -1,0 +1,14 @@
+{
+  "activity.empty.what": "アクティビティ",
+  "activity.empty.hint": "まずはハントしてください。",
+  "activity.summary.one": "{hunts} ハント · 総ダメージ {damage} · 活動日 {days} 日",
+  "activity.summary.other": "{hunts} ハント · 総ダメージ {damage} · 活動日 {days} 日",
+  "activity.chart.hunts": "ハント数",
+  "activity.chart.clearRate": "クリア率",
+  "activity.table.title": "日別 — 見出しをクリックで並べ替え",
+  "activity.table.date": "日付",
+  "activity.table.hunts": "ハント数",
+  "activity.table.clearPct": "クリア率 %",
+  "activity.table.avgDps": "平均 DPS",
+  "activity.table.damage": "ダメージ"
+}

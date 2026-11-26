@@ -1,0 +1,11 @@
+{
+  "leaderboard.col.player": "ハンター",
+  "leaderboard.col.hunts": "ハント数",
+  "leaderboard.col.avgDps": "平均DPS",
+  "leaderboard.col.bestDps": "最高DPS",
+  "leaderboard.filter.minHunts": "最小ハント数",
+  "leaderboard.empty.scope": "最小ハント数を下げるか、別のフィルタ条件を試してください。",
+  "leaderboard.empty.none": "最小ハント数を下げるか、ハントを追加でインポートしてください。",
+  "leaderboard.empty.what": "条件に一致するハンター",
+  "leaderboard.heading": "DPS上位プレイヤー — 見出しをクリックで並べ替え（{count}）"
+}

@@ -38,7 +38,11 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Latin first, then CJK: Yu Gothic (Windows), Hiragino/Meiryo (macOS),
+     Noto Sans CJK (Linux). Japanese kanji fall through to these. */
+  font-family: system-ui, -apple-system, "Segoe UI", "Yu Gothic UI", "Yu Gothic",
+    "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, "Noto Sans JP",
+    "Noto Sans CJK JP", sans-serif;
 }
 
 header.topbar {

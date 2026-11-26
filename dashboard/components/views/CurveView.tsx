@@ -6,6 +6,8 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { seriesColor, type HuntSummary } from "../../lib/api";
+import { useT, type TFn } from "@/lib/i18n";
+import { monsterName, weaponTypeName } from "@/lib/names";
 import { fmtClearTime, fmtDate, fmtInt, fmtTime } from "../../lib/format";
 import { ApiState, useApi } from "../../lib/useApi";
 import { useChartZoom } from "../../lib/useChartZoom";
@@ -17,15 +19,15 @@ import { useFilterOptions } from "../useFilterOptions";
 
 interface CurvePoint { t: number; dmg: number; }
 interface CurvePlayer { player: string; weapon: string | null; weapon_name?: string | null; variant: string | null; points: CurvePoint[]; }
-interface CurveEvent { type: string; start: number; end: number | null; monster?: string | null; hunt_id?: number | null; }
+interface CurveEvent { type: string; start: number; end: number | null; monster?: string | null; monster_id?: number | null; hunt_id?: number | null; }
 interface CurveQuest {
   quest_id: number | null; stars: number | null; level: number | null;
   max_hp: number | null; variant: number | null; crown: number | null;
 }
 interface CurveHpPoint { t: number; hp: number; }
-interface CurveHpSeries { hunt_id: number; monster: string; points: CurveHpPoint[]; }
+interface CurveHpSeries { hunt_id: number; monster: string; monster_id?: number | null; points: CurveHpPoint[]; }
 interface CurveData {
-  hunt_id: number; monster: string; started_at: string;
+  hunt_id: number; monster: string; monster_id?: number | null; started_at: string;
   clear_s: number | null; quest: CurveQuest;
   players: CurvePlayer[]; events: CurveEvent[];
   hp_curve: CurveHpPoint[];
@@ -107,12 +109,13 @@ const HP_COLORS = ["#e05c5c", "#ef8354", "#c94f7c", "#e8b64c"];
 function playerLabel(p: CurvePlayer): string {
   return `${p.player}${p.weapon_name
     ? ` (${p.weapon_name})`
-    : p.weapon ? ` (${p.weapon}${p.variant ? ` · ${p.variant}` : ""})` : ""}`;
+    : p.weapon ? ` (${weaponTypeName(p.weapon)}${p.variant ? ` · ${p.variant}` : ""})` : ""}`;
 }
 
 
 
 export default function CurveView({ scope, partySize }: { scope: number[]; partySize: number | null }) {
+  const { t, locale } = useT();
   const opts = useFilterOptions();
   const [huntId, setHuntId] = useState<number | null>(null);
   const [monsterHunt, setMonsterHunt] = useState<number | null>(null);
@@ -168,12 +171,12 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
     if (!curve) return [];
     const base = curve.quest_hp && curve.quest_hp.length > 0
       ? curve.quest_hp
-      : [{ hunt_id: curve.hunt_id, monster: curve.monster }];
+      : [{ hunt_id: curve.hunt_id, monster: curve.monster, monster_id: curve.monster_id }];
     return base.map((s) => ({
       value: String(s.hunt_id),
-      label: `#${s.hunt_id} ${s.monster}`,
+      label: `#${s.hunt_id} ${monsterName(s.monster, s.monster_id)}`,
     }));
-  }, [curve]);
+  }, [curve, locale]);
 
   /** HP series for every monster in the quest (any number). Colors follow
    *  quest order so each monster keeps its shade whether viewed alone or
@@ -183,21 +186,25 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
     if (!curve) return [];
     const base = curve.quest_hp && curve.quest_hp.length > 0
       ? [...curve.quest_hp].sort((a, b) => a.hunt_id - b.hunt_id)
-      : [{ hunt_id: curve.hunt_id, monster: curve.monster, points: curve.hp_curve }];
+      : [{ hunt_id: curve.hunt_id, monster: curve.monster, monster_id: curve.monster_id, points: curve.hp_curve }];
     const counts = new Map<string, number>();
     for (const s of base) counts.set(s.monster, (counts.get(s.monster) ?? 0) + 1);
     const colored = base.map((s, i) => ({
       hunt_id: s.hunt_id,
       monster: s.monster,
+      monster_id: s.monster_id,
       key: `hp_${s.hunt_id}`,
-      label: (counts.get(s.monster) ?? 1) > 1 ? `${s.monster} HP (#${s.hunt_id})` : `${s.monster} HP`,
+      // Keep the " HP" suffix: ChartTooltip detects HP series by it.
+      label: (counts.get(s.monster) ?? 1) > 1
+        ? `${monsterName(s.monster, s.monster_id)} HP (#${s.hunt_id})`
+        : `${monsterName(s.monster, s.monster_id)} HP`,
       color: HP_COLORS[i % HP_COLORS.length],
       points: s.points,
     }));
     if (monsterHunt == null) return colored;
     return [...colored].sort((a, b) =>
       (a.hunt_id === monsterHunt ? -1 : b.hunt_id === monsterHunt ? 1 : a.hunt_id - b.hunt_id));
-  }, [curve, monsterHunt]);
+  }, [curve, monsterHunt, locale]);
 
   /** Monster filter: null = All. Narrow HP lines + enrage spans to the
    *  picked sibling hunt; hunt_id match first, monster-name fallback for
@@ -234,13 +241,16 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
    *  which overlaps when spans collide. */
   const enrageGroups = useMemo(() => {
     if (!curve) return [];
-    const groups = new Map<string, { monster: string; color: string; spans: CurveEvent[] }>();
+    const groups = new Map<string, { monster: string; monster_id: number | null | undefined; color: string; spans: CurveEvent[] }>();
     for (const e of visibleEvents) {
       if (e.type !== "enrage") continue;
       const m = e.monster ?? curve.monster;
       const g = groups.get(m);
       if (g) g.spans.push(e);
-      else groups.set(m, { monster: m, color: eventColor(e), spans: [e] });
+      else groups.set(m, {
+        monster: m, monster_id: e.monster_id ?? curve.monster_id,
+        color: eventColor(e), spans: [e],
+      });
     }
     return [...groups.values()];
   }, [curve, visibleEvents, eventColor]);
@@ -258,11 +268,11 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
   };
 
   if (error) return <ApiState error={error} loading={false} />;
-  if (huntsQ.loading || !hunts) return <p>Loading…</p>;
+  if (huntsQ.loading || !hunts) return <p>{t("common.loading")}</p>;
   if (hunts.length === 0) {
     return (
-      <EmptyState what="hunts">
-        <p>Import one with <code>python -m app.import_hunt --db hunts.db --file hunt.json</code></p>
+      <EmptyState what={t("curves.empty.what")}>
+        <p>{t("curves.empty.import")} <code>python -m app.import_hunt --db hunts.db --file hunt.json</code></p>
       </EmptyState>
     );
   }
@@ -271,44 +281,44 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
     <div className="card">
       <div className="filters">
         <SearchSelect
-          label="Hunt"
+          label={t("curves.hunt")}
           value={huntId === null ? "" : String(huntId)}
           options={(hunts ?? []).map((h) => ({
             value: String(h.id),
-            label: `#${h.id} ${h.monster}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${fmtDate(h.started_at)} · ${h.players}p${h.quest_id != null ? ` · quest #${h.quest_id}` : ""}`,
+            label: `#${h.id} ${monsterName(h.monster, h.monster_id)}${h.quest_stars ? ` ${h.quest_stars}★` : ""} · ${fmtDate(h.started_at)} · ${t("table.hunts.players", { count: h.players })}${h.quest_id != null ? ` · ${t("curves.quest", { id: h.quest_id })}` : ""}`,
           }))}
           onChange={selectHunt}
         />
         <SearchSelect
-          label="Monster"
+          label={t("table.filter.monster")}
           value={monsterHunt === null ? "" : String(monsterHunt)}
-          placeholder="All monsters — type to search"
+          placeholder={t("curves.monsterPlaceholder")}
           options={siblingOptions}
           onChange={(v) => setMonsterHunt(v ? Number(v) : null)}
         />
         <label>
           <input type="checkbox" checked={showHp} onChange={(e) => setShowHp(e.target.checked)} />
-          Monster HP
+          {t("curves.showHp")}
         </label>
-        <label>Metric
+        <label>{t("curves.metric")}
           <select value={metric} onChange={(e) => setMetric(e.target.value as Metric)}>
-            <option value="damage">Cumulative damage</option>
-            <option value="dps">DPS (5s rolling avg)</option>
-            <option value="burst">Instantaneous DPS (5s window)</option>
-            <option value="burst1">Instantaneous DPS (1s window)</option>
+            <option value="damage">{t("curves.metric.damage")}</option>
+            <option value="dps">{t("curves.metric.dps")}</option>
+            <option value="burst">{t("curves.metric.burst")}</option>
+            <option value="burst1">{t("curves.metric.burst1")}</option>
           </select>
         </label>
-        <span className="scope-hint">Drag chart to zoom · click a hunter to hide or show it</span>
+        <span className="scope-hint">{t("curves.hint.zoom")}</span>
         {hiddenPlayers.size > 0 && (
           <button type="button" className="row-action" onClick={() => setHiddenPlayers(new Set())}
-            title="Show every hunter again">
-            Show all hunters
+            title={t("curves.showAll.title")}>
+            {t("curves.showAll")}
           </button>
         )}
         {zoom.zoomed && (
           <button type="button" className="row-action" onClick={zoom.reset}
-            title="Restore the full quest timeline">
-            Reset zoom
+            title={t("curves.resetZoom.title")}>
+            {t("curves.resetZoom")}
           </button>
         )}
       </div>
@@ -317,13 +327,13 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
           <h2>
             {monsterHunt == null
               ? (visibleHp.length > 0
-                  ? visibleHp.map((s) => `#${s.hunt_id} ${s.monster}`).join(" + ")
-                  : `#${curve.hunt_id} ${curve.monster}`)
-              : `#${curve.hunt_id} ${curve.monster}`}
+                  ? visibleHp.map((s) => `#${s.hunt_id} ${monsterName(s.monster, s.monster_id)}`).join(" + ")
+                  : `#${curve.hunt_id} ${monsterName(curve.monster, curve.monster_id)}`)
+              : `#${curve.hunt_id} ${monsterName(curve.monster, curve.monster_id)}`}
             {curve.quest.stars ? ` · ${curve.quest.stars}★` : ""}
-            {curve.quest.quest_id ? ` · quest #${curve.quest.quest_id}` : ""}
+            {curve.quest.quest_id ? ` · ${t("curves.quest", { id: curve.quest.quest_id })}` : ""}
             {monsterHunt != null && curve.quest.max_hp ? ` · ${fmtInt(curve.quest.max_hp)} HP` : ""}
-            {curve.clear_s ? ` · cleared in ${fmtClearTime(curve.clear_s)}` : ""}
+            {curve.clear_s ? ` · ${t("curves.clearedIn", { time: fmtClearTime(curve.clear_s) })}` : ""}
           </h2>
           {enrageGroups.length > 0 && (
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "4px 0 8px", fontSize: 12 }}>
@@ -331,9 +341,11 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
                 <span key={g.monster} style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--chart-tick, #9aa1b2)" }}>
                   <span style={{ width: 10, height: 10, borderRadius: 2, background: g.color, opacity: 0.85, display: "inline-block" }} />
                   <span>
-                    <strong style={{ color: "var(--text, #c8cddd)", fontWeight: 600 }}>{g.monster}</strong>
-                    {" enraged "}
-                    {g.spans.map((e) => `${Math.round(e.start)}s–${e.end != null ? `${Math.round(e.end)}s` : "…"}`).join(", ")}
+                    <strong style={{ color: "var(--text, #c8cddd)", fontWeight: 600 }}>{monsterName(g.monster, g.monster_id)}</strong>
+                    {" "}
+                    {t("curves.enragedSpans", {
+                      spans: g.spans.map((e) => `${Math.round(e.start)}s–${e.end != null ? `${Math.round(e.end)}s` : "…"}`).join(", "),
+                    })}
                   </span>
                 </span>
               ))}
@@ -346,16 +358,16 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
               <XAxis dataKey="t" type="number" tick={TICK}
                 domain={zoom.domain} allowDataOverflow
                 tickFormatter={(v: number) => fmtTime(v)}
-                label={{ value: "time since quest start", fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, position: "insideBottom", offset: -2 }} />
+                label={{ value: t("curves.axis.time"), fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, position: "insideBottom", offset: -2 }} />
               <YAxis tick={TICK}
                 label={{
-                  value: metric === "damage" ? "cumulative damage" : metric === "burst" ? "DPS (5s window)" : metric === "burst1" ? "DPS (1s window)" : "DPS (5s rolling avg)",
+                  value: metric === "damage" ? t("curves.axis.damage") : metric === "burst" ? t("curves.axis.dps") : metric === "burst1" ? t("curves.axis.dps1") : t("curves.metric.dps"),
                   fill: "var(--chart-tick, #9aa1b2)", fontSize: 11, angle: -90, position: "insideLeft",
                 }} />
               <YAxis yAxisId="hp" orientation="right" domain={[0, 1]}
                 tick={{ fill: "var(--bad, #e05c5c)", fontSize: 11 }}
                 tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
-                label={{ value: "monster HP", fill: "var(--bad, #e05c5c)", fontSize: 11, angle: 90, position: "insideRight" }}
+                label={{ value: t("curves.axis.hp"), fill: "var(--bad, #e05c5c)", fontSize: 11, angle: 90, position: "insideRight" }}
                 hide={!showHp} />
               <Tooltip content={<ChartTooltip metric={metric} events={visibleEvents} colorOf={eventColor} />} />
               {visibleEvents.map((e, i) => {
@@ -392,14 +404,16 @@ export default function CurveView({ scope, partySize }: { scope: number[]; party
               ))}
             </LineChart>
           </ResponsiveContainer>
-          <div className="chart-legend" aria-label="Chart visibility">
+          <div className="chart-legend" aria-label={t("curves.legend.label")}>
             {curve.players.map((p, i) => {
               const hidden = hiddenPlayers.has(p.player);
               return (
                 <button key={`legend-${p.player}-${i}`} type="button"
                   className={`chart-legend-item${hidden ? " is-off" : ""}`}
                   aria-pressed={!hidden}
-                  title={hidden ? `Show ${p.player}` : `Hide ${p.player}`}
+                  title={hidden
+                    ? t("curves.legend.show", { name: p.player })
+                    : t("curves.legend.hide", { name: p.player })}
                   onClick={() => setHiddenPlayers((prev) => {
                     const next = new Set(prev);
                     if (next.has(p.player)) next.delete(p.player);

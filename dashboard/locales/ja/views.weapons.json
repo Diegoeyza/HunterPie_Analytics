@@ -1,0 +1,14 @@
+{
+  "weapons.column.weapon": "武器",
+  "weapons.column.hunts": "ハント数",
+  "weapons.column.avgDps": "平均DPS",
+  "weapons.column.peak": "ピークヒット*",
+  "weapons.column.clearPct": "クリア率",
+  "weapons.chart.heading": "武器種別の平均DPS",
+  "weapons.chart.xAxis": "平均DPS",
+  "weapons.chart.series": "平均DPS",
+  "weapons.table.heading": "武器パフォーマンス一覧（ヘッダーをクリックで並べ替え）",
+  "weapons.table.note": "* ピークヒット = 単発の最大ダメージ（持続DPSではありません）。",
+  "weapons.empty.none": "条件に一致する武器データ",
+  "weapons.empty.hint": "別のフィルタ条件を試してください。"
+}

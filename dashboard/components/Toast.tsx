@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { useT } from "@/lib/i18n";
 
 interface Toast {
   id: number;
@@ -14,6 +15,7 @@ export const useToast = () => useContext(ToastCtx);
 
 /** Toast host: render once near the header; push() from anywhere below. */
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useT();
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(1);
 
@@ -27,11 +29,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastCtx.Provider value={{ push }}>
       {children}
       <div className="toasts" role="status" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast${t.error ? " error" : ""}`}>
-            {t.text}
-            <button type="button" aria-label="Dismiss"
-              onClick={() => setToasts((ts) => ts.filter((x) => x.id !== t.id))}>✕</button>
+        {toasts.map((toast) => (
+          <div key={toast.id} className={`toast${toast.error ? " error" : ""}`}>
+            {toast.text}
+            <button type="button" aria-label={t("table.toast.dismiss")}
+              onClick={() => setToasts((ts) => ts.filter((x) => x.id !== toast.id))}>✕</button>
           </div>
         ))}
       </div>

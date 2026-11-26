@@ -1,0 +1,12 @@
+{
+  "compare.empty.scope.what": "comparison scope",
+  "compare.empty.scope.hint": "Star yourself (and your hunting buddies) with ★ in the hunters bar above, then add them to the scope.",
+  "compare.empty.hunts.what": "hunts for this scope",
+  "compare.empty.hunts.none": "No hunts include {names} yet.",
+  "compare.empty.hunts.fallback": "these hunters",
+  "compare.heading": "{label} vs party ({hunts} hunts, {window}-hunt rolling)",
+  "compare.scopeFallback": "scope",
+  "compare.series.partyAvg": "party avg",
+  "compare.series.youRolling": "{label} rolling",
+  "compare.series.partyRolling": "party rolling"
+}

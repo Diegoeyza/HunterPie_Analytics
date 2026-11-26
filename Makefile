@@ -16,9 +16,10 @@ seed: ## Seed demo data (31 synthetic hunts) — HUNTS=100 to change count
 dev: ## Run API (:8000) + dashboard (:3000)
 	./start.sh
 
-test: ## Backend pytest + dashboard typecheck
+test: ## Backend pytest + dashboard typecheck + locale parity
 	cd backend && ../$(VENV) -m pytest tests -q
 	cd dashboard && npx tsc --noEmit
+	cd dashboard && npm run -s check:i18n
 
 lint: ## Ruff (backend) — install with: .venv/bin/pip install ruff
 	$(VENV) -m ruff check backend/app backend/tests 2>/dev/null || ruff check backend/app backend/tests

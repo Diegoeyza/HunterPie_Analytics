@@ -7,6 +7,8 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { seriesColor, type AppSettings, type HuntSummary, type HuntHighlights } from "../../lib/api";
+import { t as tr, useT } from "@/lib/i18n";
+import { awardName, monsterName, weaponTypeName } from "@/lib/names";
 import { fmtAward, fmtClearTime, fmtDateTime, fmtDps, fmtInt, fmtPct, fmtTime } from "../../lib/format";
 import { type Metric, computeDps, smoothDps, computeBurst } from "../../lib/metrics";
 import { ApiState, useApi } from "../../lib/useApi";
@@ -26,7 +28,10 @@ interface CurvePlayer {
   hunter_rank?: number | null;
   points: CurvePoint[];
 }
-interface CurveEvent { type: string; start: number; end: number | null; monster?: string | null; }
+interface CurveEvent {
+  type: string; start: number; end: number | null;
+  monster?: string | null; monster_id?: number | null;
+}
 interface HuntCurve {
   hunt_id: number; monster: string; started_at: string;
   clear_s: number | null;
@@ -83,18 +88,21 @@ function engagementOf(curve: HuntCurve, idx: number, questMode = false): number 
   return curve.clear_s;
 }
 
-const columns: ColumnDef<HuntSummary>[] = [
+const makeColumns = (t: typeof tr): ColumnDef<HuntSummary>[] => [
   {
-    id: "id", accessorKey: "id", header: "Hunt", meta: { cls: "num" },
+    id: "id", accessorKey: "id", header: t("hunts.col.id"), meta: { cls: "num" },
     cell: ({ row }) => `#${row.original.id}`,
   },
   {
-    id: "date", accessorKey: "started_at", header: "Date",
+    id: "date", accessorKey: "started_at", header: t("hunts.col.date"),
     cell: ({ row }) => fmtDateTime(row.original.started_at),
   },
-  { id: "monster", accessorKey: "monster", header: "Monster" },
   {
-    id: "quest", accessorFn: (r) => r.quest_id ?? -1, header: "Quest",
+    id: "monster", accessorKey: "monster", header: t("table.filter.monster"),
+    cell: ({ row }) => monsterName(row.original.monster, row.original.monster_id),
+  },
+  {
+    id: "quest", accessorFn: (r) => r.quest_id ?? -1, header: t("hunts.col.quest"),
     cell: ({ row }) => (
       row.original.quest_id === null
         ? "—"
@@ -102,12 +110,12 @@ const columns: ColumnDef<HuntSummary>[] = [
     ),
   },
   {
-    id: "clear_s", accessorFn: (r) => r.clear_s ?? -1, header: "Clear",
+    id: "clear_s", accessorFn: (r) => r.clear_s ?? -1, header: t("hunts.col.clear"),
     meta: { cls: "num" },
     cell: ({ row }) => fmtClearTime(row.original.clear_s),
   },
   {
-    id: "players", accessorKey: "players", header: "Hunters",
+    id: "players", accessorKey: "players", header: t("hunts.col.hunters"),
     meta: { cls: "num" },
     cell: ({ row }) => {
       const party = row.original.party ?? [];
@@ -120,23 +128,25 @@ const columns: ColumnDef<HuntSummary>[] = [
   },
   {
     id: "highlights", accessorFn: (r) => r.highlight_count ?? 0,
-    header: "Highlights", meta: { cls: "num" },
+    header: t("hunts.col.highlights"), meta: { cls: "num" },
     cell: ({ row }) => {
       const n = row.original.highlight_count ?? 0;
       if (!n) return "—";
+      const ids = row.original.highlight_award_ids ?? [];
       const names = row.original.highlight_names ?? [];
-      return <span title={names.join(", ")}>{n}</span>;
+      const labels = names.map((name, i) => awardName(ids[i], name));
+      return <span title={labels.join(", ")}>{n}</span>;
     },
   },
   {
-    id: "carts", accessorKey: "carts", header: "Carts",
+    id: "carts", accessorKey: "carts", header: t("hunts.col.carts"),
     meta: { cls: "num" },
   },
   {
-    id: "result", accessorFn: (r) => (r.cleared ? 1 : 0), header: "Result",
+    id: "result", accessorFn: (r) => (r.cleared ? 1 : 0), header: t("hunts.col.result"),
     cell: ({ row }) => (
       <span style={{ color: row.original.cleared ? "var(--good)" : "var(--bad)" }}>
-        {row.original.cleared ? "Cleared" : "Failed"}
+        {row.original.cleared ? t("hunts.cleared") : t("hunts.failed")}
       </span>
     ),
   },
@@ -146,6 +156,7 @@ const columns: ColumnDef<HuntSummary>[] = [
  *  and the cumulative damage curve with enrage bands. Closes on backdrop
  *  click, the × button, or Escape. */
 function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }) {
+  const { t, locale } = useT();
   const [metric, setMetric] = useState<Metric>("damage");
   const { data } = useApi<HuntCurve>(`/hunts/${hunt.id}/curve`);
   // Keyed fetch: ignore a stale previous-hunt curve while the new one loads.
@@ -166,7 +177,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
   }, [curve]);
   const rankTitle = (name: string, rank?: number | null) => {
     const r = rank ?? rankOf.get(name);
-    return r != null ? `${name} · Hunter Rank ${r}` : name;
+    return r != null ? `${name} · ${t("table.card.hunterRank", { rank: r })}` : name;
   };
 
   const members = useMemo(() => {
@@ -182,15 +193,16 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
         const total = pts.length > 0 ? pts[pts.length - 1].dmg : 0;
         const eng = engagementOf(curve, i, questMode);
         return {
-          player: p.player, caption: p.weapon_name ?? p.weapon ?? "Unknown",
+          player: p.player,
+          caption: p.weapon_name ?? (p.weapon ? weaponTypeName(p.weapon) : t("common.unknown")),
           hunter_rank: p.hunter_rank ?? null,
           total_damage: total,
           dps: eng ? total / eng : null,
-          share: team > 0 ? total / team : 0, shareLabel: "of hunt",
+          share: team > 0 ? total / team : 0, shareLabel: t("hunts.ofHunt"),
         };
       })
       .sort((a, b) => b.total_damage - a.total_damage);
-  }, [curve, questMode]);
+  }, [curve, questMode, locale]);
 
   /** Merged time grid (player snapshot times + enrage boundaries, like
    *  CurveView's mergeSeries): one shared dataset so Lines render on the
@@ -251,27 +263,27 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
     });
   }, [curve, metric]);
 
-  const title = `#${hunt.id} ${hunt.monster}`;
+  const title = `#${hunt.id} ${monsterName(hunt.monster, hunt.monster_id)}`;
   const team = members.reduce((s, m) => s + m.total_damage, 0);
   const enrages = (curve?.events ?? []).filter((e) => e.type === "enrage");
   const stats: [string, string][] = [
-    ["Date", fmtDateTime(hunt.started_at)],
-    ["Quest", hunt.quest_id === null
+    [t("hunts.col.date"), fmtDateTime(hunt.started_at)],
+    [t("hunts.col.quest"), hunt.quest_id === null
       ? "—"
       : `#${hunt.quest_id}${hunt.quest_stars ? ` ${hunt.quest_stars}★` : ""}`],
-    ["Result", hunt.cleared ? "Cleared" : "Failed"],
-    ["Clear time", fmtClearTime(hunt.clear_s)],
-    ["Carts", String(hunt.carts)],
-    ["Team damage", team > 0 ? fmtInt(team) : "…"],
-    ["Max HP", curve?.quest.max_hp ? fmtInt(curve.quest.max_hp) : "…"],
-    ["Enrages", curve ? String(enrages.length) : "…"],
+    [t("hunts.col.result"), hunt.cleared ? t("hunts.cleared") : t("hunts.failed")],
+    [t("hunts.stat.clearTime"), fmtClearTime(hunt.clear_s)],
+    [t("hunts.col.carts"), String(hunt.carts)],
+    [t("hunts.stat.teamDamage"), team > 0 ? fmtInt(team) : "…"],
+    [t("hunts.stat.maxHp"), curve?.quest.max_hp ? fmtInt(curve.quest.max_hp) : "…"],
+    [t("hunts.stat.enrages"), curve ? String(enrages.length) : "…"],
   ];
 
   return (
     <Modal label={title} onClose={onClose}>
       <div className="modal-head">
         <h2>{title}</h2>
-        <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+        <button type="button" className="modal-close" onClick={onClose} aria-label={t("common.close")}>
           ×
         </button>
       </div>
@@ -285,7 +297,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
             ))}
           </div>
           {curve === null ? (
-            <p>Loading hunt…</p>
+            <p>{t("hunts.loadingCurve")}</p>
           ) : (
             <>
               <div className="member-grid">
@@ -294,22 +306,22 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                 ))}
               </div>
               <Collapsible
-                title="Damage chart"
+                title={t("hunts.damageChart")}
                 subtitle={metric === "damage"
-                  ? "Cumulative damage"
-                  : metric === "burst" ? "Instantaneous DPS (5s)"
-                  : metric === "burst1" ? "Instantaneous DPS (1s)" : "DPS"}
+                  ? t("curves.metric.damage")
+                  : metric === "burst" ? t("hunts.chart.sub.burst")
+                  : metric === "burst1" ? t("hunts.chart.sub.burst1") : "DPS"}
               >
                 <div className="filters">
-                  <label>Metric
+                  <label>{t("curves.metric")}
                     <select
                       value={metric}
                       onChange={(e) => setMetric(e.target.value as Metric)}
                     >
-                      <option value="damage">Cumulative damage</option>
-                      <option value="dps">DPS (5s rolling avg)</option>
-                      <option value="burst">Instantaneous DPS (5s window)</option>
-                      <option value="burst1">Instantaneous DPS (1s window)</option>
+                      <option value="damage">{t("curves.metric.damage")}</option>
+                      <option value="dps">{t("curves.metric.dps")}</option>
+                      <option value="burst">{t("curves.metric.burst")}</option>
+                      <option value="burst1">{t("curves.metric.burst1")}</option>
                     </select>
                   </label>
                 </div>
@@ -347,16 +359,18 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
-                <p className="blurb">Red bands: enrage windows. DPS uses {questMode ? "own first hit→quest end (party last hit)" : "engagement time (own first→last hit)"}, same as Damage curves tab.</p>
+                <p className="blurb">{t("hunts.chart.note", {
+                  window: questMode ? t("hunts.chart.window.quest") : t("hunts.chart.window.engagement"),
+                })}</p>
               </Collapsible>
               {(curve.survival ?? []).length > 0 && (
-                <Collapsible title="Survival" subtitle="min HP · time in danger">
+                <Collapsible title={t("hunts.survival")} subtitle={t("hunts.survival.sub")}>
                   <div className="table-wrap">
                     <table className="grid">
                       <thead>
                         <tr>
-                          <th>Hunter</th>
-                          <th className="num">Min HP</th>
+                          <th>{t("table.filter.hunter")}</th>
+                          <th className="num">{t("hunts.survival.minHp")}</th>
                           <th className="num">&lt; 50%</th>
                           <th className="num">&lt; 25%</th>
                         </tr>
@@ -376,16 +390,16 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                 </Collapsible>
               )}
               {highlights && highlights.awards.length > 0 && (
-                <Collapsible title="Hunter highlights" subtitle="quest awards">
+                <Collapsible title={t("hunts.highlights")} subtitle={t("hunts.highlights.sub")}>
                   <div className="table-wrap">
                     <table className="grid">
                       <thead>
                         <tr>
-                          <th>Award</th>
+                          <th>{t("highlights.award")}</th>
                           {highlights.players.map((p) => (
                             <th key={p.player_id} className="num"
                               title={rankTitle(p.player, p.hunter_rank)}>
-                              {p.player}{p.is_supporter ? " (NPC)" : ""}
+                              {p.player}{p.is_supporter ? ` ${t("hunts.npc")}` : ""}
                             </th>
                           ))}
                         </tr>
@@ -393,7 +407,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                       <tbody>
                         {highlights.awards.map((a) => (
                           <tr key={a.id}>
-                            <td title={a.explain ?? undefined}>{a.name}</td>
+                            <td title={a.explain ?? undefined}>{awardName(a.id, a.name)}</td>
                             {highlights.players.map((p) => {
                               const e = p.awards.find((x) => x.id === a.id);
                               return (
@@ -405,7 +419,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
                           </tr>
                         ))}
                         <tr>
-                          <td><strong>Damage share</strong></td>
+                          <td><strong>{t("hunts.damageShare")}</strong></td>
                           {highlights.players.map((p) => (
                             <td key={p.player_id} className="num">
                               {fmtPct(p.damage_share, 1)}
@@ -425,6 +439,7 @@ function HuntPopup({ hunt, onClose }: { hunt: HuntSummary; onClose: () => void }
 }
 
 export default function HuntsView({ scope, weaponName, partySize, includeFailed }: { scope: number[]; weaponName: string | null; partySize: number | null; includeFailed: boolean }) {
+  const { t, locale } = useT();
   const [monsterFilter, setMonsterFilter] = useState<string>("");
   const [search, setSearch] = useState("");
   // The settings toggle sets the initial result filter; the local segmented
@@ -445,6 +460,11 @@ export default function HuntsView({ scope, weaponName, partySize, includeFailed 
     () => [...new Set((hunts ?? []).map((h) => h.monster))].sort(),
     [hunts]
   );
+  // Monster id per captured name, for localized filter labels.
+  const monsterIds = useMemo(
+    () => new Map((hunts ?? []).map((h) => [h.monster, h.monster_id])),
+    [hunts]
+  );
   const filtered = useMemo(() => {
     let out = hunts ?? [];
     if (monsterFilter) out = out.filter((h) => h.monster === monsterFilter);
@@ -456,57 +476,64 @@ export default function HuntsView({ scope, weaponName, partySize, includeFailed 
       out = out.filter((h) => {
         const party = (h.party ?? [])
           .flatMap((p) => [p.player, p.hunter_rank != null ? `hr ${p.hunter_rank}` : ""]);
+        const awards = (h.highlight_award_ids ?? []).map((id, i) =>
+          awardName(id, h.highlight_names?.[i]));
         return [
-          String(h.id), `#${h.id}`, h.monster,
+          String(h.id), `#${h.id}`,
+          // Search what the user sees: localized labels, not the stored English.
+          h.monster, monsterName(h.monster, h.monster_id),
           h.quest_id != null ? `#${h.quest_id}` : "",
           h.quest_id != null ? String(h.quest_id) : "",
           h.quest_stars != null ? `${h.quest_stars}★` : "",
           h.started_at, fmtDateTime(h.started_at),
-          `${h.players}p`, h.cleared ? "cleared" : "failed",
+          `${h.players}p`, t(h.cleared ? "hunts.cleared" : "hunts.failed"),
           h.source ?? "",
           ...party,
           ...(h.highlight_names ?? []),
+          ...awards,
         ].join(" ").toLowerCase().includes(needle);
       });
     }
     return out;
-  }, [hunts, monsterFilter, resultFilter, search]);
+  }, [hunts, monsterFilter, resultFilter, search, locale]);
 
   if (error || loading || !hunts) return <ApiState error={error} loading={loading} />;
   if (hunts.length === 0) {
     return (
-      <EmptyState what="hunts">
-        <p>Import hunts with the button above — they land here.</p>
+      <EmptyState what={t("hunts.empty.what")}>
+        <p>{t("hunts.empty.import")}</p>
       </EmptyState>
     );
   }
 
+  const columns = makeColumns(t);
+
   return (
     <div className="card">
-      <h2>Hunts ({filtered.length}) — every run, latest first. Click a row for party stats and the damage curve.</h2>
+      <h2>{t("hunts.title", { count: filtered.length })}</h2>
       <div className="filters">
-        <label className="hunt-search">Search
-          <input type="search" value={search} placeholder="Hunt #, hunter, monster, date…"
-            aria-label="Search hunts"
+        <label className="hunt-search">{t("hunts.search.label")}
+          <input type="search" value={search} placeholder={t("hunts.search.placeholder")}
+            aria-label={t("hunts.search.aria")}
             onChange={(e) => setSearch(e.target.value)} />
         </label>
         <SearchSelect
-          label="Monster"
+          label={t("table.filter.monster")}
           value={monsterFilter}
           showAll
-          options={monsters.map((m) => ({ value: m, label: m }))}
+          options={monsters.map((m) => ({ value: m, label: monsterName(m, monsterIds.get(m)) }))}
           onChange={setMonsterFilter}
         />
-        <div className="seg" role="group" aria-label="Result filter">
+        <div className="seg" role="group" aria-label={t("hunts.filter.result")}>
           <button type="button" className={resultFilter === "" ? "on" : ""}
             aria-pressed={resultFilter === ""}
-            onClick={() => setResultFilter("")}>All</button>
+            onClick={() => setResultFilter("")}>{t("common.all")}</button>
           <button type="button" className={resultFilter === "cleared" ? "on" : ""}
             aria-pressed={resultFilter === "cleared"}
-            onClick={() => setResultFilter("cleared")}>Cleared</button>
+            onClick={() => setResultFilter("cleared")}>{t("hunts.cleared")}</button>
           <button type="button" className={resultFilter === "failed" ? "on" : ""}
             aria-pressed={resultFilter === "failed"}
-            onClick={() => setResultFilter("failed")}>Failed</button>
+            onClick={() => setResultFilter("failed")}>{t("hunts.failed")}</button>
         </div>
       </div>
       <DataTable

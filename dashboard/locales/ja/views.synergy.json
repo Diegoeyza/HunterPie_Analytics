@@ -1,0 +1,10 @@
+{
+  "synergy.table.pairing": "ペア",
+  "synergy.table.hunts": "ハント数",
+  "synergy.table.clearPct": "クリア率 %",
+  "synergy.table.avgClear": "平均クリア時間",
+  "synergy.table.avgShare": "平均ダメージシェア",
+  "synergy.empty.what": "このフィルタのペアリングデータ",
+  "synergy.empty.hint": "別のフィルタ条件を試してください。",
+  "synergy.title": "同行ハンターのペア ({count}) — 見出しをクリックで並べ替え"
+}

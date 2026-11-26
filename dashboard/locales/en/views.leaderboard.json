@@ -1,0 +1,11 @@
+{
+  "leaderboard.col.player": "Player",
+  "leaderboard.col.hunts": "Hunts",
+  "leaderboard.col.avgDps": "Avg DPS",
+  "leaderboard.col.bestDps": "Best DPS",
+  "leaderboard.filter.minHunts": "Min hunts",
+  "leaderboard.empty.scope": "Try a lower min-hunts gate or a different filter combination.",
+  "leaderboard.empty.none": "Try a lower min-hunts gate or import more hunts.",
+  "leaderboard.empty.what": "hunters match these filters",
+  "leaderboard.heading": "Best players by DPS — click a header to sort ({count})"
+}

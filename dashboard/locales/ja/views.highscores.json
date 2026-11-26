@@ -1,0 +1,20 @@
+{
+  "highscores.col.monster": "モンスター",
+  "highscores.col.clear": "クリアタイム",
+  "highscores.col.date": "日付",
+  "highscores.col.player": "ハンター",
+  "highscores.col.weapon": "武器",
+  "highscores.col.party": "パーティ",
+  "highscores.huntTitle": "ハント #{id}",
+  "highscores.solo": "ソロ",
+  "highscores.filter.top": "上位",
+  "highscores.sort.aria": "ランキングの並べ替え",
+  "highscores.sort.fastest": "クリアが速い順",
+  "highscores.sort.dps": "DPSが高い順",
+  "highscores.empty.scope": "別のフィルタ条件か、そのハンターが参加したハントを試してください。",
+  "highscores.empty.none": "別のフィルタ条件を試すか、ハントを追加でインポートしてください。",
+  "highscores.empty.what": "条件に一致するクリア済みハント",
+  "highscores.heading.dps": "DPS上位 {count} ハント{scoped}（全 {rows} 件）",
+  "highscores.heading.time": "クリアタイム上位 {count} ハント{scoped}（全 {rows} 件）",
+  "highscores.scoped": "・スコープ内"
+}

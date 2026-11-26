@@ -8,28 +8,30 @@ import { AwardMultiSelect, MonsterSelect, StarsSelect, WeaponSelect } from "../F
 import { useFilterOptions } from "../useFilterOptions";
 import EmptyState from "../EmptyState";
 import { fmtAward } from "../../lib/format";
+import { t as tr, useT } from "@/lib/i18n";
+import { awardName } from "@/lib/names";
 import type { Highlights, HighlightLeader, DamageShareRow } from "../../lib/api";
 
-const makeLeaderColumns = (unit: number): ColumnDef<HighlightLeader>[] => [
-  { id: "player", accessorKey: "player", header: "Player" },
+const makeLeaderColumns = (unit: number, t: typeof tr): ColumnDef<HighlightLeader>[] => [
+  { id: "player", accessorKey: "player", header: t("highlights.player") },
   {
-    id: "total", accessorKey: "total", header: "Total", meta: { cls: "num" },
+    id: "total", accessorKey: "total", header: t("highlights.total"), meta: { cls: "num" },
     cell: ({ row }) => fmtAward(row.original.total, unit),
   },
   {
-    id: "best", accessorKey: "best", header: "Best (single hunt)", meta: { cls: "num" },
+    id: "best", accessorKey: "best", header: t("highlights.best"), meta: { cls: "num" },
     cell: ({ row }) => fmtAward(row.original.best, unit),
   },
-  { id: "hunts", accessorKey: "hunts", header: "Hunts", meta: { cls: "num" } },
+  { id: "hunts", accessorKey: "hunts", header: t("highlights.hunts"), meta: { cls: "num" } },
 ];
 
-const shareColumns: ColumnDef<DamageShareRow>[] = [
-  { id: "player", accessorKey: "player", header: "Player" },
+const makeShareColumns = (t: typeof tr): ColumnDef<DamageShareRow>[] => [
+  { id: "player", accessorKey: "player", header: t("highlights.player") },
   {
-    id: "avg_share", accessorKey: "avg_share", header: "Avg damage share",
+    id: "avg_share", accessorKey: "avg_share", header: t("highlights.avgShare"),
     meta: { cls: "num" }, cell: ({ row }) => `${(row.original.avg_share * 100).toFixed(1)}%`,
   },
-  { id: "hunts", accessorKey: "hunts", header: "Hunts", meta: { cls: "num" } },
+  { id: "hunts", accessorKey: "hunts", header: t("highlights.hunts"), meta: { cls: "num" } },
 ];
 
 /** All-highlights leader: best single run, not the lifetime sum. Ties fall
@@ -44,6 +46,7 @@ function topByBest(leaders: HighlightLeader[]): HighlightLeader | null {
 }
 
 export default function HighlightsView({ scope, weaponName, partySize, includeFailed }: { scope: number[]; weaponName: string | null; partySize: number | null; includeFailed: boolean }) {
+  const { t } = useT();
   const opts = useFilterOptions();
   const [monster, setMonster] = useState("");
   const [weapon, setWeapon] = useState("");
@@ -110,8 +113,8 @@ export default function HighlightsView({ scope, weaponName, partySize, includeFa
     return (
       <div className="card">
         {filters}
-        <EmptyState what="hunter highlights for these filters">
-          <p>Awards come from the REFramework mod. HunterPie-fork hunts have no awards.</p>
+        <EmptyState what={t("highlights.empty.what")}>
+          <p>{t("highlights.empty.note")}</p>
         </EmptyState>
       </div>
     );
@@ -121,24 +124,25 @@ export default function HighlightsView({ scope, weaponName, partySize, includeFa
     ?? visibleAwards[0] ?? null;
   // Plain value, not useMemo: it must not be a hook called after the early
   // returns above (that changed the hook order once data loaded).
-  const leaderColumns = makeLeaderColumns(selected?.unit ?? 2);
+  const leaderColumns = makeLeaderColumns(selected?.unit ?? 2, t);
+  const shareColumns = makeShareColumns(t);
 
   return (
     <div className="cards-2">
       <div className="card">
         {filters}
-        <h2>Highlight leaderboard</h2>
+        <h2>{t("highlights.leaderboard")}</h2>
         {awards.length === 0 ? (
-          <p className="blurb">No awards recorded for these filters.</p>
+          <p className="blurb">{t("highlights.noAwards")}</p>
         ) : visibleAwards.length === 0 ? (
-          <p className="blurb">No highlights selected — pick some under “Highlights”.</p>
+          <p className="blurb">{t("highlights.noneSelected")}</p>
         ) : (
           <>
             <div className="filters">
-              <label>Award
+              <label>{t("highlights.award")}
                 <select value={awardId} onChange={(e) => setAwardId(e.target.value)}>
                   {visibleAwards.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
+                    <option key={a.id} value={a.id}>{awardName(a.id, a.name)}</option>
                   ))}
                 </select>
               </label>
@@ -156,9 +160,9 @@ export default function HighlightsView({ scope, weaponName, partySize, includeFa
         )}
       </div>
       <div className="card">
-        <h2>Average damage share</h2>
+        <h2>{t("highlights.shareTitle")}</h2>
         {data.damage_share.length === 0 ? (
-          <p className="blurb">No damage data for these filters.</p>
+          <p className="blurb">{t("highlights.noDamage")}</p>
         ) : (
           <DataTable
             data={data.damage_share}
@@ -167,11 +171,11 @@ export default function HighlightsView({ scope, weaponName, partySize, includeFa
             getRowId={(r) => String(r.player_id)}
           />
         )}
-        <h2 style={{ marginTop: 16 }}>All highlights</h2>
+        <h2 style={{ marginTop: 16 }}>{t("highlights.all")}</h2>
         <div className="table-wrap">
           <table className="grid">
             <thead>
-              <tr><th>Award</th><th>Top hunter</th><th className="num">Best (single hunt)</th></tr>
+              <tr><th>{t("highlights.award")}</th><th>{t("highlights.topHunter")}</th><th className="num">{t("highlights.best")}</th></tr>
             </thead>
             <tbody>
               {visibleAwards.map((a) => {
@@ -179,14 +183,14 @@ export default function HighlightsView({ scope, weaponName, partySize, includeFa
                 return (
                   <tr key={a.id} onClick={() => setAwardId(String(a.id))}
                     style={{ cursor: "pointer" }}>
-                    <td>{a.name}</td>
+                    <td>{awardName(a.id, a.name)}</td>
                     <td>{top?.player ?? "—"}</td>
                     <td className="num">{top ? fmtAward(top.best, a.unit) : "—"}</td>
                   </tr>
                 );
               })}
               {visibleAwards.length === 0 && (
-                <tr><td colSpan={3} className="muted">No highlights selected.</td></tr>
+                <tr><td colSpan={3} className="muted">{t("highlights.tableNone")}</td></tr>
               )}
             </tbody>
           </table>

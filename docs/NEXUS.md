@@ -7,6 +7,13 @@ HunterPie companion live on GitHub Releases — the installer is intentionally
 **not** uploaded here (unsigned, and VirusTotal flagged the bundled .NET app, so
 a mod-only page keeps the Lua mod clean).
 
+## Japanese UI
+
+The dashboard now ships a Japanese interface (standard ja-JP): switch it in
+Settings → Display, or open the app with `?lang=ja`. Monster and skill names use
+the game's own Japanese text. Quest-award names are still English pending a
+native review pass — the review sheet lives in `docs/i18n/japanese-review.md`.
+
 ## Files to upload
 
 - **Main file:** `HuntDumper-<version>.zip` — already laid out as

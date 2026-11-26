@@ -10,6 +10,7 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { useState } from "react";
+import { useT } from "@/lib/i18n";
 
 interface Props<T> {
   data: T[];
@@ -42,6 +43,7 @@ export default function DataTable<T>({
   onRowClick,
   isSelected,
 }: Props<T>) {
+  const { t } = useT();
   const [sorting, setSorting] = useState<SortingState>(initialSort);
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize });
 
@@ -71,7 +73,7 @@ export default function DataTable<T>({
                     key={h.id}
                     className={clsOf(h.column)}
                     onClick={h.column.getToggleSortingHandler()}
-                    title={h.column.getCanSort() ? "click to sort" : undefined}
+                    title={h.column.getCanSort() ? t("table.sort.title") : undefined}
                     aria-sort={
                       h.column.getIsSorted() === "asc"
                         ? "ascending"
@@ -123,20 +125,23 @@ export default function DataTable<T>({
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
           >
-            Prev
+            {t("table.pager.prev")}
           </button>
           <span>
-            Page {table.getState().pagination.pageIndex + 1} of {pageCount} ·{" "}
-            {data.length} rows
+            {t("table.pager.status", {
+              page: table.getState().pagination.pageIndex + 1,
+              pages: pageCount,
+              rows: data.length,
+            })}
           </span>
           <button
             type="button"
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
           >
-            Next
+            {t("table.pager.next")}
           </button>
-          <label>Rows
+          <label>{t("table.pager.rows")}
             <select
               value={table.getState().pagination.pageSize}
               onChange={(e) => table.setPageSize(Number(e.target.value))}
@@ -144,7 +149,7 @@ export default function DataTable<T>({
               {PAGE_OPTIONS.map((n) => (
                 <option key={n} value={n}>{n}</option>
               ))}
-              <option value={data.length}>All</option>
+              <option value={data.length}>{t("common.all")}</option>
             </select>
           </label>
         </div>
