@@ -52,7 +52,8 @@ export default function HuntsManager() {
   }, [confirmId, hunts]);
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
+    // "#1209" works like "1209" here too; the list only stores the number.
+    const needle = q.trim().toLowerCase().replace(/^#/, "");
     if (!needle) return hunts ?? [];
     return (hunts ?? []).filter((h) =>
       String(h.id).includes(needle) ||
