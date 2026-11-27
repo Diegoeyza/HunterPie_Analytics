@@ -86,12 +86,39 @@ def test_prefix_hunterpie_candidates_find_installer_layout(tmp_path):
         parents=True)
     (pfx / "drive_c" / "users" / "steamuser" / "AppData" / "Local"
      / "HunterPie" / "HuntExports").mkdir(parents=True)
+    bundled = (pfx / "drive_c" / "users" / "steamuser" / "AppData" / "Local"
+               / "Programs" / "HunterPie Analytics" / "HunterPie-Fork"
+               / "HuntExports")
+    bundled.mkdir(parents=True)
 
     paths = _prefix_hunterpie_candidates([pfx])
     assert pfx / "drive_c/Program Files/HunterPie/HuntExports" in paths
     assert (pfx / "drive_c/users/steamuser/AppData/Local/HunterPie/HuntExports"
             in paths)
+    # Our own installer's companion, run inside the prefix.
+    assert bundled in paths
     assert _prefix_hunterpie_candidates([tmp_path / "missing"]) == []
+
+
+def test_bundled_fork_paths_cover_source_and_frozen_runs(tmp_path):
+    """A dev/WSL run has no sibling copy, but the installed bundle is found."""
+    from app.import_hunt import _bundled_fork_paths
+
+    local = tmp_path / "Local"
+    app_dir = tmp_path / "app"
+
+    from_source = _bundled_fork_paths(str(local), "nt", False, app_dir)
+    assert from_source == [local / "Programs" / "HunterPie Analytics"
+                           / "HunterPie-Fork" / "HuntExports"]
+
+    frozen = _bundled_fork_paths(str(local), "nt", True, app_dir)
+    assert frozen == [app_dir / "HunterPie-Fork" / "HuntExports",
+                      local / "Programs" / "HunterPie Analytics"
+                      / "HunterPie-Fork" / "HuntExports"]
+
+    assert _bundled_fork_paths(str(local), "posix", False, app_dir) == []
+    assert _bundled_fork_paths(None, "nt", True, app_dir) == [
+        app_dir / "HunterPie-Fork" / "HuntExports"]
 
 
 def test_parse_ts_handles_z_and_7_digits():

@@ -109,8 +109,18 @@ def _linux_hunterpie_candidates(home: Path) -> list[Path]:
     ]
 
 
+#: The companion bundled with the installer (a HunterPie fork) writes next to
+#: its own executable, under the per-user Programs folder.
+_BUNDLED_FORK_GLOB = "users/*/AppData/Local/Programs/HunterPie Analytics/HunterPie-Fork/HuntExports"
+
+
 def _prefix_hunterpie_candidates(prefixes: list[Path]) -> list[Path]:
-    """HuntExports inside Wine/Proton prefixes (installed or portable copy)."""
+    """HuntExports inside Wine/Proton prefixes (installed or portable copy).
+
+    Includes the path our own installer uses (``HunterPie Analytics`` ->
+    ``HunterPie-Fork``): a Linux/Steam Deck player who installed the Windows
+    bundle runs that companion inside the Wilds prefix.
+    """
     out: list[Path] = []
     for pfx in prefixes:
         drive_c = pfx / "drive_c"
@@ -122,7 +132,16 @@ def _prefix_hunterpie_candidates(prefixes: list[Path]) -> list[Path]:
             drive_c / "HunterPie" / "HuntExports",
         ]
         out += sorted(drive_c.glob("users/*/AppData/Local/HunterPie/HuntExports"))
+        out += sorted(drive_c.glob(_BUNDLED_FORK_GLOB))
     return out
+
+
+def _wsl_bundled_fork_candidates() -> list[Path]:
+    """Bundled companion's exports as seen through WSL's ``/mnt/c``."""
+    root = Path("/mnt/c/Users")
+    if not root.is_dir():
+        return []
+    return sorted(root.glob("*/AppData/Local/Programs/HunterPie Analytics/HunterPie-Fork/HuntExports"))
 
 
 def _wine_hunterpie_candidates(home: Path) -> list[Path]:
@@ -150,6 +169,7 @@ def _hunterpie_dir_candidates() -> list[Path]:
             return _dedupe([
                 *_linux_hunterpie_candidates(Path.home()),
                 *_wine_hunterpie_candidates(Path.home()),
+                *_wsl_bundled_fork_candidates(),
                 _WSL_HUNTERPIE,
             ])
         return [_WSL_HUNTERPIE]
@@ -284,11 +304,29 @@ def _configured_export_dirs() -> list[Path]:
 
 
 def _bundled_fork_candidates() -> list[Path]:
-    """The fork we install beside the app writes to <its own dir>\\HuntExports."""
-    if os.name != "nt" or not getattr(sys, "frozen", False):
-        return []
+    """The fork we install beside the app writes to <its own dir>\\HuntExports.
+
+    The frozen app points at the copy next to itself. A source checkout (dev
+    server, WSL) has no such sibling, so it also looks for the installed
+    bundle at ``%LOCALAPPDATA%\\Programs\\HunterPie Analytics\\HunterPie-Fork``.
+    """
     app_dir = Path(sys.executable).resolve().parent
-    return [app_dir / "HunterPie-Fork" / "HuntExports"]
+    paths = _bundled_fork_paths(
+        os.environ.get("LOCALAPPDATA"), os.name,
+        getattr(sys, "frozen", False), app_dir)
+    return [p for p in paths if p.is_dir()]
+
+
+def _bundled_fork_paths(localappdata: str | None, platform_name: str,
+                        frozen: bool, app_dir: Path) -> list[Path]:
+    """Candidate paths, independent of the running platform (unit-testable)."""
+    out: list[Path] = []
+    if frozen:
+        out.append(app_dir / "HunterPie-Fork" / "HuntExports")
+    if platform_name == "nt" and localappdata:
+        out.append(Path(localappdata) / "Programs" / "HunterPie Analytics"
+                   / "HunterPie-Fork" / "HuntExports")
+    return out
 
 
 def _configured_kind_dirs() -> tuple[list[Path], list[Path]]:
