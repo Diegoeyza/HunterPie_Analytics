@@ -111,14 +111,40 @@ def test_bundled_fork_paths_cover_source_and_frozen_runs(tmp_path):
     assert from_source == [local / "Programs" / "HunterPie Analytics"
                            / "HunterPie-Fork" / "HuntExports"]
 
+    # A frozen app knows its own companion; no second (possibly stale) copy.
     frozen = _bundled_fork_paths(str(local), "nt", True, app_dir)
-    assert frozen == [app_dir / "HunterPie-Fork" / "HuntExports",
-                      local / "Programs" / "HunterPie Analytics"
-                      / "HunterPie-Fork" / "HuntExports"]
+    assert frozen == [app_dir / "HunterPie-Fork" / "HuntExports"]
 
     assert _bundled_fork_paths(str(local), "posix", False, app_dir) == []
+    assert _bundled_fork_paths(None, "nt", False, app_dir) == []
     assert _bundled_fork_paths(None, "nt", True, app_dir) == [
         app_dir / "HunterPie-Fork" / "HuntExports"]
+
+
+def test_wsl_bundled_fork_scopes_to_the_linux_user(tmp_path):
+    """Shared PCs: only the matching profile (or a single unambiguous match)."""
+    from app.import_hunt import _wsl_bundled_fork_candidates
+
+    def root(name: str, users: tuple[str, ...]):
+        base = tmp_path / name
+        out = []
+        for user in users:
+            p = (base / user / "AppData/Local/Programs/HunterPie Analytics"
+                 / "HunterPie-Fork/HuntExports")
+            p.mkdir(parents=True)
+            out.append(p)
+        return base, out
+
+    base, (mine,) = root("own", ("diego",))
+    assert _wsl_bundled_fork_candidates(base, "diego") == [mine]
+
+    # No profile for the Linux user, but exactly one other: unambiguous.
+    base, (other,) = root("single", ("someoneelse",))
+    assert _wsl_bundled_fork_candidates(base, "nobody") == [other]
+
+    # Several foreign profiles: do not guess, let the user configure it.
+    base, _ = root("multi", ("a", "b"))
+    assert _wsl_bundled_fork_candidates(base, "nobody") == []
 
 
 def test_parse_ts_handles_z_and_7_digits():

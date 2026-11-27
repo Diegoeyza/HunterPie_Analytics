@@ -136,12 +136,32 @@ def _prefix_hunterpie_candidates(prefixes: list[Path]) -> list[Path]:
     return out
 
 
-def _wsl_bundled_fork_candidates() -> list[Path]:
-    """Bundled companion's exports as seen through WSL's ``/mnt/c``."""
-    root = Path("/mnt/c/Users")
+_BUNDLED_FORK_REL = Path("AppData/Local/Programs/HunterPie Analytics/HunterPie-Fork/HuntExports")
+
+
+def _wsl_bundled_fork_candidates(root: Path | None = None,
+                                 linux_user: str | None = None) -> list[Path]:
+    """Bundled companion's exports as seen through WSL's ``/mnt/c``.
+
+    Scoped to the Windows profile matching the Linux user name. A shared PC
+    can have several profiles with their own companion (and their own hunt
+    history), so more than one match is ambiguous: import nothing and let the
+    user pick the folder in Settings rather than merge someone else's hunts.
+    """
+    root = root or Path("/mnt/c/Users")
     if not root.is_dir():
         return []
-    return sorted(root.glob("*/AppData/Local/Programs/HunterPie Analytics/HunterPie-Fork/HuntExports"))
+    own = root / (linux_user or Path.home().name) / _BUNDLED_FORK_REL
+    if own.is_dir():
+        return [own]
+    matches = sorted(root.glob(f"*/{_BUNDLED_FORK_REL}"))
+    if len(matches) > 1:
+        log.warning(
+            "several Windows profiles have a bundled companion; add the right "
+            "HuntExports folder in Settings: %s",
+            ", ".join(str(m) for m in matches))
+        return []
+    return matches
 
 
 def _wine_hunterpie_candidates(home: Path) -> list[Path]:
@@ -319,14 +339,18 @@ def _bundled_fork_candidates() -> list[Path]:
 
 def _bundled_fork_paths(localappdata: str | None, platform_name: str,
                         frozen: bool, app_dir: Path) -> list[Path]:
-    """Candidate paths, independent of the running platform (unit-testable)."""
-    out: list[Path] = []
+    """Candidate paths, independent of the running platform (unit-testable).
+
+    The frozen app knows exactly where its own companion is; the per-user
+    Programs folder is only a fallback for unpackaged runs, so a custom
+    install path never starts scanning an old default-location copy.
+    """
     if frozen:
-        out.append(app_dir / "HunterPie-Fork" / "HuntExports")
+        return [app_dir / "HunterPie-Fork" / "HuntExports"]
     if platform_name == "nt" and localappdata:
-        out.append(Path(localappdata) / "Programs" / "HunterPie Analytics"
-                   / "HunterPie-Fork" / "HuntExports")
-    return out
+        return [Path(localappdata) / "Programs" / "HunterPie Analytics"
+                / "HunterPie-Fork" / "HuntExports"]
+    return []
 
 
 def _configured_kind_dirs() -> tuple[list[Path], list[Path]]:

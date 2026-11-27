@@ -116,6 +116,19 @@ def main(argv: list[str] | None = None) -> int:
         check("locale survives a reload without ?lang",
               page.evaluate("document.documentElement.lang") == "ja")
 
+        # Buffs: the tab defaults to the newest hunt (which may have no buffs),
+        # so only require that it renders instead of going blank.
+        page.goto(f"{base}/?tab=buffs&lang=ja", wait_until="networkidle")
+        page.wait_for_timeout(1600)
+        dismiss_overlays(page)
+        buffs_text = page.locator("main").inner_text()
+        buffs_rows = page.locator("main table tbody tr").count()
+        check("buffs tab renders (rows, or a hunt picked without buffs)",
+              buffs_rows > 0 or len(buffs_text.strip()) > 60, f"{buffs_rows} rows")
+
+        page.goto(f"{base}/?tab=hunts&lang=ja", wait_until="networkidle")
+        page.wait_for_timeout(1200)
+        dismiss_overlays(page)
         row = page.locator("main table tbody tr").first
         if row.count() > 0:
             row.click()
