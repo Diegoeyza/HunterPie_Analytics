@@ -62,14 +62,20 @@ the legacy $19 fee is waived. You must start at this exact entry point:
 2. Add the user-facing note to `dashboard/lib/changelog.ts`. The app opens a
    one-time "What's new" popup for the running version (Settings → Data also
    re-opens it); the note ships inside the build, so it works offline and with
-   the update check off. Keep it to a few plain sentences, and still write real
-   notes on the GitHub release (CI's `generate_release_notes` only lists
-   commit subjects).
-3. Commit, then tag and push:
+   the update check off. Keep it to a few plain sentences.
+   Write the full release body to `docs/releases/v<version>.md` (what changed,
+   the "Which file do I need?" table, the unsigned-binary note). CI's
+   `generate_release_notes` only lists commit subjects, so after the pipeline
+   creates the release, apply the real body:
 
    ```sh
-   git tag v1.0.0
-   git push origin v1.0.0
+   gh release edit v1.3.0 --notes-file docs/releases/v1.3.0.md
+   ```
+3. Commit, then tag and push (the tag must point at the commit on `main`):
+
+   ```sh
+   git tag -a v1.3.0 -m "HunterPie Analytics 1.3.0"
+   git push origin main v1.3.0
    ```
 
 4. CI builds and attaches to the Release:
